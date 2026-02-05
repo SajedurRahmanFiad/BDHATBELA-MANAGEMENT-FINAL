@@ -1,0 +1,169 @@
+
+export enum UserRole {
+  ADMIN = 'Admin',
+  EMPLOYEE = 'Employee'
+}
+
+export enum OrderStatus {
+  ON_HOLD = 'On Hold',
+  PROCESSING = 'Processing',
+  PICKED = 'Picked',
+  COMPLETED = 'Completed',
+  CANCELLED = 'Cancelled'
+}
+
+export enum BillStatus {
+  ON_HOLD = 'On Hold',
+  PROCESSING = 'Processing',
+  RECEIVED = 'Received'
+}
+
+export interface User {
+  id: string;
+  name: string;
+  phone: string;
+  role: UserRole;
+  image?: string;
+  password?: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  totalOrders: number;
+  dueAmount: number;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  totalPurchases: number;
+  dueAmount: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  image: string;
+  category: string;
+  salePrice: number;
+  purchasePrice: number;
+}
+
+export interface OrderItem {
+  productId: string;
+  productName: string;
+  rate: number;
+  quantity: number;
+  amount: number;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  orderDate: string;
+  customerId: string;
+  createdBy: string;
+  status: OrderStatus;
+  items: OrderItem[];
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  total: number;
+  notes?: string;
+  history: {
+    created: string;
+    processing?: string;
+    picked?: string;
+    completed?: string;
+    payment?: string;
+  };
+  paidAmount: number;
+}
+
+export interface Bill {
+  id: string;
+  billNumber: string;
+  billDate: string;
+  vendorId: string;
+  createdBy: string;
+  status: BillStatus;
+  items: OrderItem[];
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  total: number;
+  notes?: string;
+  paidAmount: number;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  type: 'Bank' | 'Cash';
+  openingBalance: number;
+  currentBalance: number;
+}
+
+export interface Transaction {
+  id: string;
+  date: string;
+  type: 'Income' | 'Expense' | 'Transfer';
+  category: string;
+  accountId: string; // Used for Income/Expense or Source in Transfer
+  toAccountId?: string; // Used for Transfer
+  amount: number;
+  description: string;
+  referenceId?: string; // Order, Bill or custom Ref
+  contactId?: string; // Customer or Vendor ID
+  paymentMethod: string;
+  attachmentName?: string;
+  attachmentUrl?: string;
+}
+
+export interface Settings {
+  company: {
+    name: string;
+    logo: string;
+    phone: string;
+    email: string;
+    address: string;
+  };
+  order: {
+    prefix: string;
+    nextNumber: number;
+  };
+  invoice: {
+    title: string;
+    logoWidth: number;
+    logoHeight: number;
+    footer: string;
+  };
+  defaults: {
+    accountId: string;
+    paymentMethod: string;
+    incomeCategoryId: string;
+    expenseCategoryId: string;
+    recordsPerPage: number;
+  };
+  categories: {
+    id: string;
+    name: string;
+    type: 'Income' | 'Expense' | 'Product' | 'Other';
+    color: string;
+    parentId?: string;
+  }[];
+  paymentMethods: {
+    id: string;
+    name: string;
+    description: string;
+  }[];
+  courier: {
+    steadfast: { baseUrl: string; apiKey: string; secretKey: string };
+    carryBee: { baseUrl: string; clientId: string; clientSecret: string; clientContext: string; storeId: string };
+  };
+}

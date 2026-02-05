@@ -1,0 +1,112 @@
+import React from 'react';
+import { theme } from '../theme';
+
+interface CardProps {
+  children: React.ReactNode;
+  className?: string;
+  elevated?: boolean;
+  hover?: boolean;
+}
+
+export const Card: React.FC<CardProps> = ({ children, className = '', elevated = false, hover = false }) => {
+  const baseStyle = elevated ? theme.card.elevated : theme.card.base;
+  const hoverStyle = hover ? theme.card.hoverScale : '';
+
+  return (
+    <div className={`${baseStyle} ${hoverStyle} ${className}`}>
+      {children}
+    </div>
+  );
+};
+
+type StatCardVariant = 'primary' | 'secondary' | 'danger' | 'warning' | 'success' | 'info' | 'neutral' | 'profit';
+
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  variant?: StatCardVariant;
+  bgColor?: string;
+  textColor?: string;
+  iconBgColor?: string;
+  isProfitCard?: boolean;
+  profitValue?: number;
+}
+
+const statCardVariants: Record<StatCardVariant, { bg: string; text: string; icon: string }> = {
+  primary: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  secondary: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  danger: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  warning: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  success: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  info: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  neutral: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+  profit: {
+    bg: 'bg-gray-50',
+    text: 'text-black',
+    icon: 'text-black',
+  },
+};
+
+export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant = 'primary', bgColor, textColor: textColorProp, iconBgColor: iconBgColorProp, isProfitCard = false, profitValue }) => {
+  const style = statCardVariants[variant];
+  
+  // Use provided colors or determine from profit card logic
+  let cardBgColor = bgColor || 'bg-white';
+  let textColor = textColorProp || style.text;
+  let iconBgColor = iconBgColorProp || style.bg;
+  let borderStyle = '';
+  
+  // Override with profit card colors if applicable and no custom colors provided
+  if (isProfitCard && profitValue !== undefined && !bgColor) {
+    if (profitValue >= 0) {
+      cardBgColor = 'bg-emerald-500';
+      textColor = 'text-white';
+      iconBgColor = 'bg-emerald-600';
+    } else {
+      cardBgColor = 'bg-red-500';
+      textColor = 'text-white';
+      iconBgColor = 'bg-red-600';
+    }
+  }
+  
+  return (
+    <div className={`p-6 flex items-center gap-4 ${cardBgColor} rounded-xl shadow-lg border border-gray-100 ${borderStyle}`}>
+      <div className={`${iconBgColor} p-4 rounded-lg flex items-center justify-center`}>
+        <div className={textColor}>{icon}</div>
+      </div>
+      <div className="flex-1">
+        <p className={`text-xs font-bold uppercase tracking-widest ${textColor === 'text-white' ? 'text-white/70' : 'text-gray-400'}`}>{title}</p>
+        <h3 className={`text-2xl font-black mt-1 ${textColor}`}>{value}</h3>
+      </div>
+    </div>
+  );
+};

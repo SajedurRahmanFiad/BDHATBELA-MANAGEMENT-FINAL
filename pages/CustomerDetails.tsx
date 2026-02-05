@@ -2,13 +2,27 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, saveDb } from '../db';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
+import { theme } from '../theme';
+import { Button } from '../components';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const user = db.currentUser;
   const customer = db.customers.find(c => c.id === id);
+
+  // Restrict employees from viewing customer details
+  if (user.role === UserRole.EMPLOYEE) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
+        <p className="text-gray-500 mb-6">Employees cannot view customer details. Contact an administrator for assistance.</p>
+        <Button onClick={() => navigate('/customers')} variant="primary">Back to Customers</Button>
+      </div>
+    );
+  }
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   if (!customer) return <div className="p-8 text-center text-gray-500">Customer not found.</div>;
@@ -18,9 +32,9 @@ const CustomerDetails: React.FC = () => {
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case OrderStatus.ON_HOLD: return 'bg-gray-100 text-gray-600';
-      case OrderStatus.PROCESSING: return 'bg-blue-100 text-blue-600';
+      case OrderStatus.PROCESSING: return 'bg-[#e6f0ff] ${theme.colors.secondary[600]}';
       case OrderStatus.PICKED: return 'bg-purple-100 text-purple-600';
-      case OrderStatus.COMPLETED: return 'bg-emerald-100 text-emerald-600';
+      case OrderStatus.COMPLETED: return 'bg-green-100 ${theme.colors.primary[600]}';
       case OrderStatus.CANCELLED: return 'bg-red-100 text-red-600';
       default: return 'bg-gray-100 text-gray-600';
     }
@@ -54,7 +68,6 @@ const CustomerDetails: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
-          <button className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-md">Statement</button>
         </div>
       </div>
 
@@ -62,7 +75,7 @@ const CustomerDetails: React.FC = () => {
         {/* Left Profile Info */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <div className="w-24 h-24 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-4xl mx-auto mb-4 border-2 border-emerald-100">
+            <div className="w-24 h-24 rounded-full bg-[#ebf4ff] ${theme.colors.primary[600]} flex items-center justify-center font-black text-4xl mx-auto mb-4 border-2 border-[#c7dff5]">
               {customer.name.charAt(0)}
             </div>
             <h3 className="text-xl font-bold text-gray-900">{customer.name}</h3>
@@ -74,18 +87,15 @@ const CustomerDetails: React.FC = () => {
                 <p className="text-sm text-gray-700 font-medium leading-relaxed">{customer.address}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Business</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Revenue</p>
                 <p className="text-lg font-black text-gray-900">{formatCurrency(customerOrders.reduce((s, o) => s + o.total, 0))}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-emerald-600 p-6 rounded-2xl shadow-lg shadow-emerald-200/50 text-white">
-            <p className="text-emerald-100 text-xs font-bold uppercase tracking-wider mb-1">Due Amount</p>
-            <h4 className="text-3xl font-black">{formatCurrency(customer.dueAmount)}</h4>
-            <button className="w-full mt-6 py-2 bg-white/20 hover:bg-white/30 rounded-xl font-bold text-sm transition-all">
-              Record Payment
-            </button>
+          <div className={`p-6 rounded-2xl shadow-lg shadow-[#0f2f57]/20/50 border border-gray-100 text-white`}>
+            <p className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Due Amount</p>
+            <h4 className="text-lg font-black text-gray-900">{formatCurrency(customer.dueAmount)}</h4>
           </div>
         </div>
 
@@ -118,7 +128,7 @@ const CustomerDetails: React.FC = () => {
                         onMouseEnter={() => setHoveredRow(order.id)}
                         onMouseLeave={() => setHoveredRow(null)}
                         onClick={() => navigate(`/orders/${order.id}`)}
-                        className="group relative hover:bg-emerald-50/30 cursor-pointer transition-colors"
+                        className="group relative hover:bg-[#ebf4ff]/30 cursor-pointer transition-colors"
                       >
                         <td className="px-6 py-4">
                           <span className="font-bold text-gray-900">#{order.orderNumber}</span>
@@ -135,11 +145,11 @@ const CustomerDetails: React.FC = () => {
 
                         {hoveredRow === order.id && (
                           <td className="absolute inset-y-0 right-0 flex items-center pr-6 bg-gradient-to-l from-emerald-50 via-emerald-50 to-transparent">
-                            <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-emerald-100 animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
-                              <button title="Edit" onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors">
+                            <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-[#c7dff5] animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
+                              <button title="Edit" onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2 text-gray-500 hover:${theme.colors.primary[600]} hover:bg-[#ebf4ff] rounded-md transition-colors">
                                 {ICONS.Edit}
                               </button>
-                              <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors">
+                              <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:${theme.colors.primary[600]} hover:bg-[#ebf4ff] rounded-md transition-colors">
                                 {ICONS.Duplicate}
                               </button>
                             </div>
@@ -159,3 +169,7 @@ const CustomerDetails: React.FC = () => {
 };
 
 export default CustomerDetails;
+
+
+
+

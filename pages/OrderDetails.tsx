@@ -4,6 +4,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db, saveDb } from '../db';
 import { OrderStatus, Order, UserRole, Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
@@ -102,8 +104,8 @@ const OrderDetails: React.FC = () => {
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Order Details</h2>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
-            order.status === OrderStatus.COMPLETED ? 'bg-emerald-100 text-emerald-600' : 
-            order.status === OrderStatus.CANCELLED ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+            order.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-600' : 
+            order.status === OrderStatus.CANCELLED ? 'bg-red-100 text-red-600' : `bg-[#e6f0ff] ${theme.colors.secondary[600]}`
           }`}>
             {order.status}
           </span>
@@ -116,7 +118,7 @@ const OrderDetails: React.FC = () => {
           <div className="relative">
             <button 
               onClick={() => setIsActionOpen(!isActionOpen)}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-md"
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
             >
               {ICONS.More} Actions
             </button>
@@ -137,13 +139,17 @@ const OrderDetails: React.FC = () => {
                     {ICONS.Duplicate} Duplicate Order
                   </button>
                   {order.paidAmount < order.total && (
-                    <button onClick={openPayment} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-emerald-600">
+                    <Button onClick={openPayment} variant="outline" className="w-full text-left justify-start">
                       {ICONS.Banking} Add Payment
-                    </button>
+                    </Button>
                   )}
                   <div className="border-t my-1"></div>
-                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 text-blue-600 font-bold">Add to Steadfast</button>
-                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 text-orange-600 font-bold">Add to CarryBee</button>
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+                    {ICONS.Plus} Add to Steadfast
+                  </button>
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+                    {ICONS.Plus} Add to CarryBee
+                  </button>
                   <div className="border-t my-1"></div>
                   <button onClick={() => updateStatus(OrderStatus.CANCELLED)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 text-red-500 font-bold">
                     {ICONS.Delete} Cancel Order
@@ -157,51 +163,49 @@ const OrderDetails: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* On-Screen Invoice Format */}
-        <div className="lg:col-span-2 bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden">
           <div className="p-10 space-y-10">
             <div className="flex justify-between items-start">
               <div>
                 <img 
                   src={db.settings.company.logo} 
-                  className="rounded-2xl object-cover mb-4 shadow-sm border border-gray-100" 
+                  className="rounded-lg object-cover mb-4 shadow-sm border border-gray-100" 
                   style={{ width: db.settings.invoice.logoWidth, height: db.settings.invoice.logoHeight }}
                 />
-                <h1 className="text-2xl font-black text-emerald-600 uppercase tracking-tighter">{db.settings.company.name}</h1>
+                <h1 className="text-2xl font-black ${theme.colors.primary[600]} uppercase tracking-tighter">{db.settings.company.name}</h1>
                 <div className="mt-2 text-xs text-gray-400 font-medium space-y-1">
                   <p>{db.settings.company.address}</p>
                   <p>{db.settings.company.phone} • {db.settings.company.email}</p>
                 </div>
               </div>
               <div className="text-right">
-                <h2 className="text-5xl font-black text-gray-100 uppercase leading-none mb-4">{db.settings.invoice.title}</h2>
+                <h2 className="text-5xl font-black text-gray-300 uppercase leading-none mb-4">{db.settings.invoice.title}</h2>
                 <div className="space-y-1.5">
-                  <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">No:</span> #{order.orderNumber}</p>
-                  <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">Date:</span> {order.orderDate}</p>
+                  <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">Order No:&nbsp;&nbsp;</span> {order.orderNumber}</p>
+                  <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">Date:&nbsp;&nbsp;</span> {order.orderDate}</p>
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-12 border-y border-gray-100 py-8">
               <div>
-                <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-4">Invoiced To</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Invoiced To</p>
                 <h3 className="text-lg font-black text-gray-900">{customer?.name}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed">{customer?.address}</p>
-                <p className="text-sm font-bold text-emerald-600 mt-2">{customer?.phone}</p>
+                <p className="text-sm font-bold ${theme.colors.primary[600]} mt-2">{customer?.phone}</p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-4">Shipment Status</p>
-                <p className="text-xl font-black text-emerald-600 uppercase">{order.status}</p>
-                <p className="text-xs text-gray-400 mt-1 italic">{order.status === OrderStatus.COMPLETED ? 'Order successfully fulfilled.' : 'Awaiting fulfillment steps.'}</p>
+                
               </div>
             </div>
 
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b-2 border-gray-100">
-                  <th className="py-4 text-[10px] font-black text-gray-300 uppercase tracking-widest">Item Description</th>
-                  <th className="py-4 text-center text-[10px] font-black text-gray-300 uppercase tracking-widest">Rate</th>
-                  <th className="py-4 text-center text-[10px] font-black text-gray-300 uppercase tracking-widest">Qty</th>
-                  <th className="py-4 text-right text-[10px] font-black text-gray-300 uppercase tracking-widest">Total</th>
+                  <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Item Description</th>
+                  <th className="py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Rate</th>
+                  <th className="py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Qty</th>
+                  <th className="py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -238,14 +242,14 @@ const OrderDetails: React.FC = () => {
                   <span className="text-gray-400 font-bold uppercase">Shipping</span>
                   <span className="font-bold text-gray-900">{formatCurrency(order.shipping)}</span>
                 </div>
-                <div className="flex justify-between items-center py-6 border-t-4 border-emerald-600">
+                <div className="flex justify-between items-center py-6 border-t-4 border-[#0f2f57]">
                   <span className="text-lg font-black text-gray-900 uppercase tracking-tighter">Net Total</span>
-                  <span className="text-3xl font-black text-emerald-600">{formatCurrency(order.total)}</span>
+                  <span className="text-3xl font-black ${theme.colors.primary[600]}">{formatCurrency(order.total)}</span>
                 </div>
                 {order.paidAmount > 0 && (
-                  <div className="flex justify-between text-sm bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                    <span className="text-emerald-700 font-bold uppercase">Paid Amount</span>
-                    <span className="font-black text-emerald-700">{formatCurrency(order.paidAmount)}</span>
+                  <div className="flex justify-between text-sm bg-[#ebf4ff] p-3 rounded-xl border border-[#c7dff5]">
+                    <span className="${theme.colors.primary[700]} font-bold uppercase">Paid Amount</span>
+                    <span className="font-black ${theme.colors.primary[700]}">{formatCurrency(order.paidAmount)}</span>
                   </div>
                 )}
               </div>
@@ -268,7 +272,7 @@ const OrderDetails: React.FC = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">1. Creation</h3>
-              <div className="p-1 bg-emerald-500 text-white rounded-full">{ICONS.Plus}</div>
+              <div className="p-1 bg-[#ebf4ff]0 text-white rounded-full">{ICONS.Plus}</div>
             </div>
             <div className="p-5">
               <p className="text-xs text-gray-500 leading-relaxed font-medium">
@@ -281,13 +285,13 @@ const OrderDetails: React.FC = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
-              <div className={`p-1 rounded-full ${order.history.processing ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+              <div className={`p-1 rounded-full ${order.history.processing ? 'bg-[#ebf4ff]0 text-white' : 'bg-gray-200 text-gray-400'}`}>
                 {ICONS.ChevronRight}
               </div>
             </div>
             <div className="p-5 space-y-4">
               {order.history.processing ? (
-                <p className="text-xs text-emerald-600 leading-relaxed font-bold bg-emerald-50 p-3 rounded-xl">
+                <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
                   {order.history.processing}
                 </p>
               ) : (
@@ -295,13 +299,13 @@ const OrderDetails: React.FC = () => {
                   <button 
                     disabled={order.status !== OrderStatus.ON_HOLD}
                     onClick={markProcessing}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
+                    className={`w-full py-3 ${theme.colors.secondary[600]} hover:${theme.colors.secondary[700]} disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                   >
                     Mark as Processing
                   </button>
                   <div className="flex gap-2">
-                    <button className="flex-1 py-2 bg-gray-50 hover:bg-blue-50 text-blue-600 border border-gray-200 rounded-lg text-[10px] font-black uppercase">Steadfast</button>
-                    <button className="flex-1 py-2 bg-gray-50 hover:bg-orange-50 text-orange-600 border border-gray-200 rounded-lg text-[10px] font-black uppercase">CarryBee</button>
+                    <Button variant="primary" size="sm" className="flex-1">Steadfast</Button>
+                    <Button variant="primary" size="sm" className="flex-1">CarryBee</Button>
                   </div>
                 </>
               )}
@@ -312,7 +316,7 @@ const OrderDetails: React.FC = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">3. Courier Picked</h3>
-              <div className={`p-1 rounded-full ${order.history.picked ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+              <div className={`p-1 rounded-full ${order.history.picked ? 'bg-[#ebf4ff]0 text-white' : 'bg-gray-200 text-gray-400'}`}>
                 {ICONS.Courier}
               </div>
             </div>
@@ -337,29 +341,29 @@ const OrderDetails: React.FC = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">4. Payment</h3>
-              <div className={`p-1 rounded-full ${order.paidAmount >= order.total ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+              <div className={`p-1 rounded-full ${order.paidAmount >= order.total ? 'bg-[#ebf4ff]0 text-white' : 'bg-gray-200 text-gray-400'}`}>
                 {ICONS.Banking}
               </div>
             </div>
             <div className="p-5 space-y-3">
               {order.history.payment ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-emerald-600 leading-relaxed font-bold bg-emerald-50 p-3 rounded-xl">
+                  <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
                     {order.history.payment}
                   </p>
                   {order.paidAmount < order.total && (
-                     <button onClick={openPayment} className="w-full py-2 border-2 border-emerald-600 text-emerald-600 font-bold rounded-xl text-xs">Add Balance Payment</button>
+                     <Button onClick={openPayment} variant="primary" size="sm" className="w-full">Add Balance Payment</Button>
                   )}
                 </div>
               ) : (
                 <div className="space-y-4 text-center">
-                  <div className="p-4 bg-gray-50 rounded-2xl">
+                  <div className="p-4 bg-gray-50 rounded-lg">
                     <p className="text-[10px] font-black text-gray-400 uppercase">Amount Due</p>
                     <p className="text-2xl font-black text-gray-900">{formatCurrency(order.total - order.paidAmount)}</p>
                   </div>
                   <button 
                     onClick={openPayment}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
+                    className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                   >
                     Add Payment
                   </button>
@@ -374,7 +378,7 @@ const OrderDetails: React.FC = () => {
       {showPaymentModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPaymentModal(false)}></div>
-          <div className="bg-white w-full max-w-md rounded-3xl p-8 z-[130] animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-md rounded-xl p-8 z-[130] animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-bold text-gray-900 mb-6">Order Payment</h3>
             <div className="space-y-4">
               <div className="space-y-1">
@@ -389,11 +393,11 @@ const OrderDetails: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Amount to Pay</label>
-                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className="w-full px-4 py-3 bg-gray-50 border rounded-xl font-bold text-emerald-600" />
+                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className="w-full px-4 py-3 bg-gray-50 border rounded-xl font-bold ${theme.colors.primary[600]}" />
               </div>
               <div className="pt-4 flex gap-3">
-                <button onClick={() => setShowPaymentModal(false)} className="flex-1 py-3 text-gray-500 font-bold hover:bg-gray-100 rounded-xl">Cancel</button>
-                <button onClick={handleLifecyclePayment} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg">Save Payment</button>
+                <Button onClick={() => setShowPaymentModal(false)} variant="ghost" className="flex-1">Cancel</Button>
+                <Button onClick={handleLifecyclePayment} variant="primary" size="md" className="flex-1">Save Payment</Button>
               </div>
             </div>
           </div>
@@ -404,3 +408,4 @@ const OrderDetails: React.FC = () => {
 };
 
 export default OrderDetails;
+

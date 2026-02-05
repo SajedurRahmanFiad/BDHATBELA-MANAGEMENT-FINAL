@@ -21,7 +21,8 @@ import {
   Trash2,
   Plus,
   ArrowRightLeft,
-  Briefcase
+  Briefcase,
+  Minus
 } from 'lucide-react';
 
 // Fixed missing properties on ICONS object by adding 'Users' and 'Briefcase' keys
@@ -38,6 +39,7 @@ export const ICONS = {
   Settings: <Settings size={20} />,
   Courier: <Truck size={20} />,
   Plus: <Plus size={20} />,
+  Minus: <Minus size={20} />,
   PlusCircle: <PlusCircle size={20} />,
   LogOut: <LogOut size={20} />,
   ChevronRight: <ChevronRight size={20} />,

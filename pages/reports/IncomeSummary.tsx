@@ -3,7 +3,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
+import { Button } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { theme } from '../../theme';
 
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
@@ -30,14 +32,14 @@ const IncomeSummary: React.FC = () => {
           <button className="flex items-center gap-2 px-4 py-2 bg-white border rounded-xl font-bold text-sm text-gray-700 hover:bg-gray-50">
             {ICONS.Download} Export CSV
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md">
-            {ICONS.Print} Export Image
-          </button>
+          <Button variant="primary" size="sm" icon={ICONS.Print}>
+            Export Image
+          </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center">
+        <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm flex flex-col items-center">
           <h3 className="font-bold text-gray-800 self-start mb-6">Revenue Mix</h3>
           <div className="w-full h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -63,8 +65,8 @@ const IncomeSummary: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-emerald-600 p-8 rounded-2xl text-white shadow-lg shadow-emerald-100">
-            <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Total Revenue Collected</p>
+          <div className={`${theme.colors.primary[600]} p-8 rounded-lg text-white shadow-lg shadow-[#0f2f57]/20`}>
+            <p className="text-[#c7dff5] text-xs font-bold uppercase tracking-widest mb-1">Total Revenue Collected</p>
             <h4 className="text-4xl font-black">{formatCurrency(income.reduce((s, e) => s + e.amount, 0))}</h4>
             <div className="mt-6 p-4 bg-white/10 rounded-xl flex items-center justify-between">
               <span className="text-sm font-medium">Avg Transaction Size</span>
@@ -72,7 +74,7 @@ const IncomeSummary: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
             <h3 className="font-bold text-gray-800 mb-4">Top Customers</h3>
             <div className="space-y-4">
               {db.customers.slice(0, 3).map((c, i) => (
@@ -81,7 +83,7 @@ const IncomeSummary: React.FC = () => {
                     <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
                     <span className="text-sm font-semibold text-gray-700">{c.name}</span>
                   </div>
-                  <span className="text-sm font-black text-emerald-600">{formatCurrency(c.totalOrders * 1200)}</span> {/* Mock calc */}
+                  <span className={`text-sm font-black ${theme.colors.primary[600]}`}>{formatCurrency(c.totalOrders * 1200)}</span> {/* Mock calc */}
                 </div>
               ))}
             </div>

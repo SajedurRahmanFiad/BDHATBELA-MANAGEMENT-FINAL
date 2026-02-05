@@ -5,6 +5,8 @@ import { db, saveDb } from '../db';
 import { Transaction } from '../types';
 // Fixed: Added formatCurrency to the imports from constants to resolve "Cannot find name 'formatCurrency'" errors on lines 76 and 82.
 import { ICONS, formatCurrency } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const Transfer: React.FC = () => {
   const navigate = useNavigate();
@@ -67,19 +69,19 @@ const Transfer: React.FC = () => {
       <div className="bg-white p-8 lg:p-12 rounded-[2.5rem] border border-gray-100 shadow-xl space-y-8">
         <div className="space-y-2">
           <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount to Transfer (BDT)</label>
-          <input type="number" className="w-full text-4xl font-black px-6 py-4 bg-emerald-50 border-2 border-transparent focus:border-emerald-500 rounded-3xl transition-all outline-none text-emerald-600" value={form.amount} onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})} placeholder="0.00" />
+          <input type="number" className={`w-full text-4xl font-black px-6 py-4 bg-[#ebf4ff] border-2 border-transparent focus:border-[#3c5a82] rounded-xl transition-all outline-none ${theme.colors.primary[600]}`} value={form.amount} onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})} placeholder="0.00" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">From Account (Source)</label>
-            <select className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-emerald-500 focus:bg-white rounded-3xl font-bold" value={form.fromAccountId} onChange={e => setForm({...form, fromAccountId: e.target.value})}>
+            <select className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg font-bold`} value={form.fromAccountId} onChange={e => setForm({...form, fromAccountId: e.target.value})}>
               {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({formatCurrency(acc.currentBalance)})</option>)}
             </select>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">To Account (Destination)</label>
-            <select className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-emerald-500 focus:bg-white rounded-3xl font-bold" value={form.toAccountId} onChange={e => setForm({...form, toAccountId: e.target.value})}>
+            <select className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg font-bold`} value={form.toAccountId} onChange={e => setForm({...form, toAccountId: e.target.value})}>
               {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({formatCurrency(acc.currentBalance)})</option>)}
             </select>
           </div>
@@ -87,15 +89,15 @@ const Transfer: React.FC = () => {
 
         <div className="space-y-2">
           <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Transfer Date</label>
-          <input type="date" className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-emerald-500 focus:bg-white rounded-3xl text-lg font-bold" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+          <input type="date" className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold`} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
         </div>
 
         <div className="space-y-2">
           <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Memo / Description</label>
-          <textarea className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-emerald-500 focus:bg-white rounded-3xl font-medium h-32 outline-none" placeholder="Reason for transfer..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+          <textarea className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg font-medium h-32 outline-none`} placeholder="Reason for transfer..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
         </div>
 
-        <button onClick={handleSave} className="w-full py-6 bg-emerald-600 text-white rounded-3xl font-black text-xl shadow-2xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all">Execute Transfer</button>
+        <Button onClick={handleSave} variant="primary" size="lg" className="w-full">Execute Transfer</Button>
       </div>
     </div>
   );

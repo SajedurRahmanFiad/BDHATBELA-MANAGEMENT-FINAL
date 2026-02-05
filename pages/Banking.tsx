@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { db, saveDb } from '../db';
 import { Account } from '../types';
 import { formatCurrency, ICONS } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const Banking: React.FC = () => {
   const [accounts, setAccounts] = useState<Account[]>(db.accounts);
@@ -39,28 +41,29 @@ const Banking: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Banking & Accounts</h2>
           <p className="text-gray-500 text-sm">Monitor balances and manage cash flow across all accounts</p>
         </div>
-        <button 
+        <Button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-emerald-700 transition-all shadow-lg"
+          variant="primary"
+          size="md"
+          icon={ICONS.Plus}
         >
-          {ICONS.Plus}
           Add Account
-        </button>
+        </Button>
       </div>
 
       {/* Summary Card */}
-      <div className="bg-emerald-600 rounded-3xl p-8 text-white shadow-xl shadow-emerald-200/50 relative overflow-hidden">
+      <div className={`${theme.colors.primary[600]} rounded-xl p-8 text-white shadow-xl shadow-[#0f2f57]/20 relative overflow-hidden`}>
         <div className="relative z-10">
-          <p className="text-emerald-100 font-medium text-sm mb-1 uppercase tracking-wider">Total Combined Balance</p>
+          <p className="text-[#c7dff5] font-medium text-sm mb-1 uppercase tracking-wider">Total Combined Balance</p>
           <h1 className="text-4xl font-black">{formatCurrency(totalBalance)}</h1>
           <div className="mt-8 flex gap-6">
             <div>
-              <p className="text-emerald-200 text-xs font-bold uppercase">Bank Accounts</p>
+              <p className="text-[#a8c5e8] text-xs font-bold uppercase">Bank Accounts</p>
               <p className="text-xl font-bold">{accounts.filter(a => a.type === 'Bank').length}</p>
             </div>
-            <div className="w-px bg-emerald-500/50 h-10"></div>
+            <div className="w-px bg-[#0f2f57]/50 h-10"></div>
             <div>
-              <p className="text-emerald-200 text-xs font-bold uppercase">Cash Accounts</p>
+              <p className="text-[#a8c5e8] text-xs font-bold uppercase">Cash Accounts</p>
               <p className="text-xl font-bold">{accounts.filter(a => a.type === 'Cash').length}</p>
             </div>
           </div>
@@ -74,7 +77,7 @@ const Banking: React.FC = () => {
         {accounts.map((acc) => (
           <div key={acc.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
             <div className="flex justify-between items-start mb-4">
-              <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+              <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? `bg-[#e6f0ff] ${theme.colors.secondary[600]}` : 'bg-orange-50 text-orange-600'}`}>
                 {acc.type === 'Bank' ? ICONS.Banking : ICONS.Banking}
               </div>
               <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -90,7 +93,7 @@ const Banking: React.FC = () => {
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-sm font-bold text-gray-900">Current Balance</span>
-                <span className="text-xl font-black text-emerald-600">{formatCurrency(acc.currentBalance)}</span>
+                <span className={`text-xl font-black ${theme.colors.primary[600]}`}>{formatCurrency(acc.currentBalance)}</span>
               </div>
             </div>
           </div>
@@ -139,18 +142,20 @@ const Banking: React.FC = () => {
               </div>
             </div>
             <div className="p-6 bg-gray-50 rounded-b-2xl flex gap-3">
-              <button 
+              <Button 
                 onClick={() => setShowAddModal(false)}
-                className="flex-1 py-2.5 font-bold text-gray-500 hover:text-gray-700"
+                variant="ghost"
               >
                 Cancel
-              </button>
-              <button 
+              </Button>
+              <Button 
                 onClick={handleAddAccount}
-                className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold shadow-lg hover:bg-emerald-700"
+                variant="primary"
+                size="md"
+                className="flex-1"
               >
                 Create Account
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -160,3 +165,4 @@ const Banking: React.FC = () => {
 };
 
 export default Banking;
+

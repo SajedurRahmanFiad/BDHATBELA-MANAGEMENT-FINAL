@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { ICONS } from '../constants';
+import { theme } from '../theme';
 
 export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
 
@@ -40,7 +41,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
                 onClick={() => setFilterRange(range)}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                   filterRange === range 
-                    ? 'bg-emerald-600 text-white shadow-md' 
+                    ? `${theme.colors.primary[600]} text-white shadow-md` 
                     : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
@@ -53,14 +54,14 @@ const FilterBar: React.FC<FilterBarProps> = ({
                   type="date" 
                   value={customDates.from} 
                   onChange={e => setCustomDates({ ...customDates, from: e.target.value })}
-                  className="px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-emerald-500" 
+                  className={`px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]`} 
                 />
                 <span className="text-gray-300 text-[10px] font-black tracking-widest uppercase">To</span>
                 <input 
                   type="date" 
                   value={customDates.to} 
                   onChange={e => setCustomDates({ ...customDates, to: e.target.value })}
-                  className="px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-emerald-500" 
+                  className={`px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]`} 
                 />
               </div>
             )}
@@ -92,7 +93,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
         >
           {ICONS.Search} 
           <span className="text-sm">Filter & Period</span>
-          {filterRange !== 'All Time' && <div className="w-2 h-2 rounded-full bg-emerald-500 ml-1"></div>}
+          {filterRange !== 'All Time' && <div className={`w-2 h-2 rounded-full ${theme.colors.primary[500]} ml-1`}></div>}
         </button>
       </div>
 
@@ -118,7 +119,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
                       onClick={() => setFilterRange(range)}
                       className={`py-3 rounded-2xl text-xs font-bold transition-all border ${
                         filterRange === range 
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100' 
+                          ? `${theme.colors.primary[600]} text-white border-[#0f2f57] shadow-lg` 
                           : 'bg-white text-gray-500 border-gray-100 hover:bg-gray-50'
                       }`}
                     >
@@ -135,7 +136,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
                         type="date" 
                         value={customDates.from} 
                         onChange={e => setCustomDates({ ...customDates, from: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" 
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none" 
                       />
                     </div>
                     <div className="space-y-1">
@@ -144,7 +145,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
                         type="date" 
                         value={customDates.to} 
                         onChange={e => setCustomDates({ ...customDates, to: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" 
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none" 
                       />
                     </div>
                   </div>
@@ -174,7 +175,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
 
               <button 
                 onClick={() => setIsMobileFilterOpen(false)}
-                className="w-full py-5 bg-emerald-600 text-white rounded-3xl font-black text-lg shadow-xl shadow-emerald-100 active:scale-95 transition-all mt-4"
+                className={`w-full py-5 ${theme.colors.primary[600]} text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all mt-4`}
               >
                 Apply Filters
               </button>

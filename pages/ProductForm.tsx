@@ -2,12 +2,26 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db, saveDb } from '../db';
-import { Product } from '../types';
+import { Product, UserRole } from '../types';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const ProductForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = Boolean(id);
+  const user = db.currentUser;
+
+  // Restrict employees from editing products
+  if (isEdit && user.role === UserRole.EMPLOYEE) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
+        <p className="text-gray-500 mb-6">Employees cannot edit products. Contact an administrator for assistance.</p>
+        <Button onClick={() => navigate('/products')} variant="primary">Back to Products</Button>
+      </div>
+    );
+  }
 
   const [form, setForm] = useState<Partial<Product>>({
     name: '',
@@ -72,13 +86,13 @@ const ProductForm: React.FC = () => {
         </button>
       </div>
 
-      <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+      <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row gap-6">
           <div className="flex-1 space-y-1">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Product Name</label>
             <input 
               type="text" 
-              className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500"
+              className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`}
               value={form.name}
               onChange={e => setForm({...form, name: e.target.value})}
               placeholder="e.g. Cotton Polo T-Shirt"
@@ -100,7 +114,7 @@ const ProductForm: React.FC = () => {
         <div className="space-y-1">
           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Product Image</label>
           <div className="flex items-center gap-6">
-            <div className="w-24 h-24 rounded-2xl border border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
+            <div className="w-24 h-24 rounded-lg border border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
               {form.image ? (
                 <img src={form.image} className="w-full h-full object-cover" />
               ) : (
@@ -130,7 +144,7 @@ const ProductForm: React.FC = () => {
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Sale Price (BDT)</label>
             <input 
               type="number" 
-              className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500 text-emerald-600 font-bold"
+              className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] ${theme.colors.primary[600]} font-bold`}
               value={form.salePrice}
               onChange={e => setForm({...form, salePrice: parseFloat(e.target.value) || 0})}
             />
@@ -139,7 +153,7 @@ const ProductForm: React.FC = () => {
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Purchase Price (BDT)</label>
             <input 
               type="number" 
-              className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500 text-gray-600 font-bold"
+              className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] text-gray-600 font-bold`}
               value={form.purchasePrice}
               onChange={e => setForm({...form, purchasePrice: parseFloat(e.target.value) || 0})}
             />
@@ -147,12 +161,14 @@ const ProductForm: React.FC = () => {
         </div>
 
         <div className="pt-6">
-          <button 
+          <Button 
             onClick={handleSave}
-            className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 active:scale-[0.98] transition-all"
+            variant="primary"
+            size="lg"
+            className="w-full"
           >
             {isEdit ? 'Update Product Item' : 'Create Product Item'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { db, saveDb } from '../db';
 import { ICONS, formatCurrency } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('company');
@@ -58,12 +60,13 @@ const SettingsPage: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
           <p className="text-gray-500 text-sm">Configure your accounting environment and business rules</p>
         </div>
-        <button 
+        <Button
           onClick={handleSave}
-          className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg active:scale-95"
+          variant="primary"
+          size="md"
         >
           Save All Changes
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
@@ -74,7 +77,7 @@ const SettingsPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl font-medium transition-all ${
                 activeTab === tab.id 
-                  ? 'bg-white text-emerald-600 shadow-sm border border-gray-100 ring-1 ring-emerald-50' 
+                  ? `bg-white ${theme.colors.primary[600]} shadow-sm border border-gray-100 ring-1 ring-[#ebf4ff]` 
                   : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
@@ -84,19 +87,19 @@ const SettingsPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex-1 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm min-h-[500px]">
+        <div className="flex-1 bg-white p-8 rounded-xl border border-gray-100 shadow-sm min-h-[500px]">
           {activeTab === 'company' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <h3 className="text-xl font-bold text-gray-800 border-b pb-4">Company Profile</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2 flex items-center gap-6 p-6 bg-gray-50 rounded-2xl">
+                <div className="md:col-span-2 flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
                    <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border">
                       <img src={settings.company.logo} className="w-full h-full object-cover" />
                    </div>
                    <div className="space-y-2">
                      <p className="text-xs font-bold text-gray-400 uppercase">Company Logo</p>
                      <input type="file" id="logo-input" className="hidden" onChange={handleLogoUpload} />
-                     <label htmlFor="logo-input" className="cursor-pointer px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">Change Logo</label>
+                     <Button variant="primary" size="sm" onClick={() => document.getElementById('logo-input')?.click()}>Change Logo</Button>
                    </div>
                 </div>
                 <div className="md:col-span-2 space-y-2">
@@ -105,7 +108,7 @@ const SettingsPage: React.FC = () => {
                     type="text" 
                     value={settings.company.name} 
                     onChange={e => setSettings({...settings, company: {...settings.company, name: e.target.value}})}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all" 
+                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
                 <div className="space-y-2">
@@ -114,7 +117,7 @@ const SettingsPage: React.FC = () => {
                     type="text" 
                     value={settings.company.phone} 
                     onChange={e => setSettings({...settings, company: {...settings.company, phone: e.target.value}})}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all" 
+                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
                 <div className="space-y-2">
@@ -123,7 +126,7 @@ const SettingsPage: React.FC = () => {
                     type="email" 
                     value={settings.company.email} 
                     onChange={e => setSettings({...settings, company: {...settings.company, email: e.target.value}})}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all" 
+                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
                 <div className="md:col-span-2 space-y-2">
@@ -131,7 +134,7 @@ const SettingsPage: React.FC = () => {
                   <textarea 
                     value={settings.company.address} 
                     onChange={e => setSettings({...settings, company: {...settings.company, address: e.target.value}})}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl h-24 focus:ring-2 focus:ring-emerald-500 transition-all" 
+                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl h-24 focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
               </div>
@@ -149,7 +152,7 @@ const SettingsPage: React.FC = () => {
                       type="text" 
                       value={settings.order.prefix} 
                       onChange={e => setSettings({...settings, order: {...settings.order, prefix: e.target.value}})}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-mono text-emerald-600" 
+                      className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[600]}`} 
                     />
                   </div>
                   <div className="space-y-2">
@@ -268,13 +271,13 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between border-b pb-4">
                 <h3 className="text-xl font-bold text-gray-800">Categories</h3>
-                <button onClick={() => setShowModal('category')} className="text-emerald-600 font-bold text-sm flex items-center gap-1 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-all">
+                <button onClick={() => setShowModal('category')} className="${theme.colors.primary[600]} font-bold text-sm flex items-center gap-1 hover:bg-[#ebf4ff] px-3 py-1.5 rounded-lg transition-all">
                   {ICONS.Plus} Add Category
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {settings.categories.map(cat => (
-                  <div key={cat.id} className="flex items-center gap-4 p-4 border rounded-2xl bg-gray-50/50">
+                  <div key={cat.id} className="flex items-center gap-4 p-4 border rounded-lg bg-gray-50/50">
                     <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
                     <div className="flex-1">
                       <p className="font-bold text-gray-800">{cat.name}</p>
@@ -290,13 +293,13 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between border-b pb-4">
                 <h3 className="text-xl font-bold text-gray-800">Payment Methods</h3>
-                <button onClick={() => setShowModal('payment')} className="text-emerald-600 font-bold text-sm flex items-center gap-1 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-all">
+                <button onClick={() => setShowModal('payment')} className="${theme.colors.primary[600]} font-bold text-sm flex items-center gap-1 hover:bg-[#ebf4ff] px-3 py-1.5 rounded-lg transition-all">
                   {ICONS.Plus} Add Method
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {settings.paymentMethods.map(pm => (
-                  <div key={pm.id} className="p-4 border rounded-2xl bg-gray-50/50">
+                  <div key={pm.id} className="p-4 border rounded-lg bg-gray-50/50">
                     <p className="font-bold text-gray-800">{pm.name}</p>
                     <p className="text-xs text-gray-400 mt-1">{pm.description}</p>
                   </div>
@@ -309,7 +312,7 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-10 animate-in fade-in duration-300">
               <section className="space-y-6">
                 <h3 className="text-xl font-bold text-gray-800 border-b pb-4 flex items-center gap-2">
-                  <span className="text-blue-600">Steadfast</span> Logistics
+                  <span className="${theme.colors.secondary[600]}">Steadfast</span> Logistics
                 </h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -423,8 +426,8 @@ const SettingsPage: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-3 pt-4">
-              <button onClick={() => setShowModal(null)} className="flex-1 py-3 font-bold text-gray-500">Cancel</button>
-              <button onClick={handleAddCategory} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold">Add Category</button>
+              <Button onClick={() => setShowModal(null)} variant="ghost" className="flex-1">Cancel</Button>
+              <Button onClick={handleAddCategory} variant="primary" size="md" className="flex-1">Add Category</Button>
             </div>
           </div>
         </div>
@@ -455,8 +458,8 @@ const SettingsPage: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-3 pt-4">
-              <button onClick={() => setShowModal(null)} className="flex-1 py-3 font-bold text-gray-500">Cancel</button>
-              <button onClick={handleAddPayment} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold">Add Method</button>
+              <Button onClick={() => setShowModal(null)} variant="ghost" className="flex-1">Cancel</Button>
+              <Button onClick={handleAddPayment} variant="primary" size="md" className="flex-1">Add Method</Button>
             </div>
           </div>
         </div>
@@ -466,3 +469,4 @@ const SettingsPage: React.FC = () => {
 };
 
 export default SettingsPage;
+

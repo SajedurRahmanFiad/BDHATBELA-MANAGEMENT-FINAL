@@ -3,7 +3,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
+import { Button } from '../../components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { theme } from '../../theme';
 
 const ExpenseSummary: React.FC = () => {
   const navigate = useNavigate();
@@ -48,14 +50,14 @@ const ExpenseSummary: React.FC = () => {
           <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-xl font-bold text-sm text-gray-700 hover:bg-gray-50">
             {ICONS.Download} Export CSV
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md">
-            {ICONS.Print} Export Image
-          </button>
+          <Button variant="primary" size="sm" icon={ICONS.Print}>
+            Export Image
+          </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="lg:col-span-2 bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
           <h3 className="font-bold text-gray-800 mb-6">Expenses by Category</h3>
           <div className="h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -77,10 +79,10 @@ const ExpenseSummary: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+        <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm space-y-6">
           <h3 className="font-bold text-gray-800">Key Statistics</h3>
           <div className="space-y-4">
-            <div className="p-4 bg-red-50 rounded-2xl">
+            <div className="p-4 bg-red-50 rounded-lg">
               <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Outflow</p>
               <h4 className="text-3xl font-black text-red-600">{formatCurrency(expenses.reduce((s, e) => s + e.amount, 0))}</h4>
             </div>
@@ -96,7 +98,7 @@ const ExpenseSummary: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-50">
           <h3 className="font-bold text-gray-900">Recent Expense Log</h3>
         </div>

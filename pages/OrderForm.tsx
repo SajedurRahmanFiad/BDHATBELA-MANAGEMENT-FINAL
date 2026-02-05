@@ -3,14 +3,26 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db, saveDb } from '../db';
 import { Order, OrderStatus, OrderItem, UserRole } from '../types';
-import { formatCurrency, ICONS } from '../constants';
+import { formatCurrency, ICONS } from '../constants';import { Button } from '../components';import { theme } from '../theme';
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const user = db.currentUser;
   const isAdmin = user.role === UserRole.ADMIN;
+  const isEmployee = user.role === UserRole.EMPLOYEE;
   const isEdit = Boolean(id);
+
+  // Restrict employees from editing orders
+  if (isEdit && isEmployee) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
+        <p className="text-gray-500 mb-6">Employees cannot edit orders. Contact an administrator for assistance.</p>
+        <Button onClick={() => navigate('/orders')} variant="primary">Back to Orders</Button>
+      </div>
+    );
+  }
 
   const [customerId, setCustomerId] = useState('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
@@ -126,20 +138,20 @@ const OrderForm: React.FC = () => {
         </button>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="space-y-1 relative md:col-span-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Select Customer</label>
             <div className="relative">
               <button 
                 onClick={() => setShowCustomerSearch(!showCustomerSearch)}
-                className="w-full text-left px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl hover:bg-white focus:ring-2 focus:ring-emerald-500 transition-all flex justify-between items-center group"
+                className="w-full text-left px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl hover:bg-white focus:ring-2 focus:ring-[#3c5a82] transition-all flex justify-between items-center group"
               >
                 {selectedCustomer ? (
                   <div className="flex-1 overflow-hidden">
                     <span className="font-bold block text-sm text-gray-900">{selectedCustomer.name}</span>
                     <p className="text-[10px] text-gray-500 leading-none mt-0.5">{selectedCustomer.phone}</p>
-                    <p className="text-[10px] text-emerald-600 italic truncate mt-1">{selectedCustomer.address}</p>
+                    <p className="text-[10px] ${theme.colors.primary[600]} italic truncate mt-1">{selectedCustomer.address}</p>
                   </div>
                 ) : <span className="text-gray-400 text-sm">Select Customer...</span>}
                 <div className={`transition-transform duration-200 ${showCustomerSearch ? 'rotate-90' : ''}`}>
@@ -148,7 +160,7 @@ const OrderForm: React.FC = () => {
               </button>
               
               {showCustomerSearch && (
-                <div className="absolute top-full left-0 mt-2 w-full max-w-xs bg-white border border-gray-200 shadow-2xl rounded-2xl z-[110] p-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="absolute top-full left-0 mt-2 w-full max-w-xs bg-white border border-gray-200 shadow-2xl rounded-lg z-[110] p-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                   <div className="relative mb-2">
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-300">
                       {ICONS.Search}
@@ -157,7 +169,7 @@ const OrderForm: React.FC = () => {
                       autoFocus 
                       type="text" 
                       placeholder="Search name or phone..." 
-                      className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" 
+                      className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" 
                       value={custSearchTerm} 
                       onChange={(e) => setCustSearchTerm(e.target.value)} 
                     />
@@ -169,16 +181,16 @@ const OrderForm: React.FC = () => {
                       <button 
                         key={c.id} 
                         onClick={() => { setCustomerId(c.id); setShowCustomerSearch(false); setCustSearchTerm(''); }} 
-                        className="w-full px-4 py-2.5 text-left hover:bg-emerald-50 rounded-lg group transition-colors"
+                        className="w-full px-4 py-2.5 text-left hover:bg-[#ebf4ff] rounded-lg group transition-colors"
                       >
-                        <p className="text-sm font-bold text-gray-800 group-hover:text-emerald-700">{c.name}</p>
-                        <p className="text-[10px] text-gray-400 group-hover:text-emerald-600/60">{c.phone}</p>
+                        <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.primary[700]}">{c.name}</p>
+                        <p className="text-[10px] text-gray-400 group-hover:${theme.colors.primary[600]}/60">{c.phone}</p>
                       </button>
                     ))}
                   </div>
                   <button 
                     onClick={() => { setShowCustomerSearch(false); navigate('/customers/new'); }} 
-                    className="w-full mt-2 py-3 text-emerald-600 text-[10px] font-black uppercase tracking-widest border-t border-gray-50 hover:bg-emerald-50 transition-colors"
+                    className="w-full mt-2 py-3 ${theme.colors.primary[600]} text-[10px] font-black uppercase tracking-widest border-t border-gray-50 hover:bg-[#ebf4ff] transition-colors"
                   >
                     + Add New Customer
                   </button>
@@ -193,7 +205,7 @@ const OrderForm: React.FC = () => {
               type="date" 
               value={orderDate} 
               onChange={(e) => setOrderDate(e.target.value)} 
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all cursor-pointer font-bold text-sm" 
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] focus:bg-white transition-all cursor-pointer font-bold text-sm" 
             />
           </div>
 
@@ -203,12 +215,12 @@ const OrderForm: React.FC = () => {
               type="text" 
               readOnly 
               value={orderNumber} 
-              className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono text-emerald-800 text-sm font-bold" 
+              className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
             />
           </div>
         </div>
 
-        <div className="border border-gray-100 rounded-2xl overflow-visible bg-white">
+        <div className="border border-gray-100 rounded-lg overflow-visible bg-white">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -234,7 +246,7 @@ const OrderForm: React.FC = () => {
                       type="number" 
                       value={item.quantity} 
                       onChange={(e) => updateQuantity(idx, parseInt(e.target.value))} 
-                      className="w-16 text-center py-2 border border-gray-100 rounded-xl focus:ring-2 focus:ring-emerald-500 font-bold outline-none" 
+                      className="w-16 text-center py-2 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] font-bold outline-none" 
                     />
                   </td>
                   <td className="px-6 py-4 text-right font-black text-gray-900 text-sm">{formatCurrency(item.amount)}</td>
@@ -250,13 +262,13 @@ const OrderForm: React.FC = () => {
                   <div className="relative">
                     <button 
                       onClick={() => setShowProductSearch(!showProductSearch)} 
-                      className="flex items-center gap-2 text-emerald-600 font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50 px-4 py-2.5 rounded-xl border-2 border-dashed border-emerald-100 transition-all"
+                      className="flex items-center gap-2 ${theme.colors.primary[600]} font-black text-[10px] uppercase tracking-widest hover:bg-[#ebf4ff] px-4 py-2.5 rounded-xl border-2 border-dashed border-[#c7dff5] transition-all"
                     >
                       {ICONS.Plus} Add an item
                     </button>
                     
                     {showProductSearch && (
-                      <div className="absolute top-full left-0 mt-3 w-full max-w-md bg-white border border-gray-200 shadow-2xl rounded-2xl z-[100] p-2 overflow-hidden animate-in slide-in-from-top-2 duration-200">
+                      <div className="absolute top-full left-0 mt-3 w-full max-w-md bg-white border border-gray-200 shadow-2xl rounded-lg z-[100] p-2 overflow-hidden animate-in slide-in-from-top-2 duration-200">
                         <div className="relative mb-2">
                           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-300">
                             {ICONS.Search}
@@ -265,7 +277,7 @@ const OrderForm: React.FC = () => {
                             autoFocus 
                             type="text" 
                             placeholder="Search catalog..." 
-                            className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" 
+                            className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" 
                             value={searchTerm} 
                             onChange={(e) => setSearchTerm(e.target.value)} 
                           />
@@ -275,12 +287,12 @@ const OrderForm: React.FC = () => {
                             <button 
                               key={p.id} 
                               onClick={() => addItem(p.id)} 
-                              className="flex items-center gap-4 w-full px-4 py-3 text-left hover:bg-emerald-50 rounded-xl group transition-all"
+                              className="flex items-center gap-4 w-full px-4 py-3 text-left hover:bg-[#ebf4ff] rounded-xl group transition-all"
                             >
                               <img src={p.image} className="w-10 h-10 rounded-lg object-cover border border-gray-100 shadow-sm" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-gray-800 group-hover:text-emerald-700 truncate">{p.name}</p>
-                                <p className="text-[10px] font-bold text-emerald-600/60 uppercase tracking-widest">{formatCurrency(p.salePrice)}</p>
+                                <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.primary[700]} truncate">{p.name}</p>
+                                <p className="text-[10px] font-bold ${theme.colors.primary[600]}/60 uppercase tracking-widest">{formatCurrency(p.salePrice)}</p>
                               </div>
                             </button>
                           ))}
@@ -301,7 +313,7 @@ const OrderForm: React.FC = () => {
               placeholder="Internal notes or special instructions for this order..." 
               value={notes} 
               onChange={(e) => setNotes(e.target.value)} 
-              className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl h-32 focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none font-medium text-sm transition-all" 
+              className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-lg h-32 focus:ring-2 focus:ring-[#3c5a82] focus:bg-white outline-none font-medium text-sm transition-all" 
             />
           </div>
           <div className="w-full md:w-96 space-y-4 bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100">
@@ -317,7 +329,7 @@ const OrderForm: React.FC = () => {
                   type="number" 
                   value={discount} 
                   onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} 
-                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-emerald-500 font-black text-gray-900 bg-white" 
+                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
                 />
               </div>
             </div>
@@ -329,20 +341,22 @@ const OrderForm: React.FC = () => {
                   type="number" 
                   value={shipping} 
                   onChange={(e) => setShipping(parseFloat(e.target.value) || 0)} 
-                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-emerald-500 font-black text-gray-900 bg-white" 
+                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
                 />
               </div>
             </div>
-            <div className="pt-6 border-t-4 border-emerald-100 flex justify-between items-center">
+            <div className="pt-6 border-t-4 border-[#c7dff5] flex justify-between items-center">
               <span className="text-lg font-black text-gray-900 uppercase tracking-tighter">Grand Total</span>
-              <span className="text-3xl font-black text-emerald-600">{formatCurrency(total)}</span>
+              <span className="text-3xl font-black ${theme.colors.primary[600]}">{formatCurrency(total)}</span>
             </div>
-            <button 
-              onClick={handleSave} 
-              className="w-full py-5 bg-emerald-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all mt-4"
+            <Button 
+              onClick={handleSave}
+              variant="primary"
+              size="lg"
+              className="w-full mt-4"
             >
               {isEdit ? 'Update Order' : 'Create Order'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -351,3 +365,4 @@ const OrderForm: React.FC = () => {
 };
 
 export default OrderForm;
+

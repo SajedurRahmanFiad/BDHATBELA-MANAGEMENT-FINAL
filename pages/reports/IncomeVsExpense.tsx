@@ -3,7 +3,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
+import { Button } from '../../components';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { theme } from '../../theme';
 
 const IncomeVsExpense: React.FC = () => {
   const navigate = useNavigate();
@@ -35,13 +37,13 @@ const IncomeVsExpense: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Income vs Expense Trend</h2>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md">
-            {ICONS.Print} Export Full Report
-          </button>
+          <Button variant="primary" size="sm" icon={ICONS.Print}>
+            Export Full Report
+          </Button>
         </div>
       </div>
 
-      <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+      <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-8">Cash Flow Dynamics (Last 6 Months)</h3>
         <div className="h-[400px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -64,11 +66,11 @@ const IncomeVsExpense: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {[
-          { label: 'Highest Revenue Month', value: 'June', amount: 72000, color: 'text-emerald-600' },
-          { label: 'Least Expense Month', value: 'February', amount: 28000, color: 'text-blue-600' },
+          { label: 'Highest Revenue Month', value: 'June', amount: 72000, color: `${theme.colors.primary[600]}` },
+          { label: 'Least Expense Month', value: 'February', amount: 28000, color: '${theme.colors.secondary[600]}' },
           { label: 'Average Monthly Profit', value: 'Steady Growth', amount: 18000, color: 'text-purple-600' }
         ].map((stat, i) => (
-          <div key={i} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+          <div key={i} className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
             <h4 className="text-xl font-bold text-gray-900 mt-1">{stat.value}</h4>
             <p className={`text-lg font-black mt-2 ${stat.color}`}>{formatCurrency(stat.amount)}</p>
@@ -80,3 +82,4 @@ const IncomeVsExpense: React.FC = () => {
 };
 
 export default IncomeVsExpense;
+

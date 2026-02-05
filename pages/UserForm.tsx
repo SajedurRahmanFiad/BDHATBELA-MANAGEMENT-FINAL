@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db, saveDb } from '../db';
 import { User, UserRole } from '../types';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const UserForm: React.FC = () => {
   const { id } = useParams();
@@ -81,26 +83,26 @@ const UserForm: React.FC = () => {
         <button onClick={() => navigate('/users')} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-500 hover:bg-gray-50">Cancel</button>
       </div>
 
-      <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+      <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm space-y-6">
         <div className="space-y-6">
-          <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-2xl">
+          <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
              <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border">
                 <img src={form.image || `https://ui-avatars.com/api/?name=${form.name || 'User'}&background=10b981&color=fff`} className="w-full h-full object-cover" />
              </div>
              <div className="space-y-2">
                <p className="text-xs font-bold text-gray-400 uppercase">Profile Photo</p>
                <input type="file" id="user-pfp" className="hidden" onChange={handleFileUpload} />
-               <label htmlFor="user-pfp" className="cursor-pointer px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">Upload Picture</label>
+               <label htmlFor="user-pfp" className={`cursor-pointer px-4 py-2 ${theme.colors.primary[600]} text-white text-xs font-bold rounded-lg hover:${theme.colors.primary[700]}`}>Upload Picture</label>
              </div>
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Full Name</label>
-            <input type="text" className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <input type="text" className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Phone Number</label>
-            <input type="text" className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
+            <input type="text" className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
           </div>
 
           {isAdmin && (
@@ -114,7 +116,7 @@ const UserForm: React.FC = () => {
           {isAdmin && (
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">System Role</label>
-              <select className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500" value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})}>
+              <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})}>
                 <option value={UserRole.EMPLOYEE}>Employee</option>
                 <option value={UserRole.ADMIN}>Administrator</option>
               </select>
@@ -122,7 +124,14 @@ const UserForm: React.FC = () => {
           )}
         </div>
         <div className="pt-6">
-          <button onClick={handleSave} className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold shadow-lg hover:bg-emerald-700">Save User Details</button>
+          <Button 
+            onClick={handleSave}
+            variant="primary"
+            size="lg"
+            className="w-full"
+          >
+            Save User Details
+          </Button>
         </div>
       </div>
     </div>

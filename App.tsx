@@ -1,7 +1,9 @@
 
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { db } from './db';
 import Layout from './components/Layout';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import OrderForm from './pages/OrderForm';
@@ -32,13 +34,37 @@ import IncomeVsExpense from './pages/reports/IncomeVsExpense';
 import ProfitLoss from './pages/reports/ProfitLoss';
 
 const App: React.FC = () => {
+  const validateAuth = () => {
+    const flag = localStorage.getItem('isLoggedIn') === 'true';
+    if (!flag) return false;
+    if (!db.currentUser) return false;
+    return db.users.some(u => u.id === db.currentUser?.id);
+  };
+
+  const [isAuthenticated, setIsAuthenticated] = React.useState<boolean>(validateAuth());
+
+  React.useEffect(() => {
+    const onAuth = () => setIsAuthenticated(validateAuth());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'isLoggedIn') onAuth();
+    };
+    window.addEventListener('authChange', onAuth as EventListener);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('authChange', onAuth as EventListener);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   return (
     <HashRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          
+      {isAuthenticated ? (
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/new" element={<OrderForm />} />
           <Route path="/orders/edit/:id" element={<OrderForm />} />
@@ -81,10 +107,17 @@ const App: React.FC = () => {
           <Route path="/reports/income-vs-expense" element={<IncomeVsExpense />} />
           <Route path="/reports/profit-loss" element={<ProfitLoss />} />
 
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<div className="p-8 text-center text-gray-500">Feature coming soon in this demo!</div>} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<div className="p-8 text-center text-gray-500">Feature coming soon in this demo!</div>} />
+          </Routes>
+        </Layout>
+      ) : (
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
-      </Layout>
+      )}
     </HashRouter>
   );
 };

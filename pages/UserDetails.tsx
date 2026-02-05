@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { UserRole } from '../types';
 import { ICONS } from '../constants';
+import { theme } from '../theme';
 
 const UserDetails: React.FC = () => {
   const { id } = useParams();
@@ -26,15 +27,15 @@ const UserDetails: React.FC = () => {
         {canEdit && (
           <button 
             onClick={() => navigate(`/users/edit/${user.id}`)}
-            className="px-6 py-2 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-md flex items-center gap-2"
+            className={`px-6 py-2 ${theme.colors.primary[600]} text-white rounded-xl font-bold hover:${theme.colors.primary[700]} shadow-md flex items-center gap-2`}
           >
             {ICONS.Edit} Edit Profile
           </button>
         )}
       </div>
 
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="h-32 bg-gradient-to-r from-emerald-500 to-teal-600"></div>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className={`h-32 bg-gradient-to-r from-[#0f2f57] to-[#1a3a6e]`}></div>
         <div className="px-8 pb-8">
           <div className="relative flex justify-between items-end -mt-12 mb-8">
             <div className="p-1 bg-white rounded-full shadow-xl">
@@ -62,13 +63,13 @@ const UserDetails: React.FC = () => {
               </div>
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">User ID</p>
-                <code className="text-sm bg-gray-50 px-2 py-1 rounded text-emerald-600">{user.id}</code>
+                <code className={`text-sm bg-gray-50 px-2 py-1 rounded`}>{user.id}</code>
               </div>
             </div>
-            <div className="bg-gray-50 p-6 rounded-2xl space-y-4">
+            <div className="bg-gray-50 p-6 rounded-lg space-y-4">
               <h4 className="font-bold text-gray-900">Account Security</h4>
               <p className="text-sm text-gray-500">Passwords are managed by system administrators. If you need to reset your password, please contact the IT department.</p>
-              <div className="flex items-center gap-2 text-emerald-600 text-sm font-bold">
+              <div className={`flex items-center gap-2 text-emerald-700 text-sm font-bold`}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                 Active Status Verified
               </div>

@@ -3,8 +3,8 @@ import { User, UserRole, Order, OrderStatus, Bill, BillStatus, Customer, Vendor,
 
 // Initial Mock Data
 export const initialUsers: User[] = [
-  { id: '1', name: 'Admin User', phone: '01700000000', role: UserRole.ADMIN, image: 'https://picsum.photos/200/200?random=1' },
-  { id: '2', name: 'Shamim Ahmed', phone: '01711111111', role: UserRole.EMPLOYEE, image: 'https://picsum.photos/200/200?random=2' },
+  { id: '1', name: 'Admin User', phone: '01700000000', role: UserRole.ADMIN, image: 'https://picsum.photos/200/200?random=1', password: 'admin' },
+  { id: '2', name: 'Shamim Ahmed', phone: '01711111111', role: UserRole.EMPLOYEE, image: 'https://picsum.photos/200/200?random=2', password: 'employee' },
 ];
 
 export const initialCustomers: Customer[] = [
@@ -94,8 +94,20 @@ const getFromStorage = <T,>(key: string, initial: T): T => {
 };
 
 // Global State (Simplified for SPA)
+const _storedUsers = getFromStorage<User[]>('users', initialUsers);
+const users = Array.isArray(_storedUsers)
+  ? _storedUsers.map(u => {
+      const init = initialUsers.find(i => i.id === u.id);
+      return { ...u, password: u.password ?? init?.password } as User;
+    })
+  : initialUsers;
+
+// ensure currentUser references the user object from `users`
+const _storedCurrent = getFromStorage<User | null>('currentUser', initialUsers[0]);
+const currentUser = users.find(u => u.id === _storedCurrent?.id) ?? initialUsers[0];
+
 export const db = {
-  users: getFromStorage('users', initialUsers),
+  users,
   customers: getFromStorage('customers', initialCustomers),
   vendors: getFromStorage('vendors', initialVendors),
   products: getFromStorage('products', initialProducts),
@@ -104,7 +116,7 @@ export const db = {
   accounts: getFromStorage('accounts', initialAccounts),
   transactions: getFromStorage('transactions', []),
   settings: getFromStorage('settings', initialSettings),
-  currentUser: getFromStorage('currentUser', initialUsers[0]), // Default to Admin for demo
+  currentUser,
 };
 
 export const saveDb = () => {

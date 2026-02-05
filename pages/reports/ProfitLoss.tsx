@@ -3,6 +3,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
+import { Button } from '../../components';
+import { theme } from '../../theme';
 
 const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal?: boolean; indent?: boolean }> = ({ label, amount, isBold, isTotal, indent }) => (
   <div className={`flex justify-between py-2 ${isBold ? 'font-bold text-gray-900' : 'text-gray-600'} ${isTotal ? 'border-t-2 border-gray-100 pt-4 mt-2' : ''} ${indent ? 'pl-6' : ''}`}>
@@ -34,13 +36,13 @@ const ProfitLoss: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Profit and Loss Statement</h2>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md">
-            {ICONS.Print} Print Statement
-          </button>
+          <Button variant="primary" size="sm" icon={ICONS.Print}>
+            Print Statement
+          </Button>
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="max-w-3xl mx-auto bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-8 bg-gray-50 border-b border-gray-100 text-center">
           <img src={db.settings.company.logo} className="w-16 h-16 rounded-xl mx-auto mb-4 grayscale opacity-50" />
           <h3 className="text-xl font-bold text-gray-900">{db.settings.company.name}</h3>
@@ -73,7 +75,7 @@ const ProfitLoss: React.FC = () => {
           </div>
 
           <div className="pt-12">
-            <div className={`p-6 rounded-2xl flex justify-between items-center ${netProfit >= 0 ? 'bg-emerald-600' : 'bg-red-600'} text-white shadow-xl`}>
+            <div className={`p-6 rounded-lg flex justify-between items-center ${netProfit >= 0 ? theme.colors.primary[600] : 'bg-red-600'} text-white shadow-xl`}>
               <span className="text-lg font-black uppercase tracking-widest">Net Profit / Loss</span>
               <span className="text-3xl font-black">{formatCurrency(netProfit)}</span>
             </div>

@@ -5,16 +5,20 @@ import { db, saveDb } from '../db';
 import { Order, OrderStatus, UserRole, Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
   const user = db.currentUser;
   const isAdmin = user.role === UserRole.ADMIN;
+  const isEmployee = user.role === UserRole.EMPLOYEE;
   
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
 
   const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
   const [paymentForm, setPaymentForm] = useState({
@@ -26,9 +30,9 @@ const Orders: React.FC = () => {
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case OrderStatus.ON_HOLD: return 'bg-gray-100 text-gray-600';
-      case OrderStatus.PROCESSING: return 'bg-blue-100 text-blue-600';
+      case OrderStatus.PROCESSING: return `bg-[#e6f0ff] ${theme.colors.secondary[600]}`;
       case OrderStatus.PICKED: return 'bg-purple-100 text-purple-600';
-      case OrderStatus.COMPLETED: return 'bg-emerald-100 text-emerald-600';
+      case OrderStatus.COMPLETED: return 'bg-green-100 text-green-600';
       case OrderStatus.CANCELLED: return 'bg-red-100 text-red-600';
       default: return 'bg-gray-100 text-gray-600';
     }
@@ -122,12 +126,14 @@ const Orders: React.FC = () => {
           <h2 className="text-3xl font-black text-gray-900 tracking-tight">Sales Orders</h2>
           <p className="text-gray-500 font-medium text-sm">Monitor and process your client fulfillment cycle</p>
         </div>
-        <button 
+        <Button
           onClick={() => navigate('/orders/new')}
-          className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200"
+          variant="primary"
+          size="md"
+          icon={ICONS.Plus}
         >
-          {ICONS.Plus} New Order
-        </button>
+          New Order
+        </Button>
       </div>
 
       <FilterBar 
@@ -141,8 +147,8 @@ const Orders: React.FC = () => {
         statusOptions={Object.values(OrderStatus)}
       />
 
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-visible">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
+        <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -151,11 +157,12 @@ const Orders: React.FC = () => {
                 <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Created By</th>
                 <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Status</th>
                 <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-right">Net Amount</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] sm:hidden">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredOrders.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
+                <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : filteredOrders.map((order) => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
                 return (
@@ -164,7 +171,7 @@ const Orders: React.FC = () => {
                     onMouseEnter={() => setHoveredRow(order.id)} 
                     onMouseLeave={() => setHoveredRow(null)} 
                     onClick={() => navigate(`/orders/${order.id}`)} 
-                    className="group relative hover:bg-emerald-50/20 cursor-pointer transition-all"
+                    className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
                   >
                     <td className="px-6 py-5">
                       <span className="font-black text-gray-900">#{order.orderNumber}</span>
@@ -181,27 +188,69 @@ const Orders: React.FC = () => {
                     <td className="px-6 py-5 text-right">
                       <span className="font-black text-gray-900 text-base">{formatCurrency(order.total)}</span>
                       {order.paidAmount > 0 && (
-                        <p className={`text-[10px] font-black uppercase tracking-tighter mt-1 ${order.paidAmount >= order.total ? 'text-emerald-500' : 'text-orange-400'}`}>
+                        <p className={`text-[10px] font-black uppercase tracking-tighter mt-1 ${order.paidAmount >= order.total ? 'text-green-500' : 'text-orange-400'}`}>
                           {order.paidAmount >= order.total ? 'Paid Fully' : `Paid: ${formatCurrency(order.paidAmount)}`}
                         </p>
                       )}
                     </td>
 
+                    {/* Mobile Actions Dropdown */}
+                    <td className="px-6 py-5 sm:hidden relative" onClick={e => e.stopPropagation()}>
+                      <div className="relative">
+                        <button 
+                          onClick={() => setOpenActionsMenu(openActionsMenu === order.id ? null : order.id)}
+                          className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
+                        >
+                          {ICONS.More}
+                        </button>
+                        {openActionsMenu === order.id && (
+                          <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-2">
+                            {isEmployee ? (
+                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                            ) : (
+                              <>
+                                <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                                <button onClick={() => { handleDuplicate(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
+                                {order.paidAmount < order.total && (
+                                  <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
+                                )}
+                                <div className="border-t my-1"></div>
+                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
+                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
+                                <div className="border-t my-1"></div>
+                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]">ST Steadfast</button>
+                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-orange-500">CB CarryBee</button>
+                                <div className="border-t my-1"></div>
+                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Desktop Hover Actions */}
                     {hoveredRow === order.id && (
-                      <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-emerald-100">
-                          <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                          <button onClick={() => handleDuplicate(order)} className="p-2.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
-                          {order.paidAmount < order.total && (
-                            <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
-                          )}
-                          <button onClick={() => navigate(`/orders/${order.id}`)} className="p-2.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Print">{ICONS.Print}</button>
-                          <button className="p-2.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
-                          <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                          <button className="px-3 py-1 text-[9px] font-black text-blue-500 hover:bg-blue-50 rounded-lg" title="Add to Steadfast">ST</button>
-                          <button className="px-3 py-1 text-[9px] font-black text-orange-500 hover:bg-orange-50 rounded-lg" title="Add to CarryBee">CB</button>
-                          {isModifiable && (
-                            <button onClick={() => handleDelete(order.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                      <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
+                          {isEmployee ? (
+                            <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                          ) : (
+                            <>
+                              <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                              <button onClick={() => handleDuplicate(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
+                              {order.paidAmount < order.total && (
+                                <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
+                              )}
+                              <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
+                              <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
+                              <div className="h-5 w-px bg-gray-100 mx-1"></div>
+                              <button className="px-3 py-1 text-[9px] font-black text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg" title="Add to Steadfast">ST</button>
+                              <button className="px-3 py-1 text-[9px] font-black text-orange-500 hover:bg-orange-50 rounded-lg" title="Add to CarryBee">CB</button>
+                              {isModifiable && (
+                                <button onClick={() => handleDelete(order.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
@@ -217,26 +266,26 @@ const Orders: React.FC = () => {
       {showPaymentModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowPaymentModal(null)}></div>
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 z-[210] animate-in zoom-in-95 duration-200 border border-emerald-50">
+          <div className={`bg-white w-full max-w-md rounded-[2.5rem] p-10 z-[210] animate-in zoom-in-95 duration-200 border border-[#ebf4ff]`}>
             <h3 className="text-2xl font-black text-gray-900 mb-8">Receive Payment</h3>
             <div className="space-y-6">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Payment Date</label>
-                <input type="date" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl font-bold focus:ring-2 focus:ring-emerald-500 outline-none" />
+                <input type="date" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Select Account</label>
-                <select value={paymentForm.accountId} onChange={e => setPaymentForm({...paymentForm, accountId: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-2xl font-bold focus:ring-2 focus:ring-emerald-500 outline-none">
+                <select value={paymentForm.accountId} onChange={e => setPaymentForm({...paymentForm, accountId: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none">
                   {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({formatCurrency(acc.currentBalance)})</option>)}
                 </select>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Amount (BDT)</label>
-                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className="w-full px-6 py-4 bg-emerald-50 border-2 border-emerald-100 rounded-2xl font-black text-emerald-600 text-xl outline-none" />
+                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-xl outline-none`} />
               </div>
               <div className="pt-6 flex gap-4">
-                <button onClick={() => setShowPaymentModal(null)} className="flex-1 py-4 text-gray-400 font-bold hover:bg-gray-50 rounded-2xl transition-all">Cancel</button>
-                <button onClick={handleAddPayment} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all">Add Payment</button>
+                <Button onClick={() => setShowPaymentModal(null)} variant="ghost">Cancel</Button>
+                <Button onClick={handleAddPayment} variant="primary" size="md" className="flex-1">Add Payment</Button>
               </div>
             </div>
           </div>
@@ -247,3 +296,4 @@ const Orders: React.FC = () => {
 };
 
 export default Orders;
+

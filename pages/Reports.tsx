@@ -2,6 +2,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const ReportCard: React.FC<{ 
   title: string; 
@@ -14,15 +16,15 @@ const ReportCard: React.FC<{
   return (
     <button 
       onClick={() => navigate(to)}
-      className="flex items-start gap-4 p-6 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-100 transition-all text-left w-full group"
+      className={`flex items-start gap-4 p-6 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-[#c7dff5] transition-all text-left w-full group`}
     >
-      <div className={`p-4 rounded-2xl ${color} transition-transform group-hover:scale-110 duration-300`}>
+      <div className={`p-4 rounded-lg ${color} transition-transform group-hover:scale-110 duration-300`}>
         {icon}
       </div>
       <div>
         <h3 className="font-bold text-gray-900 text-lg">{title}</h3>
         <p className="text-sm text-gray-500 mt-1 leading-relaxed">{description}</p>
-        <div className="mt-4 flex items-center gap-1 text-emerald-600 text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`mt-4 flex items-center gap-1 ${theme.colors.primary[600]} text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity`}>
           View Report {ICONS.ChevronRight}
         </div>
       </div>
@@ -43,14 +45,14 @@ const Reports: React.FC = () => {
       title: 'Income Summary',
       description: 'Analysis of your revenue streams and payment collections.',
       icon: ICONS.PlusCircle,
-      color: 'bg-emerald-50 text-emerald-600',
+      color: `bg-[#ebf4ff] ${theme.colors.primary[600]}`,
       to: '/reports/income'
     },
     {
       title: 'Income vs Expense',
       description: 'Visual comparison of cash inflows and outflows over time.',
       icon: ICONS.Transfer,
-      color: 'bg-blue-50 text-blue-600',
+      color: `bg-[#e6f0ff] ${theme.colors.secondary[600]}`,
       to: '/reports/income-vs-expense'
     },
     {
@@ -75,13 +77,13 @@ const Reports: React.FC = () => {
         ))}
       </div>
 
-      <div className="bg-emerald-600 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl shadow-emerald-100">
+      <div className={`${theme.colors.primary[600]} rounded-xl p-8 text-white relative overflow-hidden shadow-xl shadow-[#0f2f57]/20`}>
         <div className="relative z-10 max-w-lg">
           <h3 className="text-xl font-bold mb-2">Need a custom audit?</h3>
-          <p className="text-emerald-100 text-sm leading-relaxed mb-6">Our reporting engine allows you to filter transactions by dates, accounts, and tags for granular data analysis.</p>
-          <button className="px-6 py-2 bg-white text-emerald-600 font-bold rounded-xl hover:bg-emerald-50 transition-colors">
+          <p className="text-[#c7dff5] text-sm leading-relaxed mb-6">Our reporting engine allows you to filter transactions by dates, accounts, and tags for granular data analysis.</p>
+          <Button className="bg-white text-[#0f2f57]" icon={ICONS.Settings}>
             Contact Support
-          </button>
+          </Button>
         </div>
         <div className="absolute right-0 bottom-0 opacity-10 p-4 transform translate-x-1/4 translate-y-1/4">
           <div className="w-64 h-64 border-[32px] border-white rounded-full"></div>

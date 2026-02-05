@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db, saveDb } from '../db';
 import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
+import { theme } from '../theme';
 
 const BillDetails: React.FC = () => {
   const { id } = useParams();
@@ -60,7 +61,7 @@ const BillDetails: React.FC = () => {
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Purchase Bill #{bill.billNumber}</h2>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
-            bill.status === BillStatus.RECEIVED ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
+            bill.status === BillStatus.RECEIVED ? 'bg-green-100 text-green-600' : `bg-[#e6f0ff] ${theme.colors.secondary[600]}`
           }`}>
             {bill.status}
           </span>
@@ -72,7 +73,7 @@ const BillDetails: React.FC = () => {
           <div className="relative">
             <button 
               onClick={() => setIsActionOpen(!isActionOpen)}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-md"
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
             >
               {ICONS.More} Actions
             </button>
@@ -98,7 +99,7 @@ const BillDetails: React.FC = () => {
             <div className="flex justify-between items-start">
               <div>
                 <img src={db.settings.company.logo} className="rounded-xl object-cover mb-4 border" style={{ width: db.settings.invoice.logoWidth, height: db.settings.invoice.logoHeight }} />
-                <h1 className="text-2xl font-extrabold text-blue-600 uppercase tracking-tighter">Purchase Bill</h1>
+                <h1 className="text-2xl font-extrabold ${theme.colors.secondary[600]} uppercase tracking-tighter">Purchase Bill</h1>
                 <p className="text-sm text-gray-500">{db.settings.company.name}</p>
               </div>
               <div className="text-right">
@@ -116,7 +117,7 @@ const BillDetails: React.FC = () => {
               </div>
               <div className="text-right">
                 <p className="text-xs font-bold text-gray-400 uppercase mb-3">Status</p>
-                <p className="text-lg font-bold text-blue-600">{bill.status}</p>
+                <p className="text-lg font-bold ${theme.colors.secondary[600]}">{bill.status}</p>
               </div>
             </div>
 
@@ -155,9 +156,9 @@ const BillDetails: React.FC = () => {
                   <span className="text-sm font-medium">Shipping</span>
                   <span className="font-bold text-gray-900">{formatCurrency(bill.shipping)}</span>
                 </div>
-                <div className="flex justify-between items-center py-4 border-t-2 border-blue-500">
+                <div className={`flex justify-between items-center py-4 border-t-2 border-[#3c5a82]`}>
                   <span className="text-lg font-black text-gray-900 uppercase">Total Payable</span>
-                  <span className="text-2xl font-black text-blue-600">{formatCurrency(bill.total)}</span>
+                  <span className="text-2xl font-black ${theme.colors.secondary[600]}">{formatCurrency(bill.total)}</span>
                 </div>
               </div>
             </div>
@@ -169,3 +170,4 @@ const BillDetails: React.FC = () => {
 };
 
 export default BillDetails;
+

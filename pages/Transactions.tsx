@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-
-type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
+import FilterBar, { FilterRange } from '../components/FilterBar';
+import { Button } from '../components';
+import { theme } from '../theme';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
@@ -62,24 +63,20 @@ const Transactions: React.FC = () => {
           <p className="text-gray-500 text-sm">Review all income and expense history</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => navigate('/transactions/new/income')} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-md shadow-emerald-100">{ICONS.Plus} Income</button>
-          <button onClick={() => navigate('/transactions/new/expense')} className="flex items-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-red-700 transition-all shadow-md shadow-red-100">{ICONS.Delete} Expense</button>
+          <Button onClick={() => navigate('/transactions/new/income')} variant="primary" size="md" icon={ICONS.Plus}>Income</Button>
+          <Button onClick={() => navigate('/transactions/new/expense')} variant="danger" size="md" icon={ICONS.Minus}>Expense</Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm">
-        {(['All Time', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'] as FilterRange[]).map(range => (
-          <button key={range} onClick={() => setFilterRange(range)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${filterRange === range ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>{range}</button>
-        ))}
-        {filterRange === 'Custom' && (
-          <div className="flex items-center gap-2 px-2 border-l">
-            <input type="date" value={customDates.from} onChange={e => setCustomDates({...customDates, from: e.target.value})} className="px-2 py-1 border rounded text-[10px]" />
-            <input type="date" value={customDates.to} onChange={e => setCustomDates({...customDates, to: e.target.value})} className="px-2 py-1 border rounded text-[10px]" />
-          </div>
-        )}
-      </div>
+      <FilterBar 
+        title="Transactions"
+        filterRange={filterRange}
+        setFilterRange={setFilterRange}
+        customDates={customDates}
+        setCustomDates={setCustomDates}
+      />
 
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -102,11 +99,11 @@ const Transactions: React.FC = () => {
                   return (
                     <tr key={t.id} onClick={() => handleRowClick(t)} className={`hover:bg-gray-50 transition-all group ${hasLink ? 'cursor-pointer' : ''}`}>
                       <td className="px-6 py-5 text-sm font-bold text-gray-700">{t.date}</td>
-                      <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? 'bg-emerald-50 text-emerald-600' : t.type === 'Expense' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{t.type}</span></td>
+                      <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? 'bg-[#ebf4ff] ${theme.colors.primary[600]}' : t.type === 'Expense' ? 'bg-red-50 text-red-600' : 'bg-[#e6f0ff] ${theme.colors.secondary[600]}'}`}>{t.type}</span></td>
                       <td className="px-6 py-5">{contact ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{contact.name}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>}</td>
                       <td className="px-6 py-5"><div className="flex flex-col"><p className="text-sm font-bold text-gray-800">{t.category}</p><p className="text-xs text-gray-400 italic max-w-xs truncate">{t.description}</p></div></td>
-                      <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? 'text-emerald-600' : t.type === 'Expense' ? 'text-red-600' : 'text-blue-600'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
-                      <td className="px-6 py-5 text-center">{t.attachmentUrl ? <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg inline-block">{ICONS.Download}</div> : <span className="text-gray-200">—</span>}</td>
+                      <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? '${theme.colors.primary[600]}' : t.type === 'Expense' ? 'text-red-600' : '${theme.colors.secondary[600]}'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
+                      <td className="px-6 py-5 text-center">{t.attachmentUrl ? <div className="p-2 bg-[#ebf4ff] ${theme.colors.primary[600]} rounded-lg inline-block">{ICONS.Download}</div> : <span className="text-gray-200">—</span>}</td>
                     </tr>
                   );
                 })
@@ -120,3 +117,4 @@ const Transactions: React.FC = () => {
 };
 
 export default Transactions;
+

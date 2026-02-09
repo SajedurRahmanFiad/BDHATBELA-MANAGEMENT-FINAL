@@ -22,7 +22,10 @@ import {
   Plus,
   ArrowRightLeft,
   Briefcase,
-  Minus
+  Minus,
+  Check,
+  AlertCircle,
+  Info
 } from 'lucide-react';
 
 // Fixed missing properties on ICONS object by adding 'Users' and 'Briefcase' keys
@@ -50,7 +53,10 @@ export const ICONS = {
   Duplicate: <Copy size={18} />,
   Edit: <Edit size={18} />,
   Delete: <Trash2 size={18} />,
-  Transfer: <ArrowRightLeft size={18} />
+  Transfer: <ArrowRightLeft size={18} />,
+  Check: <Check size={20} />,
+  AlertCircle: <AlertCircle size={20} />,
+  Info: <Info size={20} />
 };
 
 export const formatCurrency = (amount: number) => {
@@ -60,4 +66,22 @@ export const formatCurrency = (amount: number) => {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount).replace('BDT', '৳');
+};
+
+export const getStatusColor = (status: string): string => {
+  const statusMap: Record<string, string> = {
+    'ON_HOLD': 'bg-gray-100 text-gray-600',
+    'PROCESSING': 'bg-blue-100 text-blue-600',
+    'PICKED': 'bg-purple-100 text-purple-600',
+    'COMPLETED': 'bg-green-100 text-green-600',
+    'CANCELLED': 'bg-red-100 text-red-600',
+    'RECEIVED': 'bg-green-100 text-green-600',
+    'On Hold': 'bg-gray-100 text-gray-600',
+    'Processing': 'bg-blue-100 text-blue-600',
+    'Picked': 'bg-purple-100 text-purple-600',
+    'Completed': 'bg-green-100 text-green-600',
+    'Cancelled': 'bg-red-100 text-red-600',
+    'Received': 'bg-green-100 text-green-600',
+  };
+  return statusMap[status] || 'bg-gray-100 text-gray-600';
 };

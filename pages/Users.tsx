@@ -1,16 +1,17 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { User, UserRole } from '../types';
 import { ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
+import { useUsers } from '../src/hooks/useQueries';
 
 const Users: React.FC = () => {
   const navigate = useNavigate();
-  const [users] = useState<User[]>(db.users);
-  const isAdmin = db.currentUser.role === UserRole.ADMIN;
+  const { data: users = [], isPending: loading } = useUsers();
+  const isAdmin = db.currentUser?.role === UserRole.ADMIN;
 
   return (
     <div className="space-y-6">
@@ -84,6 +85,7 @@ const Users: React.FC = () => {
         data={users}
         onRowClick={(user) => navigate(`/users/${user.id}`)}
         emptyMessage="No users found"
+        loading={loading}
       />
     </div>
   );

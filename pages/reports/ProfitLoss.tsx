@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { theme } from '../../theme';
+import { useOrders, useBills, useTransactions } from '../../src/hooks/useQueries';
 
 const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal?: boolean; indent?: boolean }> = ({ label, amount, isBold, isTotal, indent }) => (
   <div className={`flex justify-between py-2 ${isBold ? 'font-bold text-gray-900' : 'text-gray-600'} ${isTotal ? 'border-t-2 border-gray-100 pt-4 mt-2' : ''} ${indent ? 'pl-6' : ''}`}>
@@ -15,13 +16,16 @@ const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal
 
 const ProfitLoss: React.FC = () => {
   const navigate = useNavigate();
+  const { data: orders = [] } = useOrders();
+  const { data: bills = [] } = useBills();
+  const { data: transactions = [] } = useTransactions();
 
   // Mock aggregates for P&L
-  const grossSales = db.orders.reduce((s, o) => s + o.total, 0);
-  const costOfPurchases = db.bills.reduce((s, b) => s + b.total, 0);
+  const grossSales = orders.reduce((s, o) => s + o.total, 0);
+  const costOfPurchases = bills.reduce((s, b) => s + b.total, 0);
   const grossProfit = grossSales - costOfPurchases;
 
-  const expenses = db.transactions.filter(t => t.type === 'Expense' && t.category !== 'Purchases');
+  const expenses = transactions.filter(t => t.type === 'Expense' && t.category !== 'Purchases');
   const totalOperatingExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   
   const netProfit = grossProfit - totalOperatingExpenses;
@@ -44,7 +48,9 @@ const ProfitLoss: React.FC = () => {
 
       <div className="max-w-3xl mx-auto bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-8 bg-gray-50 border-b border-gray-100 text-center">
-          <img src={db.settings.company.logo} className="w-16 h-16 rounded-xl mx-auto mb-4 grayscale opacity-50" />
+          {db.settings.company.logo && (
+            <img src={db.settings.company.logo} className="w-16 h-16 rounded-xl mx-auto mb-4 grayscale opacity-50" />
+          )}
           <h3 className="text-xl font-bold text-gray-900">{db.settings.company.name}</h3>
           <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">For the period ending {new Date().toLocaleDateString('en-BD', { month: 'long', year: 'numeric' })}</p>
         </div>

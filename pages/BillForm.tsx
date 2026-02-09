@@ -1,17 +1,43 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, saveDb } from '../db';
-import { Bill, BillStatus, OrderItem, Vendor } from '../types';
+import { db } from '../db';
+import { Bill, BillStatus, OrderItem, Vendor, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { useVendors, useProducts, useBill } from '../src/hooks/useQueries';
+import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const user = db.currentUser;
   const isEdit = Boolean(id);
 
+  // Safety check
+  if (!user) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Not Authenticated</h2>
+        <p className="text-gray-500 mb-6">Please log in first.</p>
+        <Button onClick={() => navigate('/login')} variant="primary">Back to Login</Button>
+      </div>
+    );
+  }
+
+  // Query data
+  const { data: vendors = [] } = useVendors();
+  const { data: products = [] } = useProducts();
+  const { data: existingBillData, isPending: billLoading, error: billError } = useBill(id);
+  
+  // Mutations
+  const createMutation = useCreateBill();
+  const updateMutation = useUpdateBill();
+  const toast = useToastNotifications();
+
+  // Form state
   const [vendorId, setVendorId] = useState('');
   const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
   const [billNumber, setBillNumber] = useState('');
@@ -26,28 +52,29 @@ const BillForm: React.FC = () => {
   const [showVendorSearch, setShowVendorSearch] = useState(false);
   const [vendorSearchTerm, setVendorSearchTerm] = useState('');
 
-  useEffect(() => {
-    if (isEdit) {
-      const bill = db.bills.find(b => b.id === id);
-      if (bill) {
-        setVendorId(bill.vendorId);
-        setBillDate(bill.billDate);
-        setBillNumber(bill.billNumber);
-        setItems(bill.items);
-        setDiscount(bill.discount);
-        setShipping(bill.shipping);
-        setNotes(bill.notes || '');
-      }
-    } else {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initialize form with existing bill data when loaded
+  React.useEffect(() => {
+    if (existingBillData) {
+      setVendorId(existingBillData.vendorId);
+      setBillDate(existingBillData.billDate);
+      setBillNumber(existingBillData.billNumber);
+      setItems(existingBillData.items);
+      setDiscount(existingBillData.discount);
+      setShipping(existingBillData.shipping);
+      setNotes(existingBillData.notes || '');
+    } else if (!isEdit) {
       setBillNumber(`PUR-${Math.floor(1000 + Math.random() * 9000)}`);
     }
-  }, [id, isEdit]);
+  }, [existingBillData, isEdit]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const total = subtotal - discount + shipping;
 
   const addItem = (productId: string) => {
-    const product = db.products.find(p => p.id === productId);
+    const product = products.find(p => p.id === productId);
     if (!product) return;
 
     const newItem: OrderItem = {
@@ -73,40 +100,74 @@ const BillForm: React.FC = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!vendorId || items.length === 0) {
-      alert('Please select a vendor and add at least one product.');
+      setError('Please select a vendor and add at least one product.');
       return;
     }
 
-    const billData: Bill = {
-      id: isEdit ? id! : Math.random().toString(36).substr(2, 9),
-      billNumber,
-      billDate,
-      vendorId,
-      createdBy: db.currentUser.name,
-      status: isEdit ? db.bills.find(b => b.id === id)?.status || BillStatus.ON_HOLD : BillStatus.ON_HOLD,
-      items,
-      subtotal,
-      discount,
-      shipping,
-      total,
-      notes,
-      paidAmount: isEdit ? db.bills.find(b => b.id === id)?.paidAmount || 0 : 0,
-    };
-
-    if (isEdit) {
-      const idx = db.bills.findIndex(b => b.id === id);
-      db.bills[idx] = billData;
-    } else {
-      db.bills.unshift(billData);
+    if (!user?.id) {
+      setError('User session expired. Please log in again.');
+      return;
     }
 
-    saveDb();
-    navigate('/bills');
+    setSaving(true);
+    setError(null);
+
+    try {
+      const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+      const total = subtotal - discount + shipping;
+      const dateStr = new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+      const timeStr = new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
+
+      const billData = {
+        billNumber,
+        billDate,
+        vendorId,
+        createdBy: user.id,
+        status: isEdit && existingBillData ? existingBillData.status : BillStatus.ON_HOLD,
+        items,
+        subtotal,
+        discount,
+        shipping,
+        total,
+        notes,
+        paidAmount: isEdit && existingBillData ? existingBillData.paidAmount : 0,
+        history: isEdit && existingBillData ? existingBillData.history : {
+          created: `Created by ${user.name} on ${dateStr}, at ${timeStr}`
+        }
+      };
+
+      if (isEdit) {
+        await updateMutation.mutateAsync({ id: id!, updates: billData });
+        toast.success('Bill updated successfully');
+        setSaving(false);
+        navigate('/bills');
+      } else {
+        createMutation.mutateAsync(billData as any).then(
+          (createdBill) => {
+            setSaving(false);
+            toast.success('Bill created successfully');
+            navigate(`/bills/${createdBill.id}`);
+          },
+          (err) => {
+            setSaving(false);
+            const errorMsg = err instanceof Error ? err.message : 'Failed to save bill';
+            setError(errorMsg);
+            toast.error(errorMsg);
+          }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save bill:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to save bill';
+      setError(errorMsg);
+      toast.error(errorMsg);
+      setSaving(false);
+    }
   };
 
-  const selectedVendor = db.vendors.find(v => v.id === vendorId);
+  const selectedVendor = vendors.find(v => v.id === vendorId);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -147,7 +208,7 @@ const BillForm: React.FC = () => {
                     <input autoFocus type="text" placeholder="Search business..." className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" value={vendorSearchTerm} onChange={(e) => setVendorSearchTerm(e.target.value)} />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                    {db.vendors
+                    {vendors
                       .filter(v => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase()) || v.phone.includes(vendorSearchTerm))
                       .map(v => (
                       <button key={v.id} onClick={() => { setVendorId(v.id); setShowVendorSearch(false); setVendorSearchTerm(''); }} className="w-full px-4 py-2.5 text-left hover:bg-[#e6f0ff] rounded-lg group transition-colors">
@@ -189,7 +250,9 @@ const BillForm: React.FC = () => {
                 <tr key={idx} className="group hover:bg-gray-50/50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-4">
-                      <img src={db.products.find(p => p.id === item.productId)?.image || ''} className="w-12 h-12 rounded-xl object-cover border border-gray-100 shadow-sm" />
+                      {products.find(p => p.id === item.productId)?.image && (
+                        <img src={products.find(p => p.id === item.productId)?.image} className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm" />
+                      )}
                       <span className="font-bold text-gray-800 text-sm">{item.productName}</span>
                     </div>
                   </td>
@@ -218,9 +281,11 @@ const BillForm: React.FC = () => {
                           <input autoFocus type="text" placeholder="Search product..." className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                         </div>
                         <div className="max-h-[260px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                          {db.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
+                          {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
                             <button key={p.id} onClick={() => addItem(p.id)} className="flex items-center gap-4 w-full px-4 py-3 text-left hover:bg-[#e6f0ff] rounded-xl group transition-all">
-                              <img src={p.image} className="w-10 h-10 rounded-lg object-cover border border-gray-100 shadow-sm" />
+                              {p.image && (
+                                <img src={p.image} className="w-10 h-10 rounded-full object-cover border border-gray-100 shadow-sm" />
+                              )}
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.secondary[700]} truncate">{p.name}</p>
                                 <p className="text-[10px] font-bold ${theme.colors.secondary[600]}/60 uppercase tracking-widest">Cost: {formatCurrency(p.purchasePrice)}</p>
@@ -252,6 +317,8 @@ const BillForm: React.FC = () => {
               variant="primary"
               size="lg"
               className="w-full mt-4"
+              loading={saving}
+              disabled={saving}
             >
               Save Purchase Bill
             </Button>

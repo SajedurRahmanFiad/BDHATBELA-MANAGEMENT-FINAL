@@ -1,28 +1,39 @@
 
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '../db';
 import { Bill, BillStatus } from '../types';
-import { formatCurrency, ICONS } from '../constants';
+import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
-import { Button, IconButton, Table, TableCell } from '../components';
+import { Button, TableLoadingSkeleton } from '../components';
 import { theme } from '../theme';
+import { useBills, useVendors, useUsers } from '../src/hooks/useQueries';
+import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToastNotifications();
+  const user = db.currentUser;
+  const { data: bills = [], isPending: billsLoading } = useBills();
+  const { data: vendors = [] } = useVendors();
+  const { data: users = [] } = useUsers();
+
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [statusTab, setStatusTab] = useState<BillStatus | 'All'>('All');
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
 
-  const getStatusColor = (status: BillStatus) => {
-    switch (status) {
-      case BillStatus.ON_HOLD: return 'bg-gray-100 text-gray-600';
-      case BillStatus.PROCESSING: return 'bg-[#e6f0ff] ${theme.colors.secondary[600]}';
-      case BillStatus.RECEIVED: return 'bg-green-100 text-green-600';
-      default: return 'bg-gray-100 text-gray-600';
-    }
-  };
+  const createMutation = useCreateBill();
+  const deleteMutation = useDeleteBill();
+
+  // Create a Map for O(1) user lookups instead of O(n) array searching
+  const userMap = useMemo(() => {
+    return new Map(users.map(u => [u.id, u]));
+  }, [users]);
 
   const isWithinRange = (dateStr: string) => {
     if (filterRange === 'All Time') return true;
@@ -45,23 +56,70 @@ const Bills: React.FC = () => {
   };
 
   const filteredBills = useMemo(() => {
-    return db.bills
+    return bills
       .filter(b => isWithinRange(b.billDate))
       .filter(b => statusTab === 'All' || b.status === statusTab);
-  }, [filterRange, customDates, statusTab]);
+  }, [bills, filterRange, customDates, statusTab]);
 
-  const handleDuplicate = (bill: Bill) => {
-    const newBill: Bill = {
-      ...bill,
-      id: Math.random().toString(36).substr(2, 9),
-      billNumber: `PUR-${Math.floor(Math.random() * 10000)}`,
-      billDate: new Date().toISOString().split('T')[0],
-      status: BillStatus.ON_HOLD,
-      paidAmount: 0,
-    };
-    db.bills.unshift(newBill);
-    saveDb();
-    navigate(0);
+  // Helper to get creator name from createdBy field or history
+  const getCreatorName = (bill: Bill) => {
+    // First try to lookup from createdBy database field using O(1) Map lookup
+    if (bill.createdBy?.trim()) {
+      const user = userMap.get(bill.createdBy);
+      if (user?.name) return user.name;
+    }
+    
+    // Fallback: extract from history for older records
+    if (bill.history?.created) {
+      // Bills history format: "Created by {name} on ..."
+      const match = bill.history.created.match(/Created by\s+(.+?)\s+on/);
+      if (match && match[1]) return match[1];
+    }
+    
+    return null;
+  };
+
+  const handleDuplicate = async (bill: Bill) => {
+    try {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
+      
+      const newBillData: Omit<Bill, 'id'> = {
+        billNumber: `PUR-${Math.floor(1000 + Math.random() * 9000)}`,
+        billDate: new Date().toISOString().split('T')[0],
+        vendorId: bill.vendorId,
+        createdBy: user?.id || bill.createdBy,
+        status: BillStatus.ON_HOLD,
+        items: bill.items,
+        subtotal: bill.subtotal,
+        discount: bill.discount,
+        shipping: bill.shipping,
+        total: bill.total,
+        paidAmount: 0,
+        notes: bill.notes,
+        history: {
+          created: `Created as duplicate on ${dateStr}, at ${timeStr}`
+        }
+      };
+
+      await createMutation.mutateAsync(newBillData as any);
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+    } catch (error) {
+      console.error('Failed to duplicate bill:', error);
+      toast.error('Failed to duplicate bill');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this bill?')) return;
+    try {
+      await deleteMutation.mutateAsync(id);
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+    } catch (error) {
+      console.error('Failed to delete bill:', error);
+      toast.error('Failed to delete bill');
+    }
   };
 
   return (
@@ -93,83 +151,81 @@ const Bills: React.FC = () => {
       />
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
-        <div className="overflow-x-auto">
-          <Table
-            columns={[
-              {
-                key: 'billNumber',
-                label: 'Bill Number',
-                render: (billNumber, bill) => (
-                  <>
-                    <span className="font-black text-gray-900">#{billNumber}</span>
+        <div className="overflow-x-auto overflow-y-visible">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Bill Details</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Vendor</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Created By</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Status</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-right">Net Amount</th>
+                <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] sm:hidden">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {billsLoading ? (
+                <TableLoadingSkeleton columns={6} rows={8} />
+              ) : filteredBills.length === 0 ? (
+                <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No purchase bills found for this period.</td></tr>
+              ) : filteredBills.map((bill) => (
+                <tr 
+                  key={bill.id} 
+                  onMouseEnter={() => setHoveredRow(bill.id)} 
+                  onMouseLeave={() => setHoveredRow(null)} 
+                  onClick={() => navigate(`/bills/${bill.id}`)} 
+                  className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
+                >
+                  <td className="px-6 py-5">
+                    <span className="font-black text-gray-900">#{bill.billNumber}</span>
                     <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{bill.billDate}</p>
-                  </>
-                ),
-              },
-              {
-                key: 'vendorId',
-                label: 'Vendor',
-                render: (vendorId) => (
-                  <span className="text-sm font-bold text-gray-700">
-                    {db.vendors.find(v => v.id === vendorId)?.name || 'Unknown Vendor'}
-                  </span>
-                ),
-              },
-              {
-                key: 'createdBy',
-                label: 'Created By',
-                render: (createdBy) => <span className="text-xs font-bold text-gray-500">{createdBy}</span>,
-              },
-              {
-                key: 'status',
-                label: 'Status',
-                render: (status) => (
-                  <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(status)}`}>
-                    {status}
-                  </span>
-                ),
-              },
-              {
-                key: 'total',
-                label: 'Amount',
-                align: 'right',
-                render: (total) => (
-                  <span className="font-black text-gray-900 text-base">{formatCurrency(total)}</span>
-                ),
-              },
-              {
-                key: 'id',
-                label: 'Actions',
-                align: 'right',
-                render: (billId) => (
-                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    <IconButton
-                      icon={ICONS.Edit}
-                      variant="primary"
-                      title="Edit"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/bills/edit/${billId}`);
-                      }}
-                    />
-                    <IconButton
-                      icon={ICONS.Duplicate}
-                      variant="primary"
-                      title="Duplicate"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const bill = filteredBills.find(b => b.id === billId);
-                        if (bill) handleDuplicate(bill);
-                      }}
-                    />
-                  </div>
-                ),
-              },
-            ]}
-            data={filteredBills}
-            onRowClick={(bill) => navigate(`/bills/${bill.id}`)}
-            emptyMessage="No purchase bills found for this criteria."
-          />
+                  </td>
+                  <td className="px-6 py-5">
+                    <span className="text-sm font-bold text-gray-700">{vendors.find(v => v.id === bill.vendorId)?.name || 'Unknown Vendor'}</span>
+                  </td>
+                  <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(bill) || '—'}</td>
+                  <td className="px-6 py-5">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(bill.status)}`}>{bill.status}</span>
+                  </td>
+                  <td className="px-6 py-5 text-right">
+                    <span className="font-black text-gray-900 text-base">{formatCurrency(bill.total)}</span>
+                  </td>
+
+                  {/* Mobile Actions Dropdown */}
+                  <td className="px-6 py-5 sm:hidden relative" onClick={e => e.stopPropagation()}>
+                    <div className="relative">
+                      <button 
+                        onClick={() => setOpenActionsMenu(openActionsMenu === bill.id ? null : bill.id)}
+                        className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
+                      >
+                        {ICONS.More}
+                      </button>
+                      {openActionsMenu === bill.id && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-2">
+                          <button onClick={() => { navigate(`/bills/edit/${bill.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                          <button onClick={() => { handleDuplicate(bill); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
+                          <div className="border-t my-1"></div>
+                          <button onClick={() => { handleDelete(bill.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Desktop Hover Actions */}
+                  {hoveredRow === bill.id && (
+                    <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
+                        <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                        <button onClick={() => handleDuplicate(bill)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
+                        <div className="h-5 w-px bg-gray-100 mx-1"></div>
+                        <button onClick={() => handleDelete(bill.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

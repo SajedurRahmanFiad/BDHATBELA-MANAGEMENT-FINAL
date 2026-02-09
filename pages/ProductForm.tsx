@@ -1,16 +1,29 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { db } from '../db';
 import { Product, UserRole } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { useProduct, useCategories } from '../src/hooks/useQueries';
+import { useCreateProduct, useUpdateProduct } from '../src/hooks/useMutations';
 
 const ProductForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const isEdit = Boolean(id);
   const user = db.currentUser;
+
+  // Safety check
+  if (!user) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Not Authenticated</h2>
+        <p className="text-gray-500 mb-6">Please log in first.</p>
+        <Button onClick={() => navigate('/login')} variant="primary">Back to Login</Button>
+      </div>
+    );
+  }
 
   // Restrict employees from editing products
   if (isEdit && user.role === UserRole.EMPLOYEE) {
@@ -23,6 +36,15 @@ const ProductForm: React.FC = () => {
     );
   }
 
+  // Query data
+  const { data: existingProduct } = useProduct(isEdit ? id : undefined);
+  const { data: categories = [], isPending: loadingCategories } = useCategories('Product');
+  
+  // Mutations
+  const createMutation = useCreateProduct();
+  const updateMutation = useUpdateProduct();
+
+  // Form state
   const [form, setForm] = useState<Partial<Product>>({
     name: '',
     category: '',
@@ -30,13 +52,15 @@ const ProductForm: React.FC = () => {
     salePrice: 0,
     purchasePrice: 0
   });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isEdit) {
-      const product = db.products.find(p => p.id === id);
-      if (product) setForm(product);
+  // Initialize form with existing product data when loaded
+  React.useEffect(() => {
+    if (existingProduct) {
+      setForm(existingProduct);
     }
-  }, [id, isEdit]);
+  }, [existingProduct]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,33 +73,45 @@ const ProductForm: React.FC = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name || !form.category) {
-      alert('Please fill name and category');
+      setError('Name and category are required');
       return;
     }
 
-    const productData: Product = {
-      id: isEdit ? id! : Math.random().toString(36).substr(2, 9),
-      name: form.name || '',
-      category: form.category || '',
-      image: form.image || 'https://picsum.photos/200/200?random=' + Math.random(),
-      salePrice: form.salePrice || 0,
-      purchasePrice: form.purchasePrice || 0
-    };
+    setSaving(true);
+    setError(null);
 
-    if (isEdit) {
-      const idx = db.products.findIndex(p => p.id === id);
-      db.products[idx] = productData;
-    } else {
-      db.products.push(productData);
+    try {
+      const productData: Omit<Product, 'id'> = {
+        name: form.name || '',
+        category: form.category || '',
+        image: form.image || 'https://picsum.photos/200/200?random=' + Math.random(),
+        salePrice: form.salePrice || 0,
+        purchasePrice: form.purchasePrice || 0
+      };
+
+      if (isEdit) {
+        await updateMutation.mutateAsync({ id: id!, updates: productData });
+        navigate('/products');
+      } else {
+        // Trigger mutation and navigate immediately (don't wait for background tasks)
+        createMutation.mutateAsync(productData as any).then(
+          () => {
+            navigate('/products');
+          },
+          (err) => {
+            setSaving(false);
+            setError(err instanceof Error ? err.message : 'Failed to create product');
+          }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save product:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save product');
+      setSaving(false);
     }
-
-    saveDb();
-    navigate('/products');
   };
-
-  const productCategories = db.settings.categories.filter(c => c.type === 'Product');
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -104,9 +140,10 @@ const ProductForm: React.FC = () => {
               className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-emerald-500"
               value={form.category}
               onChange={e => setForm({...form, category: e.target.value})}
+              disabled={loadingCategories}
             >
-              <option value="">Select Category...</option>
-              {productCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              <option value="">{loadingCategories ? 'Loading...' : 'Select Category...'}</option>
+              {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
           </div>
         </div>
@@ -144,7 +181,7 @@ const ProductForm: React.FC = () => {
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Sale Price (BDT)</label>
             <input 
               type="number" 
-              className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] ${theme.colors.primary[600]} font-bold`}
+              className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] font-bold`}
               value={form.salePrice}
               onChange={e => setForm({...form, salePrice: parseFloat(e.target.value) || 0})}
             />
@@ -160,14 +197,20 @@ const ProductForm: React.FC = () => {
           </div>
         </div>
 
-        <div className="pt-6">
+<div className="pt-6 space-y-4">
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm font-bold text-red-600">{error}</p>
+            </div>
+          )}
           <Button 
             onClick={handleSave}
             variant="primary"
             size="lg"
             className="w-full"
+            disabled={saving}
           >
-            {isEdit ? 'Update Product Item' : 'Create Product Item'}
+            {saving ? 'Saving...' : isEdit ? 'Update Product Item' : 'Create Product Item'}
           </Button>
         </div>
       </div>

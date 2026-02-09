@@ -1,15 +1,34 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { Product, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
+import { useProducts } from '../src/hooks/useQueries';
+import { useDeleteProduct } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const Products: React.FC = () => {
   const navigate = useNavigate();
-  const [products] = useState<Product[]>(db.products);
+  const queryClient = useQueryClient();
+  const toast = useToastNotifications();
+  const { data: products = [], isPending } = useProducts();
+  const deleteProductMutation = useDeleteProduct();
+
+  const handleDelete = async (productId: string) => {
+    if (!confirm('Are you sure you want to delete this product?')) return;
+    try {
+      await deleteProductMutation.mutateAsync(productId);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success('Product deleted successfully');
+    } catch (err) {
+      console.error('Failed to delete product:', err);
+      toast.error('Failed to delete product');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -38,11 +57,10 @@ const Products: React.FC = () => {
                 <img
                   src={product.image || 'https://via.placeholder.com/100'}
                   alt={product.name}
-                  className="w-12 h-12 rounded-xl object-cover border border-gray-100 shadow-sm"
+                  className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm"
                 />
                 <div>
                   <p className="font-bold text-gray-900">{product.name}</p>
-                  <p className="text-[10px] text-gray-400 font-mono">ID: {product.id}</p>
                 </div>
               </div>
             ),
@@ -51,23 +69,26 @@ const Products: React.FC = () => {
             key: 'category',
             label: 'Category',
             render: (category) => (
-              <span className={`px-2.5 py-1 bg-[#ebf4ff] ${theme.colors.primary[600]} rounded-lg text-[10px] font-black uppercase tracking-widest`}>
+              <span className={`px-2.5 py-1 bg-[#ebf4ff] rounded-lg text-[10px] font-black uppercase tracking-widest`}>
                 {category}
               </span>
             ),
           },
           {
             key: 'salePrice',
-            label: 'Sale & Purchase Price',
+            label: (
+              <>
+                Sale Price<br />
+                Purchase Price
+              </>
+            ),
             render: (salePrice, product) => (
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-gray-400 w-8">SALE</span>
-                  <span className={`text-sm font-bold ${theme.colors.primary[600]}`}>{formatCurrency(product.salePrice)}</span>
+                  <span className={`text-sm font-bold`}>{formatCurrency(product.salePrice)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-gray-400 w-8">PURCH</span>
-                  <span className="text-sm font-bold text-gray-600">{formatCurrency(product.purchasePrice)}</span>
+                  <span className="text-[11px] font-bold text-gray-600">{formatCurrency(product.purchasePrice)}</span>
                 </div>
               </div>
             ),
@@ -79,20 +100,32 @@ const Products: React.FC = () => {
             render: (productId) => {
               const isAdmin = db.currentUser.role === UserRole.ADMIN;
               return isAdmin ? (
-                <IconButton
-                  icon={ICONS.Edit}
-                  variant="primary"
-                  title="Edit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/products/edit/${productId}`);
-                  }}
-                />
+                <div className="justify-end flex items-center gap-2">
+                  <IconButton
+                    icon={ICONS.Edit}
+                    variant="primary"
+                    title="Edit"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/products/edit/${productId}`);
+                    }}
+                  />
+                  <IconButton
+                    icon={ICONS.Delete}
+                    variant="danger"
+                    title="Delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(productId);
+                    }}
+                  />
+                </div>
               ) : null;
             },
           },
         ]}
         data={products}
+        loading={isPending}
         emptyMessage="No products found"
       />
     </div>

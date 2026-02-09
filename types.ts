@@ -15,7 +15,8 @@ export enum OrderStatus {
 export enum BillStatus {
   ON_HOLD = 'On Hold',
   PROCESSING = 'Processing',
-  RECEIVED = 'Received'
+  RECEIVED = 'Received',
+  PAID = 'Paid'
 }
 
 export interface User {
@@ -25,6 +26,7 @@ export interface User {
   role: UserRole;
   image?: string;
   password?: string;
+  createdAt?: string;
 }
 
 export interface Customer {
@@ -83,6 +85,9 @@ export interface Order {
     payment?: string;
   };
   paidAmount: number;
+  processedAt?: string; // ISO timestamp when marked processing
+  completedAt?: string; // ISO timestamp when marked completed
+  paidAt?: string; // ISO timestamp when payment received
 }
 
 export interface Bill {
@@ -98,7 +103,16 @@ export interface Bill {
   shipping: number;
   total: number;
   notes?: string;
+  history?: {
+    created?: string;
+    processing?: string;
+    received?: string;
+    paid?: string;
+  };
   paidAmount: number;
+  processedAt?: string; // ISO timestamp when marked processing
+  receivedAt?: string; // ISO timestamp when marked received
+  paidAt?: string; // ISO timestamp when payment received
 }
 
 export interface Account {
@@ -123,6 +137,10 @@ export interface Transaction {
   paymentMethod: string;
   attachmentName?: string;
   attachmentUrl?: string;
+  createdBy: string; // User ID who created this transaction
+  history?: {
+    created?: string;
+  };
 }
 
 export interface Settings {

@@ -1,15 +1,33 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { useQueryClient } from '@tanstack/react-query';
 import { Customer } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-import { Button, Table, TableCell, IconButton } from '../components';
+import { Button, Table, TableCell, IconButton, TableLoadingSkeleton } from '../components';
 import { theme } from '../theme';
+import { useCustomers } from '../src/hooks/useQueries';
+import { useDeleteCustomer } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const Customers: React.FC = () => {
   const navigate = useNavigate();
-  const [customers] = useState<Customer[]>(db.customers);
+  const queryClient = useQueryClient();
+  const toast = useToastNotifications();
+  const { data: customers = [], isPending, error } = useCustomers();
+  const deleteCustomerMutation = useDeleteCustomer();
+
+  const handleDelete = async (customerId: string) => {
+    if (!confirm('Are you sure you want to delete this customer?')) return;
+    try {
+      await deleteCustomerMutation.mutateAsync(customerId);
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toast.success('Customer deleted successfully');
+    } catch (err) {
+      console.error('Failed to delete customer:', err);
+      toast.error('Failed to delete customer');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -27,6 +45,12 @@ const Customers: React.FC = () => {
           New Customer
         </Button>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800"><strong>Error loading customers:</strong> {error}</p>
+        </div>
+      )}
 
       <Table
         columns={[
@@ -75,19 +99,31 @@ const Customers: React.FC = () => {
             label: 'Actions',
             align: 'right',
             render: (customerId) => (
-              <IconButton
-                icon={ICONS.Edit}
-                variant="primary"
-                title="Edit"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/customers/edit/${customerId}`);
-                }}
-              />
+              <div className="justify-end flex items-center gap-2">
+                <IconButton
+                  icon={ICONS.Edit}
+                  variant="primary"
+                  title="Edit"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/customers/edit/${customerId}`);
+                  }}
+                />
+                <IconButton
+                  icon={ICONS.Delete}
+                  variant="danger"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(customerId);
+                  }}
+                />
+              </div>
             ),
           },
         ]}
         data={customers}
+        loading={isPending}
         onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
         emptyMessage="No customers found"
       />

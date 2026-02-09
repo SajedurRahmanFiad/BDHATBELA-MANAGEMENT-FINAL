@@ -1,24 +1,38 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { db } from '../db';
 import { Transaction } from '../types';
 import { ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults } from '../src/hooks/useQueries';
+import { useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const TransactionForm: React.FC = () => {
   const { type } = useParams<{ type: string }>();
   const navigate = useNavigate();
+  const user = db.currentUser;
   const isIncome = type === 'income';
+
+  const { data: accounts = [] } = useAccounts();
+  const { data: systemDefaults } = useSystemDefaults();
+  const { data: paymentMethods = [] } = usePaymentMethods();
+  const { data: allCategories = [] } = useCategories();
+  const createTransactionMutation = useCreateTransaction();
+  const updateAccountMutation = useUpdateAccount();
+  const toast = useToastNotifications();
+
+  const categories = useMemo(() => allCategories.filter(c => c.type === (isIncome ? 'Income' : 'Expense')), [allCategories, isIncome]);
 
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-    accountId: db.settings.defaults.accountId || db.accounts[0]?.id || '',
+    paymentMethod: systemDefaults?.paymentMethod || 'Cash',
+    accountId: systemDefaults?.accountId || accounts[0]?.id || '',
     amount: 0,
     description: '',
-    category: isIncome ? db.settings.defaults.incomeCategoryId : db.settings.defaults.expenseCategoryId,
+    category: isIncome ? (systemDefaults?.incomeCategoryId || '') : (systemDefaults?.expenseCategoryId || ''),
     attachmentName: '',
     attachmentUrl: ''
   });
@@ -34,37 +48,64 @@ const TransactionForm: React.FC = () => {
     }
   };
 
-  const handleSave = () => {
-    if (!form.amount || !form.accountId || !form.category) {
-      alert('Please fill in all mandatory fields.');
+  const isLoading = createTransactionMutation.isPending || updateAccountMutation.isPending;
+
+  const handleSave = async () => {
+    // Validate mandatory fields
+    if (form.amount <= 0) {
+      toast.warning('Amount must be greater than 0');
+      return;
+    }
+    if (!form.accountId) {
+      toast.warning('Please select an account');
+      return;
+    }
+    if (!form.category) {
+      toast.warning('Please select a category');
       return;
     }
 
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: isIncome ? 'Income' : 'Expense',
-      date: form.date,
-      paymentMethod: form.paymentMethod,
-      accountId: form.accountId,
-      amount: form.amount,
-      description: form.description,
-      category: form.category,
-      attachmentName: form.attachmentName,
-      attachmentUrl: form.attachmentUrl
-    };
-
-    const account = db.accounts.find(a => a.id === form.accountId);
-    if (account) {
-      if (isIncome) account.currentBalance += form.amount;
-      else account.currentBalance -= form.amount;
+    if (!user?.id) {
+      toast.warning('User session expired. Please log in again.');
+      return;
     }
 
-    db.transactions.unshift(transaction);
-    saveDb();
-    navigate('/transactions');
-  };
+    try {
+      const dateObj = new Date(form.date);
+      const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  const categories = db.settings.categories.filter(c => c.type === (isIncome ? 'Income' : 'Expense'));
+      const transaction: Omit<Transaction, 'id'> = {
+        type: isIncome ? 'Income' : 'Expense',
+        date: form.date,
+        paymentMethod: form.paymentMethod,
+        accountId: form.accountId,
+        amount: form.amount,
+        description: form.description,
+        category: form.category,
+        attachmentName: form.attachmentName,
+        attachmentUrl: form.attachmentUrl,
+        createdBy: user.id,
+        history: {
+          created: `Created by ${user.name} on ${dateStr}`
+        }
+      };
+
+      // Create transaction in Supabase
+      await createTransactionMutation.mutateAsync(transaction);
+
+      // Update account balance in Supabase
+      const account = accounts.find(a => a.id === form.accountId);
+      if (account) {
+        const newBalance = isIncome ? account.currentBalance + form.amount : account.currentBalance - form.amount;
+        await updateAccountMutation.mutateAsync({ id: form.accountId, updates: { currentBalance: newBalance } });
+      }
+
+      navigate('/transactions');
+    } catch (err) {
+      console.error('Failed to save transaction:', err);
+      toast.error('Failed to save transaction: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
@@ -109,7 +150,7 @@ const TransactionForm: React.FC = () => {
               value={form.accountId}
               onChange={e => setForm({...form, accountId: e.target.value})}
             >
-              {db.accounts.map(acc => (
+              {accounts.map(acc => (
                 <option key={acc.id} value={acc.id}>{acc.name}</option>
               ))}
             </select>
@@ -121,6 +162,7 @@ const TransactionForm: React.FC = () => {
               value={form.category}
               onChange={e => setForm({...form, category: e.target.value})}
             >
+              <option value="">-- Select a category --</option>
               {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
@@ -136,7 +178,7 @@ const TransactionForm: React.FC = () => {
               value={form.paymentMethod}
               onChange={e => setForm({...form, paymentMethod: e.target.value})}
             >
-              {db.settings.paymentMethods.map(pm => (
+              {paymentMethods.map(pm => (
                 <option key={pm.id} value={pm.name}>{pm.name}</option>
               ))}
             </select>
@@ -175,9 +217,11 @@ const TransactionForm: React.FC = () => {
 
         <Button 
           onClick={handleSave}
-          variant={isIncome ? "success" : "danger"}
+          variant={isIncome ? "primary" : "danger"}
           size="lg"
           className="w-full"
+          disabled={isLoading}
+          loading={isLoading}
         >
           Finalize {isIncome ? 'Income' : 'Expense'}
         </Button>

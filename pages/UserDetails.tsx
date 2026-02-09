@@ -1,19 +1,42 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { UserRole } from '../types';
 import { ICONS } from '../constants';
 import { theme } from '../theme';
+import { useUser } from '../src/hooks/useQueries';
+import { useDeleteUser } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const UserDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const user = db.users.find(u => u.id === id);
   const currentUser = db.currentUser;
-  const canEdit = currentUser.role === UserRole.ADMIN || currentUser.id === id;
+  const { data: user, isPending: loading, error } = useUser(id);
+  const deleteUserMutation = useDeleteUser();
+  const toast = useToastNotifications();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  if (!user) return <div className="p-8 text-center text-gray-500">User not found.</div>;
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading user...</div>;
+  if (error || !user) return <div className="p-8 text-center text-gray-500">{error?.message || 'User not found.'}</div>;
+
+  const canEdit = currentUser.role === UserRole.ADMIN || currentUser.id === id;
+  const isAdmin = currentUser.role === UserRole.ADMIN;
+
+  const handleDelete = async () => {
+    if (!id) return;
+    try {
+      await deleteUserMutation.mutateAsync(id);
+      toast.success('User deleted successfully!');
+      navigate('/users');
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+      toast.error('Failed to delete user: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setShowDeleteConfirm(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -24,14 +47,25 @@ const UserDetails: React.FC = () => {
           </button>
           <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
         </div>
-        {canEdit && (
-          <button 
-            onClick={() => navigate(`/users/edit/${user.id}`)}
-            className={`px-6 py-2 ${theme.colors.primary[600]} text-white rounded-xl font-bold hover:${theme.colors.primary[700]} shadow-md flex items-center gap-2`}
-          >
-            {ICONS.Edit} Edit Profile
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <button 
+              onClick={() => navigate(`/users/edit/${user.id}`)}
+              className={`px-6 py-2 ${theme.colors.primary[600]} text-white rounded-xl font-bold hover:${theme.colors.primary[700]} shadow-md flex items-center gap-2`}
+            >
+              {ICONS.Edit} Edit Profile
+            </button>
+          )}
+          {isAdmin && (
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteUserMutation.isPending}
+              className="px-6 py-2 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Delete User
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -41,7 +75,7 @@ const UserDetails: React.FC = () => {
             <div className="p-1 bg-white rounded-full shadow-xl">
               <img 
                 src={user.image || 'https://picsum.photos/200/200?random=' + user.id} 
-                className="w-24 h-24 rounded-full object-cover border-4 border-white" 
+                className="w-24 h-24 rounded-full object-cover border-1 border-black" 
               />
             </div>
             <span className={`px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest ${
@@ -62,8 +96,8 @@ const UserDetails: React.FC = () => {
                 <p className="text-lg font-medium text-gray-700">{user.phone}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">User ID</p>
-                <code className={`text-sm bg-gray-50 px-2 py-1 rounded`}>{user.id}</code>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Joining Date</p>
+                <p className="text-lg font-medium text-gray-700">{user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-BD', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}</p>
               </div>
             </div>
             <div className="bg-gray-50 p-6 rounded-lg space-y-4">
@@ -77,6 +111,35 @@ const UserDetails: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Delete User?</h3>
+              <p className="text-gray-600 text-sm">
+                Are you sure you want to delete <strong>{user.name}</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleteUserMutation.isPending}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleDelete}
+                disabled={deleteUserMutation.isPending}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleteUserMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

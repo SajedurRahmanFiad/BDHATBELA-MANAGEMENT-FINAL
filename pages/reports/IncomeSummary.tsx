@@ -6,10 +6,14 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { theme } from '../../theme';
+import { useTransactions, useCustomers } from '../../src/hooks/useQueries';
 
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
-  const income = db.transactions.filter(t => t.type === 'Income');
+  const { data: transactions = [] } = useTransactions();
+  const { data: customers = [] } = useCustomers();
+  
+  const income = transactions.filter(t => t.type === 'Income');
   
   const categoryDataMap: Record<string, number> = {};
   income.forEach(e => {
@@ -77,7 +81,7 @@ const IncomeSummary: React.FC = () => {
           <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
             <h3 className="font-bold text-gray-800 mb-4">Top Customers</h3>
             <div className="space-y-4">
-              {db.customers.slice(0, 3).map((c, i) => (
+              {customers.slice(0, 3).map((c, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>

@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import { theme } from '../theme';
+import TableLoadingSkeleton from './TableLoadingSkeleton';
 
 /**
  * Column definition for tables
@@ -24,6 +25,8 @@ interface TableProps {
   hover?: boolean;
   striped?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  loading?: boolean;
+  loadingRows?: number;
 }
 
 export const Table: React.FC<TableProps> = ({
@@ -35,6 +38,8 @@ export const Table: React.FC<TableProps> = ({
   hover = true,
   striped = false,
   size = 'md',
+  loading = false,
+  loadingRows = 8,
 }) => {
   const cellPadding = {
     sm: 'px-4 py-3',
@@ -69,7 +74,9 @@ export const Table: React.FC<TableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {data.length === 0 ? (
+            {loading ? (
+              <TableLoadingSkeleton columns={columns.length} rows={loadingRows} />
+            ) : data.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length}

@@ -76,19 +76,6 @@ const Reports: React.FC = () => {
           <ReportCard key={i} {...report} />
         ))}
       </div>
-
-      <div className={`${theme.colors.primary[600]} rounded-xl p-8 text-white relative overflow-hidden shadow-xl shadow-[#0f2f57]/20`}>
-        <div className="relative z-10 max-w-lg">
-          <h3 className="text-xl font-bold mb-2">Need a custom audit?</h3>
-          <p className="text-[#c7dff5] text-sm leading-relaxed mb-6">Our reporting engine allows you to filter transactions by dates, accounts, and tags for granular data analysis.</p>
-          <Button className="bg-white text-[#0f2f57]" icon={ICONS.Settings}>
-            Contact Support
-          </Button>
-        </div>
-        <div className="absolute right-0 bottom-0 opacity-10 p-4 transform translate-x-1/4 translate-y-1/4">
-          <div className="w-64 h-64 border-[32px] border-white rounded-full"></div>
-        </div>
-      </div>
     </div>
   );
 };

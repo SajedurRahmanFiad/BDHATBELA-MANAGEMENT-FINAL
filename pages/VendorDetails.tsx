@@ -1,20 +1,22 @@
 
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
 import { Bill, BillStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
+import { useVendor, useBills } from '../src/hooks/useQueries';
 
 const VendorDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const vendor = db.vendors.find(v => v.id === id);
+  const { data: vendor, isPending: loading } = useVendor(id || '');
+  const { data: allBills = [] } = useBills();
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading vendor details...</div>;
   if (!vendor) return <div className="p-8 text-center text-gray-500">Vendor not found.</div>;
 
-  const vendorBills = db.bills.filter(b => b.vendorId === vendor.id);
+  const vendorBills = allBills.filter(b => b.vendorId === vendor.id);
 
   const getStatusColor = (status: BillStatus) => {
     switch (status) {
@@ -62,12 +64,9 @@ const VendorDetails: React.FC = () => {
             </div>
           </div>
 
-          <div className={`${theme.colors.primary[600]} p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20 text-white`}>
-            <p className="text-[#c7dff5] text-xs font-bold uppercase tracking-wider mb-1">Total Payable</p>
-            <h4 className="text-3xl font-black">{formatCurrency(vendor.dueAmount)}</h4>
-            <button className="w-full mt-6 py-2 bg-white/20 hover:bg-white/30 rounded-xl font-bold text-sm transition-all">
-              Make Payment
-            </button>
+          <div className={`bg-white p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20 text-white`}>
+            <p className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Total Payable</p>
+            <h4 className="text-lg font-black text-red-600">{formatCurrency(vendor.dueAmount)}</h4>
           </div>
         </div>
 

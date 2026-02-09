@@ -1,19 +1,26 @@
 
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '../db';
 import { Order, OrderStatus, UserRole, Transaction } from '../types';
-import { formatCurrency, ICONS } from '../constants';
+import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
-import { Button } from '../components';
+import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
+import { useOrders, useCustomers, useAccounts, useUsers } from '../src/hooks/useQueries';
+import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
+import { handlePrintOrder } from '../src/utils/printUtils';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToastNotifications();
   const user = db.currentUser;
-  const isAdmin = user.role === UserRole.ADMIN;
-  const isEmployee = user.role === UserRole.EMPLOYEE;
-  
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isEmployee = user?.role === UserRole.EMPLOYEE;
+
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
@@ -21,22 +28,29 @@ const Orders: React.FC = () => {
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
 
   const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
+  const [showSteadfast, setShowSteadfast] = useState<string | null>(null); // Order ID for Steadfast modal
+  const [showCarryBee, setShowCarryBee] = useState<string | null>(null); // Order ID for CarryBee modal
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    accountId: db.settings.defaults.accountId || db.accounts[0]?.id || '',
+    accountId: '',
     amount: 0
   });
 
-  const getStatusColor = (status: OrderStatus) => {
-    switch (status) {
-      case OrderStatus.ON_HOLD: return 'bg-gray-100 text-gray-600';
-      case OrderStatus.PROCESSING: return `bg-[#e6f0ff] ${theme.colors.secondary[600]}`;
-      case OrderStatus.PICKED: return 'bg-purple-100 text-purple-600';
-      case OrderStatus.COMPLETED: return 'bg-green-100 text-green-600';
-      case OrderStatus.CANCELLED: return 'bg-red-100 text-red-600';
-      default: return 'bg-gray-100 text-gray-600';
-    }
-  };
+  const { data: orders = [], isPending: ordersLoading } = useOrders();
+  const { data: customers = [] } = useCustomers();
+  const { data: accounts = [] } = useAccounts();
+  const { data: users = [] } = useUsers();
+
+  const createOrderMutation = useCreateOrder();
+  const deleteOrderMutation = useDeleteOrder();
+  const updateOrderMutation = useUpdateOrder();
+  const createTransactionMutation = useCreateTransaction();
+  const updateAccountMutation = useUpdateAccount();
+
+  // Create a Map for O(1) user lookups instead of O(n) array searching
+  const userMap = useMemo(() => {
+    return new Map(users.map(u => [u.id, u]));
+  }, [users]);
 
   const isWithinRange = (dateStr: string) => {
     if (filterRange === 'All Time') return true;
@@ -59,64 +73,159 @@ const Orders: React.FC = () => {
   };
 
   const filteredOrders = useMemo(() => {
-    return db.orders
+    return orders
       .filter(o => isWithinRange(o.orderDate))
       .filter(o => statusTab === 'All' || o.status === statusTab);
-  }, [filterRange, customDates, statusTab]);
+  }, [orders, filterRange, customDates, statusTab]);
 
-  const handleDuplicate = (order: Order) => {
-    const newOrder: Order = {
-      ...order,
-      id: Math.random().toString(36).substr(2, 9),
-      orderNumber: `${db.settings.order.prefix}${db.settings.order.nextNumber}`,
-      orderDate: new Date().toISOString().split('T')[0],
-      status: OrderStatus.ON_HOLD,
-      paidAmount: 0,
-      history: { created: `${db.currentUser.name} created this order on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}` }
-    };
-    db.settings.order.nextNumber += 1;
-    db.orders.unshift(newOrder);
-    saveDb();
-    navigate(0);
+  // Helper to get creator name from createdBy field or history
+  const getCreatorName = (order: Order) => {
+    // First try to lookup from createdBy database field using O(1) Map lookup
+    if (order.createdBy?.trim()) {
+      const user = userMap.get(order.createdBy);
+      if (user?.name) return user.name;
+    }
+    
+    // Fallback: extract from history for older records
+    if (order.history?.created) {
+      // Orders history format: "{name} created this order on ..."
+      const match = order.history.created.match(/^(.+?)\s+created this order on/);
+      if (match && match[1]) return match[1];
+    }
+    
+    return null;
   };
 
-  const handleDelete = (id: string) => {
+  const handleDuplicate = async (order: Order) => {
+    const newOrder: Omit<Order, 'id'> = {
+      orderNumber: order.orderNumber,
+      orderDate: new Date().toISOString().split('T')[0],
+      customerId: order.customerId,
+      createdBy: user?.id || order.createdBy,
+      status: OrderStatus.ON_HOLD,
+      items: order.items,
+      subtotal: order.subtotal,
+      discount: order.discount,
+      shipping: order.shipping,
+      total: order.total,
+      paidAmount: 0,
+      history: order.history,
+    };
+    try {
+      await createOrderMutation.mutateAsync(newOrder);
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    } catch (err) {
+      console.error('Failed to duplicate order', err);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this order?')) return;
-    db.orders = db.orders.filter(o => o.id !== id);
-    saveDb();
-    navigate(0);
+    try {
+      await deleteOrderMutation.mutateAsync(id);
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    } catch (err) {
+      console.error('Failed to delete order', err);
+    }
   };
 
   const openPaymentModal = (order: Order) => {
-    setPaymentForm({ ...paymentForm, amount: order.total - order.paidAmount });
+    setPaymentForm({
+      date: new Date().toISOString().split('T')[0],
+      accountId: '',
+      amount: order.total - order.paidAmount
+    });
     setShowPaymentModal(order);
   };
 
-  const handleAddPayment = () => {
+  const handleAddPayment = async () => {
     if (!showPaymentModal) return;
     const order = showPaymentModal;
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      date: paymentForm.date,
-      type: 'Income',
-      category: 'Sales',
-      accountId: paymentForm.accountId,
-      amount: paymentForm.amount,
-      description: `Payment for Order #${order.orderNumber}`,
-      referenceId: order.id,
-      contactId: order.customerId,
-      paymentMethod: db.settings.defaults.paymentMethod || 'Cash'
-    };
-    const account = db.accounts.find(a => a.id === paymentForm.accountId);
-    if (account) account.currentBalance += paymentForm.amount;
-    const orderIdx = db.orders.findIndex(o => o.id === order.id);
-    db.orders[orderIdx].paidAmount += paymentForm.amount;
-    db.orders[orderIdx].history.payment = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${new Date(paymentForm.date).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-    if (db.orders[orderIdx].paidAmount >= db.orders[orderIdx].total) db.orders[orderIdx].status = OrderStatus.COMPLETED;
-    db.transactions.unshift(transaction);
-    saveDb();
-    setShowPaymentModal(null);
-    navigate(0);
+    
+    try {
+      // Try to find account in cached data, fallback to provided ID if not found
+      // (accounts might not have fully loaded when payment modal opens)
+      let account = accounts.find(a => a.id === paymentForm.accountId);
+      
+      if (!account) {
+        // If account not found in cache, it might not be in the list, so just verify it has an ID
+        // The backend will validate that the account exists
+        if (!paymentForm.accountId) {
+          toast.error('Please select an account');
+          return;
+        }
+        // Account not in visible list, but proceed with the ID provided by user
+        // (backend RLS will validate it exists and belongs to user)
+        account = { 
+          id: paymentForm.accountId, 
+          name: 'Selected Account',
+          type: 'Bank',
+          openingBalance: 0,
+          currentBalance: 0
+        };
+      }
+
+      // Check if this is a partial payment (indicates order has remaining balance to track)
+      const shouldCreateShippingExpense = paymentForm.amount < order.total;
+
+      // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
+      await createTransactionMutation.mutateAsync({
+        date: paymentForm.date,
+        type: 'Income',
+        category: db.settings.defaults.incomeCategoryId || 'income_sales',
+        accountId: paymentForm.accountId,
+        amount: order.total,
+        description: `Payment for Order #${order.orderNumber}`,
+        referenceId: order.id,
+        contactId: order.customerId,
+        paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
+        createdBy: user.id,
+      });
+
+      // SEQUENTIAL: Step 2 - Create expense transaction for remaining balance (including shipping et al)
+      if (shouldCreateShippingExpense) {
+        const remainingAmount = order.total - paymentForm.amount;
+        await createTransactionMutation.mutateAsync({
+          date: paymentForm.date,
+          type: 'Expense',
+          category: 'expense_shipping',
+          accountId: paymentForm.accountId,
+          amount: remainingAmount,
+          description: `Shipping costs for Order #${order.orderNumber}`,
+          paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
+          createdBy: user.id,
+        });
+      }
+
+      // PARALLEL: Step 3 - Update account balance and order status together
+      const balanceChange = paymentForm.amount;
+      const updatedPaid = (order.paidAmount ?? 0) + paymentForm.amount;
+      const updatedStatus = OrderStatus.COMPLETED;
+      
+      await Promise.all([
+        updateAccountMutation.mutateAsync({
+          id: account.id,
+          updates: {
+            currentBalance: (account.currentBalance ?? 0) + balanceChange,
+          },
+        }),
+        updateOrderMutation.mutateAsync({
+          id: order.id,
+          updates: {
+            paidAmount: updatedPaid,
+            status: updatedStatus,
+          },
+        })
+      ]);
+
+      // Close modal immediately - queries will auto-update via React Query
+      setShowPaymentModal(null);
+      // Invalidate to force fresh data (usually cached for 5 min)
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    } catch (err) {
+      console.error('Failed to add payment:', err);
+      toast.error('Failed to add payment: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
   };
 
   return (
@@ -161,7 +270,9 @@ const Orders: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredOrders.length === 0 ? (
+              {ordersLoading ? (
+                <TableLoadingSkeleton columns={6} rows={8} />
+              ) : filteredOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : filteredOrders.map((order) => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
@@ -178,18 +289,18 @@ const Orders: React.FC = () => {
                       <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{new Date(order.orderDate).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                     </td>
                     <td className="px-6 py-5">
-                      <span className="text-sm font-bold text-gray-700">{db.customers.find(c => c.id === order.customerId)?.name || 'Unknown'}</span>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{db.customers.find(c => c.id === order.customerId)?.phone}</p>
+                      <span className="text-sm font-bold text-gray-700">{customers.find(c => c.id === order.customerId)?.name || 'Unknown'}</span>
+                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{customers.find(c => c.id === order.customerId)?.phone}</p>
                     </td>
-                    <td className="px-6 py-5 text-xs font-bold text-gray-500">{order.createdBy}</td>
+                    <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(order.status)}`}>{order.status}</span>
                     </td>
                     <td className="px-6 py-5 text-right">
                       <span className="font-black text-gray-900 text-base">{formatCurrency(order.total)}</span>
                       {order.paidAmount > 0 && (
-                        <p className={`text-[10px] font-black uppercase tracking-tighter mt-1 ${order.paidAmount >= order.total ? 'text-green-500' : 'text-orange-400'}`}>
-                          {order.paidAmount >= order.total ? 'Paid Fully' : `Paid: ${formatCurrency(order.paidAmount)}`}
+                        <p className={`text-[10px] font-black uppercase tracking-tighter mt-1 text-green-500`}>
+                          {`Paid: ${formatCurrency(order.paidAmount)}`}
                         </p>
                       )}
                     </td>
@@ -211,15 +322,19 @@ const Orders: React.FC = () => {
                               <>
                                 <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
                                 <button onClick={() => { handleDuplicate(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
-                                {order.paidAmount < order.total && (
+                                {order.status !== OrderStatus.COMPLETED && (
                                   <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
                                 )}
                                 <div className="border-t my-1"></div>
-                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
+                                <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
                                 <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
-                                <div className="border-t my-1"></div>
-                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]">ST Steadfast</button>
-                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-orange-500">CB CarryBee</button>
+                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                                  <>
+                                    <div className="border-t my-1"></div>
+                                    <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]">ST Steadfast</button>
+                                    <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-orange-500">CB CarryBee</button>
+                                  </>
+                                )}
                                 <div className="border-t my-1"></div>
                                 <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
                               </>
@@ -239,14 +354,19 @@ const Orders: React.FC = () => {
                             <>
                               <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
                               <button onClick={() => handleDuplicate(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
-                              {order.paidAmount < order.total && (
+                              {order.status !== OrderStatus.COMPLETED && (
                                 <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
                               )}
-                              <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
+                              <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
                               <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
-                              <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                              <button className="px-3 py-1 text-[9px] font-black text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg" title="Add to Steadfast">ST</button>
-                              <button className="px-3 py-1 text-[9px] font-black text-orange-500 hover:bg-orange-50 rounded-lg" title="Add to CarryBee">CB</button>
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                                <>
+                                  <div className="h-5 w-px bg-gray-100 mx-1"></div>
+                                  <button onClick={() => setShowSteadfast(order.id)} className="px-3 py-1 text-[9px] font-black text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast">ST</button>
+                                  <button onClick={() => setShowCarryBee(order.id)} className="px-3 py-1 text-[9px] font-black text-orange-500 hover:bg-orange-50 rounded-lg" title="Send to CarryBee">CB</button>
+                                  <div className="h-5 w-px bg-gray-100 mx-1"></div>
+                                </>
+                              )}
                               {isModifiable && (
                                 <button onClick={() => handleDelete(order.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
                               )}
@@ -263,34 +383,30 @@ const Orders: React.FC = () => {
         </div>
       </div>
 
-      {showPaymentModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowPaymentModal(null)}></div>
-          <div className={`bg-white w-full max-w-md rounded-[2.5rem] p-10 z-[210] animate-in zoom-in-95 duration-200 border border-[#ebf4ff]`}>
-            <h3 className="text-2xl font-black text-gray-900 mb-8">Receive Payment</h3>
-            <div className="space-y-6">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Payment Date</label>
-                <input type="date" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Select Account</label>
-                <select value={paymentForm.accountId} onChange={e => setPaymentForm({...paymentForm, accountId: e.target.value})} className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none">
-                  {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({formatCurrency(acc.currentBalance)})</option>)}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Amount (BDT)</label>
-                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-xl outline-none`} />
-              </div>
-              <div className="pt-6 flex gap-4">
-                <Button onClick={() => setShowPaymentModal(null)} variant="ghost">Cancel</Button>
-                <Button onClick={handleAddPayment} variant="primary" size="md" className="flex-1">Add Payment</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <CommonPaymentModal
+        isOpen={!!showPaymentModal}
+        onClose={() => setShowPaymentModal(null)}
+        onSubmit={handleAddPayment}
+        accounts={accounts}
+        paymentForm={paymentForm}
+        setPaymentForm={setPaymentForm}
+        isLoading={createTransactionMutation.isPending || updateAccountMutation.isPending || updateOrderMutation.isPending}
+        title="Receive Payment"
+        buttonText="Add Payment"
+      />
+
+      <SteadfastModal 
+        isOpen={!!showSteadfast} 
+        onClose={() => setShowSteadfast(null)}
+        order={showSteadfast ? orders.find(o => o.id === showSteadfast) : null}
+        customer={showSteadfast ? customers.find(c => c.id === orders.find(o => o.id === showSteadfast)?.customerId) : null}
+      />
+      <CarryBeeModal 
+        isOpen={!!showCarryBee} 
+        onClose={() => setShowCarryBee(null)}
+        order={showCarryBee ? orders.find(o => o.id === showCarryBee) : null}
+        customer={showCarryBee ? customers.find(c => c.id === orders.find(o => o.id === showCarryBee)?.customerId) : null}
+      />
     </div>
   );
 };

@@ -1,41 +1,72 @@
 
 import React, { useState } from 'react';
-import { db, saveDb } from '../db';
 import { Account } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { useAccounts } from '../src/hooks/useQueries';
+import { useCreateAccount, useDeleteAccount } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
+import { LoadingOverlay } from '../components';
 
 const Banking: React.FC = () => {
-  const [accounts, setAccounts] = useState<Account[]>(db.accounts);
+  const { data: accounts = [], isLoading } = useAccounts();
+  const createAccountMutation = useCreateAccount();
+  const deleteAccountMutation = useDeleteAccount();
+  const toast = useToastNotifications();
+  
   const [showAddModal, setShowAddModal] = useState(false);
-  // Fixed: Explicitly typed the state to allow both 'Bank' and 'Cash' types, avoiding type mismatch during state updates
+  const [openDeleteMenu, setOpenDeleteMenu] = useState<string | null>(null);
   const [newAcc, setNewAcc] = useState<{ name: string; type: 'Bank' | 'Cash'; openingBalance: number }>({ 
     name: '', 
     type: 'Bank', 
     openingBalance: 0 
   });
 
-  const handleAddAccount = () => {
+  const handleAddAccount = async () => {
     if (!newAcc.name) return;
-    const account: Account = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newAcc.name,
-      type: newAcc.type,
-      openingBalance: newAcc.openingBalance,
-      currentBalance: newAcc.openingBalance
-    };
-    db.accounts.push(account);
-    saveDb();
-    setAccounts([...db.accounts]);
-    setShowAddModal(false);
-    setNewAcc({ name: '', type: 'Bank', openingBalance: 0 });
+    try {
+      await createAccountMutation.mutateAsync({
+        name: newAcc.name,
+        type: newAcc.type,
+        openingBalance: newAcc.openingBalance,
+        currentBalance: newAcc.openingBalance
+      });
+      // Reset form - mutation hook will update the accounts list automatically
+      setShowAddModal(false);
+      setNewAcc({ name: '', type: 'Bank', openingBalance: 0 });
+    } catch (err) {
+      console.error('Failed to create account:', err);
+      toast.error('Failed to create account. Please try again.');
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: string) => {
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    if (account.currentBalance !== 0) {
+      toast.warning(`Cannot delete account "${account.name}" because it has a balance of ৳${account.currentBalance}. Please transfer the balance to another account first.`);
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete the account "${account.name}"?`)) return;
+
+    try {
+      await deleteAccountMutation.mutateAsync(accountId);
+      // Mutation hook will update the accounts list automatically
+      setOpenDeleteMenu(null);
+    } catch (err) {
+      console.error('Failed to delete account:', err);
+      toast.error('Failed to delete account. Please try again.');
+    }
   };
 
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
 
   return (
     <div className="space-y-6">
+      <LoadingOverlay isLoading={isLoading} message="Loading accounts..." />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Banking & Accounts</h2>
@@ -46,6 +77,7 @@ const Banking: React.FC = () => {
           variant="primary"
           size="md"
           icon={ICONS.Plus}
+          disabled={createAccountMutation.isPending}
         >
           Add Account
         </Button>
@@ -75,14 +107,35 @@ const Banking: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {accounts.map((acc) => (
-          <div key={acc.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
+          <div key={acc.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group relative">
             <div className="flex justify-between items-start mb-4">
               <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? `bg-[#e6f0ff] ${theme.colors.secondary[600]}` : 'bg-orange-50 text-orange-600'}`}>
                 {acc.type === 'Bank' ? ICONS.Banking : ICONS.Banking}
               </div>
-              <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                {ICONS.More}
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => setOpenDeleteMenu(openDeleteMenu === acc.id ? null : acc.id)}
+                  className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition-all"
+                >
+                  {ICONS.More}
+                </button>
+                {openDeleteMenu === acc.id && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-1">
+                    <button
+                      onClick={() => handleDeleteAccount(acc.id)}
+                      disabled={acc.currentBalance !== 0 || deleteAccountMutation.isPending}
+                      className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 font-bold ${
+                        acc.currentBalance !== 0 || deleteAccountMutation.isPending
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-red-600 hover:bg-red-50'
+                      }`}
+                      title={acc.currentBalance !== 0 ? 'Account must have zero balance to delete' : 'Delete account'}
+                    >
+                      {ICONS.Delete} Delete
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <h3 className="text-lg font-bold text-gray-900">{acc.name}</h3>
             <p className="text-xs text-gray-400 font-medium uppercase tracking-tight mb-4">{acc.type} Account</p>
@@ -93,7 +146,7 @@ const Banking: React.FC = () => {
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-sm font-bold text-gray-900">Current Balance</span>
-                <span className={`text-xl font-black ${theme.colors.primary[600]}`}>{formatCurrency(acc.currentBalance)}</span>
+                <span className={`text-xl font-black`}>{formatCurrency(acc.currentBalance)}</span>
               </div>
             </div>
           </div>
@@ -145,6 +198,7 @@ const Banking: React.FC = () => {
               <Button 
                 onClick={() => setShowAddModal(false)}
                 variant="ghost"
+                disabled={createAccountMutation.isPending}
               >
                 Cancel
               </Button>
@@ -153,8 +207,9 @@ const Banking: React.FC = () => {
                 variant="primary"
                 size="md"
                 className="flex-1"
+                disabled={createAccountMutation.isPending || !newAcc.name}
               >
-                Create Account
+                {createAccountMutation.isPending ? 'Creating...' : 'Create Account'}
               </Button>
             </div>
           </div>
@@ -165,4 +220,5 @@ const Banking: React.FC = () => {
 };
 
 export default Banking;
+
 

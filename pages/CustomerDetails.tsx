@@ -1,20 +1,33 @@
 
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
 import { Order, OrderStatus, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { Button } from '../components';
+import { useCustomer, useOrdersByCustomerId } from '../src/hooks/useQueries';
+import { useCreateOrder } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
+import { db } from '../db';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const user = db.currentUser;
-  const customer = db.customers.find(c => c.id === id);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  
+  // Get user role from current context
+  const currentUser = db.currentUser;
+  const userRole = currentUser?.role || null;
+  
+  // Query data
+  const { data: customer } = useCustomer(id || '');
+  const { data: customerOrders = [] } = useOrdersByCustomerId(id || '');
+  
+  // Mutations
+  const createMutation = useCreateOrder();
+  const toast = useToastNotifications();
 
-  // Restrict employees from viewing customer details
-  if (user.role === UserRole.EMPLOYEE) {
+  if (userRole === UserRole.EMPLOYEE) {
     return (
       <div className="p-8 text-center">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
@@ -23,11 +36,8 @@ const CustomerDetails: React.FC = () => {
       </div>
     );
   }
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   if (!customer) return <div className="p-8 text-center text-gray-500">Customer not found.</div>;
-
-  const customerOrders = db.orders.filter(o => o.customerId === customer.id);
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
@@ -40,21 +50,37 @@ const CustomerDetails: React.FC = () => {
     }
   };
 
-  const handleDuplicate = (order: Order) => {
-    const newOrder: Order = {
-      ...order,
-      id: Math.random().toString(36).substr(2, 9),
-      orderNumber: `${db.settings.order.prefix}${db.settings.order.nextNumber}`,
-      orderDate: new Date().toISOString().split('T')[0],
-      status: OrderStatus.ON_HOLD,
-      paidAmount: 0,
-      history: { created: `${db.currentUser.name}, ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}` }
-    };
-    db.settings.order.nextNumber += 1;
-    db.orders.push(newOrder);
-    saveDb();
-    // In a real app we'd refresh state properly
-    navigate('/orders');
+  const handleDuplicate = async (order: Order) => {
+    try {
+      if (!customer) return;
+      
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
+
+      const newOrder = {
+        orderNumber: order.orderNumber,
+        orderDate: new Date().toISOString().split('T')[0],
+        customerId: customer.id,
+        createdBy: order.createdBy,
+        status: OrderStatus.ON_HOLD,
+        items: order.items,
+        subtotal: order.subtotal,
+        discount: order.discount,
+        shipping: order.shipping,
+        total: order.total,
+        paidAmount: 0,
+        history: {
+          created: `Duplicated from order #${order.orderNumber} on ${dateStr}, at ${timeStr}`
+        }
+      };
+
+      await createMutation.mutateAsync(newOrder as any);
+      navigate('/orders');
+    } catch (error) {
+      console.error('Failed to duplicate order', error);
+      toast.error('Failed to duplicate order: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   };
 
   return (
@@ -67,14 +93,14 @@ const CustomerDetails: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Customer Profile</h2>
         </div>
         <div className="flex gap-2">
-          <button className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
+          <button onClick={() => navigate(`/customers/edit/${id}`)} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Left Profile Info */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 text-center">
             <div className="w-24 h-24 rounded-full bg-[#ebf4ff] ${theme.colors.primary[600]} flex items-center justify-center font-black text-4xl mx-auto mb-4 border-2 border-[#c7dff5]">
               {customer.name.charAt(0)}
             </div>
@@ -93,9 +119,9 @@ const CustomerDetails: React.FC = () => {
             </div>
           </div>
 
-          <div className={`p-6 rounded-2xl shadow-lg shadow-[#0f2f57]/20/50 border border-gray-100 text-white`}>
+          <div className={`bg-white p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20/50 border border-gray-100 text-white`}>
             <p className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Due Amount</p>
-            <h4 className="text-lg font-black text-gray-900">{formatCurrency(customer.dueAmount)}</h4>
+            <h4 className="text-lg font-black text-green-600">{formatCurrency(customer.dueAmount)}</h4>
           </div>
         </div>
 

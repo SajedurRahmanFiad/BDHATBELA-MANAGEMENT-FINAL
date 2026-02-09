@@ -6,10 +6,15 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { theme } from '../../theme';
+import { useTransactions, useVendors, useAccounts } from '../../src/hooks/useQueries';
 
 const ExpenseSummary: React.FC = () => {
   const navigate = useNavigate();
-  const expenses = db.transactions.filter(t => t.type === 'Expense');
+  const { data: transactions = [] } = useTransactions();
+  const { data: vendors = [] } = useVendors();
+  const { data: accounts = [] } = useAccounts();
+  
+  const expenses = transactions.filter(t => t.type === 'Expense');
   
   const categoryDataMap: Record<string, number> = {};
   expenses.forEach(e => {
@@ -22,8 +27,8 @@ const ExpenseSummary: React.FC = () => {
   const handleExportCSV = () => {
     const headers = 'Date,Category,Contact,Account,Amount,Description\n';
     const csvContent = expenses.map(e => {
-      const contact = db.vendors.find(v => v.id === e.contactId)?.name || 'N/A';
-      const account = db.accounts.find(a => a.id === e.accountId)?.name || 'N/A';
+      const contact = vendors.find(v => v.id === e.contactId)?.name || 'N/A';
+      const account = accounts.find(a => a.id === e.accountId)?.name || 'N/A';
       return `${e.date},${e.category},"${contact}","${account}",${e.amount},"${e.description}"`;
     }).join('\n');
     const blob = new Blob([headers + csvContent], { type: 'text/csv' });

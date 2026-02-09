@@ -1,17 +1,33 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { db } from '../db';
 import { Order, OrderStatus, OrderItem, UserRole } from '../types';
-import { formatCurrency, ICONS } from '../constants';import { Button } from '../components';import { theme } from '../theme';
+import { formatCurrency, ICONS } from '../constants';
+import { Button } from '../components';
+import { theme } from '../theme';
+import { useCustomers, useOrder, useProducts, useOrderSettings } from '../src/hooks/useQueries';
+import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const user = db.currentUser;
-  const isAdmin = user.role === UserRole.ADMIN;
-  const isEmployee = user.role === UserRole.EMPLOYEE;
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isEmployee = user?.role === UserRole.EMPLOYEE;
   const isEdit = Boolean(id);
+
+  // Safety check
+  if (!user) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Not Authenticated</h2>
+        <p className="text-gray-500 mb-6">Please log in first.</p>
+        <Button onClick={() => navigate('/login')} variant="primary">Back to Login</Button>
+      </div>
+    );
+  }
 
   // Restrict employees from editing orders
   if (isEdit && isEmployee) {
@@ -24,12 +40,24 @@ const OrderForm: React.FC = () => {
     );
   }
 
+  // Query data
+  const { data: customers = [] } = useCustomers();
+  const { data: products = [] } = useProducts();
+  const { data: existingOrderData } = useOrder(isEdit ? id : undefined);
+  const { data: orderSettings } = useOrderSettings();
+  
+  // Mutations
+  const createMutation = useCreateOrder();
+  const updateMutation = useUpdateOrder();
+  const toast = useToastNotifications();
+
+  // Form state
   const [customerId, setCustomerId] = useState('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [orderNumber, setOrderNumber] = useState('');
   const [items, setItems] = useState<OrderItem[]>([]);
   const [discount, setDiscount] = useState(0);
-  const [shipping, setShipping] = useState(60);
+  const [shipping, setShipping] = useState(0);
   const [notes, setNotes] = useState('');
   
   const [showProductSearch, setShowProductSearch] = useState(false);
@@ -37,34 +65,35 @@ const OrderForm: React.FC = () => {
   
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [custSearchTerm, setCustSearchTerm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isEdit) {
-      const order = db.orders.find(o => o.id === id);
-      if (order) {
-        if (!isAdmin && order.status !== OrderStatus.ON_HOLD) {
-          alert('Employees can only edit orders that are currently "On Hold".');
-          navigate('/orders');
-          return;
-        }
-        setCustomerId(order.customerId);
-        setOrderDate(order.orderDate);
-        setOrderNumber(order.orderNumber);
-        setItems(order.items);
-        setDiscount(order.discount);
-        setShipping(order.shipping);
-        setNotes(order.notes || '');
+  // Initialize form with existing order data when loaded
+  React.useEffect(() => {
+    if (existingOrderData) {
+      if (!isAdmin && existingOrderData.status !== OrderStatus.ON_HOLD) {
+        toast.warning('Employees can only edit orders that are currently "On Hold".');
+        navigate('/orders');
+        return;
       }
-    } else {
-      setOrderNumber(`${db.settings.order.prefix}${db.settings.order.nextNumber}`);
+      setCustomerId(existingOrderData.customerId);
+      setOrderDate(existingOrderData.orderDate);
+      setOrderNumber(existingOrderData.orderNumber);
+      setItems(existingOrderData.items);
+      setDiscount(existingOrderData.discount);
+      setShipping(existingOrderData.shipping);
+      setNotes(existingOrderData.notes || '');
+    } else if (!isEdit && orderSettings) {
+      // Use Supabase settings for new orders
+      setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
     }
-  }, [id, isEdit, isAdmin, navigate]);
+  }, [existingOrderData, isEdit, isAdmin, orderSettings, navigate, toast]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const total = subtotal - discount + shipping;
 
   const addItem = (productId: string) => {
-    const product = db.products.find(p => p.id === productId);
+    const product = products.find(p => p.id === productId);
     if (!product) return;
 
     const newItem: OrderItem = {
@@ -90,44 +119,77 @@ const OrderForm: React.FC = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
-    if (!customerId || items.length === 0) {
-      alert('Please select a customer and add at least one product.');
+  const handleSave = async () => {
+    if (!customerId || items.length === 0 || !orderNumber) {
+      const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is not set. Please wait for it to load.';
+      setError(msg);
+      toast.error(msg);
       return;
     }
 
-    const orderData: Order = {
-      id: isEdit ? id! : Math.random().toString(36).substr(2, 9),
-      orderNumber,
-      orderDate,
-      customerId,
-      createdBy: isEdit ? db.orders.find(o => o.id === id)?.createdBy || user.name : user.name,
-      status: isEdit ? db.orders.find(o => o.id === id)?.status || OrderStatus.ON_HOLD : OrderStatus.ON_HOLD,
-      items,
-      subtotal,
-      discount,
-      shipping,
-      total,
-      notes,
-      paidAmount: isEdit ? db.orders.find(o => o.id === id)?.paidAmount || 0 : 0,
-      history: isEdit 
-        ? db.orders.find(o => o.id === id)!.history 
-        : { created: `${db.currentUser.name} created this order on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}` }
-    };
-
-    if (isEdit) {
-      const idx = db.orders.findIndex(o => o.id === id);
-      db.orders[idx] = orderData;
-    } else {
-      db.orders.unshift(orderData);
-      db.settings.order.nextNumber += 1;
+    if (!user?.id) {
+      toast.error('User session expired. Please log in again.');
+      setError('User session expired. Please log in again.');
+      return;
     }
 
-    saveDb();
-    navigate('/orders');
+    setSaving(true);
+    setError(null);
+
+    try {
+      const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+      const total = subtotal - discount + shipping;
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
+
+      const orderData = {
+        orderNumber,
+        orderDate,
+        customerId,
+        createdBy: user.id,
+        status: isEdit && existingOrderData ? existingOrderData.status : OrderStatus.ON_HOLD,
+        items,
+        subtotal,
+        discount,
+        shipping,
+        total,
+        notes,
+        paidAmount: isEdit && existingOrderData ? existingOrderData.paidAmount : 0,
+        history: isEdit && existingOrderData ? existingOrderData.history : {
+          created: `${user.name} created this order on ${dateStr}, at ${timeStr}`
+        },
+      };
+
+      if (isEdit) {
+        await updateMutation.mutateAsync({ id: id!, updates: orderData });
+        toast.success('Order updated successfully');
+        navigate('/orders');
+      } else {
+        createMutation.mutateAsync(orderData as any).then(
+          (createdOrder) => {
+            setSaving(false);
+            toast.success('Order created successfully');
+            navigate(`/orders/${createdOrder.id}`);
+          },
+          (err) => {
+            setSaving(false);
+            const errorMsg = err instanceof Error ? err.message : 'Failed to save order';
+            setError(errorMsg);
+            toast.error(errorMsg);
+          }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save order:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to save order';
+      setError(errorMsg);
+      toast.error(errorMsg);
+      setSaving(false);
+    }
   };
 
-  const selectedCustomer = db.customers.find(c => c.id === customerId);
+  const selectedCustomer = customers.find(c => c.id === customerId);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -175,7 +237,7 @@ const OrderForm: React.FC = () => {
                     />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                    {db.customers
+                    {customers
                       .filter(c => c.name.toLowerCase().includes(custSearchTerm.toLowerCase()) || c.phone.includes(custSearchTerm))
                       .map(c => (
                       <button 
@@ -215,6 +277,7 @@ const OrderForm: React.FC = () => {
               type="text" 
               readOnly 
               value={orderNumber} 
+              placeholder={!orderSettings ? 'Loading...' : 'Order number'} 
               className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
             />
           </div>
@@ -236,7 +299,9 @@ const OrderForm: React.FC = () => {
                 <tr key={idx} className="group hover:bg-gray-50/50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-4">
-                      <img src={db.products.find(p => p.id === item.productId)?.image || ''} className="w-12 h-12 rounded-xl object-cover border border-gray-100 shadow-sm" />
+                      {products.find(p => p.id === item.productId)?.image && (
+                        <img src={products.find(p => p.id === item.productId)?.image} className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm" />
+                      )}
                       <span className="font-bold text-gray-800 text-sm">{item.productName}</span>
                     </div>
                   </td>
@@ -283,13 +348,15 @@ const OrderForm: React.FC = () => {
                           />
                         </div>
                         <div className="max-h-[260px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                          {db.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
+                          {products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).map(p => (
                             <button 
                               key={p.id} 
                               onClick={() => addItem(p.id)} 
                               className="flex items-center gap-4 w-full px-4 py-3 text-left hover:bg-[#ebf4ff] rounded-xl group transition-all"
                             >
-                              <img src={p.image} className="w-10 h-10 rounded-lg object-cover border border-gray-100 shadow-sm" />
+                              {p.image && (
+                                <img src={p.image} className="w-10 h-10 rounded-full object-cover border border-gray-100 shadow-sm" />
+                              )}
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.primary[700]} truncate">{p.name}</p>
                                 <p className="text-[10px] font-bold ${theme.colors.primary[600]}/60 uppercase tracking-widest">{formatCurrency(p.salePrice)}</p>
@@ -349,11 +416,18 @@ const OrderForm: React.FC = () => {
               <span className="text-lg font-black text-gray-900 uppercase tracking-tighter">Grand Total</span>
               <span className="text-3xl font-black ${theme.colors.primary[600]}">{formatCurrency(total)}</span>
             </div>
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm font-bold text-red-600">{error}</p>
+              </div>
+            )}
             <Button 
               onClick={handleSave}
               variant="primary"
               size="lg"
               className="w-full mt-4"
+              disabled={saving}
+              loading={saving}
             >
               {isEdit ? 'Update Order' : 'Create Order'}
             </Button>

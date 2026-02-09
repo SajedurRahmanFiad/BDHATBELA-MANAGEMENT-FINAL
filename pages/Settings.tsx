@@ -1,22 +1,164 @@
 
-import React, { useState } from 'react';
-import { db, saveDb } from '../db';
+import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { 
+  useCategories, usePaymentMethods, useUnits,
+  useCompanySettings, useOrderSettings, useInvoiceSettings, 
+  useSystemDefaults, useCourierSettings, useAccounts, useProducts
+} from '../src/hooks/useQueries';
+import { 
+  useCreateCategory, useDeleteCategory, 
+  useCreatePaymentMethod, useDeletePaymentMethod, 
+  useCreateUnit, useDeleteUnit,
+  useBatchUpdateSettings
+} from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
+import { LoadingOverlay } from '../components';
+import { fetchCarryBeeStores } from '../src/services/supabaseQueries';
 
 const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('company');
-  const [settings, setSettings] = useState(db.settings);
-  const [showModal, setShowModal] = useState<'category' | 'payment' | null>(null);
+  const [showModal, setShowModal] = useState<'category' | 'payment' | 'unit' | null>(null);
+  const queryClient = useQueryClient();
 
-  const [categoryForm, setCategoryForm] = useState({ name: '', type: 'Income' as 'Income' | 'Expense' | 'Product', color: '#10B981', parentId: '' });
+  // Query data from React Query hooks
+  const { data: companySettingsData, isPending: companyLoading } = useCompanySettings();
+  const { data: orderSettingsData, isPending: orderLoading } = useOrderSettings();
+  const { data: invoiceSettingsData, isPending: invoiceLoading } = useInvoiceSettings();
+  const { data: systemDefaultsData, isPending: defaultsLoading } = useSystemDefaults();
+  const { data: courierSettingsData, isPending: courierLoading } = useCourierSettings();
+  const { data: categories = [], isPending: loadingCategories } = useCategories();
+  const { data: paymentMethods = [], isPending: loadingPaymentMethods } = usePaymentMethods();
+  const { data: units = [], isPending: loadingUnits } = useUnits();
+  const { data: accounts = [] } = useAccounts();
+  
+  // Mutations
+  const createCategoryMutation = useCreateCategory();
+  const deleteCategoryMutation = useDeleteCategory();
+  const createPaymentMutation = useCreatePaymentMethod();
+  const deletePaymentMutation = useDeletePaymentMethod();
+  const createUnitMutation = useCreateUnit();
+  const deleteUnitMutation = useDeleteUnit();
+  const batchUpdateMutation = useBatchUpdateSettings();
+  const toast = useToastNotifications();
+
+  // Local state for forms (these need to be maintained locally until save)
+  const [companySettings, setCompanySettings] = useState({ name: '', phone: '', email: '', address: '', logo: '' });
+  const [orderSettings, setOrderSettings] = useState({ prefix: 'ORD-', nextNumber: 1 });
+  const [courierSettings, setCourierSettings] = useState({
+    steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
+    carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' }
+  });
+  const [invoiceSettings, setInvoiceSettings] = useState({ title: 'Invoice', logoWidth: 120, logoHeight: 120, footer: '' });
+  const [systemDefaults, setSystemDefaults] = useState({ 
+    defaultAccountId: '', 
+    defaultPaymentMethod: '', 
+    incomeCategoryId: '', 
+    expenseCategoryId: '', 
+    recordsPerPage: 10 
+  });
+
+  const [categoryForm, setCategoryForm] = useState({ name: '', type: 'Income' as 'Income' | 'Expense' | 'Product' | 'Other', color: '#10B981', parentId: '' });
   const [paymentForm, setPaymentForm] = useState({ name: '', description: '' });
+  const [unitForm, setUnitForm] = useState({ name: '', shortName: '', description: '' });
 
-  const handleSave = () => {
-    db.settings = settings;
-    saveDb();
-    alert('Settings saved successfully!');
+  // CarryBee Stores state
+  const [carryBeeStores, setCarryBeeStores] = useState<Array<{ id: string; name: string }>>([]);
+  const [loadingCarryBeeStores, setLoadingCarryBeeStores] = useState(false);
+
+  // Initialize forms when data loads from React Query
+  React.useEffect(() => {
+    if (companySettingsData) setCompanySettings(companySettingsData);
+  }, [companySettingsData]);
+
+  React.useEffect(() => {
+    if (orderSettingsData) setOrderSettings(orderSettingsData);
+  }, [orderSettingsData]);
+
+  React.useEffect(() => {
+    if (invoiceSettingsData) setInvoiceSettings(invoiceSettingsData);
+  }, [invoiceSettingsData]);
+
+  React.useEffect(() => {
+    if (systemDefaultsData) setSystemDefaults(systemDefaultsData);
+  }, [systemDefaultsData]);
+
+  React.useEffect(() => {
+    if (courierSettingsData) setCourierSettings(courierSettingsData);
+  }, [courierSettingsData]);
+
+  // Fetch CarryBee stores when credentials change
+  useEffect(() => {
+    const fetchStores = async () => {
+      const { baseUrl, clientId, clientSecret, clientContext } = courierSettings.carryBee;
+      
+      // Only fetch if all required fields are filled (trim whitespace)
+      const trimmedBaseUrl = baseUrl?.trim();
+      const trimmedClientId = clientId?.trim();
+      const trimmedClientSecret = clientSecret?.trim();
+      const trimmedClientContext = clientContext?.trim();
+      
+      if (!trimmedBaseUrl || !trimmedClientId || !trimmedClientSecret || !trimmedClientContext) {
+        setCarryBeeStores([]);
+        return;
+      }
+
+      setLoadingCarryBeeStores(true);
+      try {
+        const stores = await fetchCarryBeeStores({
+          baseUrl: trimmedBaseUrl,
+          clientId: trimmedClientId,
+          clientSecret: trimmedClientSecret,
+          clientContext: trimmedClientContext,
+        });
+        setCarryBeeStores(stores);
+      } catch (err) {
+        console.error('Failed to fetch CarryBee stores:', err);
+        setCarryBeeStores([]);
+      } finally {
+        setLoadingCarryBeeStores(false);
+      }
+    };
+
+    fetchStores();
+  }, [courierSettings.carryBee.baseUrl, courierSettings.carryBee.clientId, courierSettings.carryBee.clientSecret, courierSettings.carryBee.clientContext]);
+
+  const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
+
+  const handleSave = async () => {
+    try {
+      // Show toast immediately (optimistic UI)
+      const toastId = toast.loading('Saving all settings...');
+      
+      // Save all settings in background without waiting
+      batchUpdateMutation.mutateAsync({
+        company: companySettings,
+        order: orderSettings,
+        invoice: invoiceSettings,
+        defaults: systemDefaults,
+        courier: courierSettings
+      }).then(() => {
+        // Update mock db for backward compatibility
+        db.settings.company = companySettings;
+        db.settings.order = orderSettings;
+        db.settings.invoice = invoiceSettings;
+        db.settings.defaults = systemDefaults;
+        db.settings.courier = courierSettings;
+        
+        // Update toast to success
+        toast.update(toastId, 'Settings saved successfully!', 'success');
+      }).catch((err) => {
+        console.error('Failed to save settings:', err);
+        toast.update(toastId, 'Failed to save settings: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+      });
+    } catch (err) {
+      console.error('Failed to initiate settings save:', err);
+      toast.error('Failed to save settings: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -24,24 +166,200 @@ const SettingsPage: React.FC = () => {
     if (file) {
       const reader = new FileReader();
       reader.onload = () => {
-        setSettings({...settings, company: {...settings.company, logo: reader.result as string}});
+        setCompanySettings({...companySettings, logo: reader.result as string});
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleAddCategory = () => {
-    const newCat = { id: Math.random().toString(36).substr(2, 9), ...categoryForm };
-    const updatedSettings = { ...settings, categories: [...settings.categories, newCat] };
-    setSettings(updatedSettings);
+  const handleAddCategory = async () => {
+    if (!categoryForm.name.trim()) {
+      toast.warning('Please enter a category name');
+      return;
+    }
+    
+    // Create new category object with temporary ID
+    const newCategory = {
+      id: crypto.randomUUID(),
+      name: categoryForm.name,
+      type: categoryForm.type,
+      color: categoryForm.color,
+      parentId: categoryForm.parentId || undefined,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    // Optimistically update React Query cache immediately
+    const previousCategories = queryClient.getQueryData(['categories']);
+    queryClient.setQueryData(['categories'], (old: any[] = []) => [...old, newCategory]);
+    
+    // Show toast immediately
+    const toastId = toast.loading('Adding category...');
+    
+    // Reset form and close modal
+    const formData = { ...categoryForm };
+    setCategoryForm({ name: '', type: 'Income', color: '#10B981', parentId: '' });
     setShowModal(null);
+    
+    try {
+      // Save to database
+      await createCategoryMutation.mutateAsync({
+        name: formData.name,
+        type: formData.type,
+        color: formData.color,
+        parentId: formData.parentId || undefined,
+      });
+      
+      // Update toast to success
+      toast.update(toastId, 'Category added successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to add category:', err);
+      // Rollback cache on error
+      queryClient.setQueryData(['categories'], previousCategories);
+      
+      // Show error toast
+      toast.update(toastId, 'Failed to add category: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+      
+      // Reopen modal so user can try again
+      setShowModal('category');
+      setCategoryForm(formData);
+    }
   };
 
-  const handleAddPayment = () => {
-    const newPM = { id: Math.random().toString(36).substr(2, 9), ...paymentForm };
-    const updatedSettings = { ...settings, paymentMethods: [...settings.paymentMethods, newPM] };
-    setSettings(updatedSettings);
+  const handleDeleteCategory = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this category?')) return;
+    try {
+      await deleteCategoryMutation.mutateAsync(id);
+      toast.success('Category deleted successfully!');
+    } catch (err) {
+      console.error('Failed to delete category:', err);
+      toast.error('Failed to delete category: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  };
+
+  const handleAddPayment = async () => {
+    if (!paymentForm.name.trim()) {
+      toast.warning('Please enter a payment method name');
+      return;
+    }
+    
+    // Create new payment method object with temporary ID
+    const newPaymentMethod = {
+      id: crypto.randomUUID(),
+      name: paymentForm.name,
+      description: paymentForm.description || '',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    // Optimistically update React Query cache immediately
+    const previousPaymentMethods = queryClient.getQueryData(['paymentMethods']);
+    queryClient.setQueryData(['paymentMethods'], (old: any[] = []) => [...old, newPaymentMethod]);
+    
+    // Show toast immediately
+    const toastId = toast.loading('Adding payment method...');
+    
+    // Reset form and close modal
+    const formData = { ...paymentForm };
+    setPaymentForm({ name: '', description: '' });
     setShowModal(null);
+    
+    try {
+      // Save to database
+      await createPaymentMutation.mutateAsync({
+        name: formData.name,
+        description: formData.description || undefined,
+      });
+      
+      // Update toast to success
+      toast.update(toastId, 'Payment method added successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to add payment method:', err);
+      // Rollback cache on error
+      queryClient.setQueryData(['paymentMethods'], previousPaymentMethods);
+      
+      // Show error toast
+      toast.update(toastId, 'Failed to add payment method: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+      
+      // Reopen modal so user can try again
+      setShowModal('payment');
+      setPaymentForm(formData);
+    }
+  };
+
+  const handleDeletePayment = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this payment method?')) return;
+    try {
+      await deletePaymentMutation.mutateAsync(id);
+      toast.success('Payment method deleted successfully!');
+    } catch (err) {
+      console.error('Failed to delete payment method:', err);
+      toast.error('Failed to delete payment method: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  };
+
+  const handleAddUnit = async () => {
+    if (!unitForm.name.trim() || !unitForm.shortName.trim()) {
+      toast.warning('Please enter unit name and short name');
+      return;
+    }
+    
+    // Create new unit object with temporary ID
+    const newUnit = {
+      id: crypto.randomUUID(),
+      name: unitForm.name,
+      short_name: unitForm.shortName,
+      description: unitForm.description || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    // Optimistically update React Query cache immediately
+    const previousUnits = queryClient.getQueryData(['units']);
+    queryClient.setQueryData(['units'], (old: any[] = []) => [...old, newUnit]);
+    
+    // Show toast immediately
+    const toastId = toast.loading('Adding unit...');
+    
+    // Reset form and close modal
+    const formData = { ...unitForm };
+    setUnitForm({ name: '', shortName: '', description: '' });
+    setShowModal(null);
+    
+    try {
+      // Save to database
+      await createUnitMutation.mutateAsync({
+        name: formData.name,
+        shortName: formData.shortName,
+        description: formData.description || undefined,
+      });
+      
+      // Update toast to success
+      toast.update(toastId, 'Unit added successfully!', 'success');
+    } catch (err) {
+      console.error('Failed to add unit:', err);
+      // Rollback cache on error
+      queryClient.setQueryData(['units'], previousUnits);
+      
+      // Show error toast
+      toast.update(toastId, 'Failed to add unit: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+      
+      // Reopen modal so user can try again
+      setShowModal('unit');
+      setUnitForm(formData);
+    }
+  };
+
+  const handleDeleteUnit = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this unit?')) return;
+    try {
+      await deleteUnitMutation.mutateAsync(id);
+      toast.success('Unit deleted successfully!');
+    } catch (err) {
+      console.error('Failed to delete unit:', err);
+      toast.error('Failed to delete unit: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
   };
 
   const tabs = [
@@ -55,6 +373,7 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      <LoadingOverlay isLoading={loading} message="Loading settings..." />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
@@ -94,7 +413,9 @@ const SettingsPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2 flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
                    <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border">
-                      <img src={settings.company.logo} className="w-full h-full object-cover" />
+                      {companySettings.logo && (
+                        <img src={companySettings.logo} className="w-full h-full object-cover" />
+                      )}
                    </div>
                    <div className="space-y-2">
                      <p className="text-xs font-bold text-gray-400 uppercase">Company Logo</p>
@@ -106,8 +427,8 @@ const SettingsPage: React.FC = () => {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Company Name</label>
                   <input 
                     type="text" 
-                    value={settings.company.name} 
-                    onChange={e => setSettings({...settings, company: {...settings.company, name: e.target.value}})}
+                    value={companySettings.name} 
+                    onChange={e => setCompanySettings({...companySettings, name: e.target.value})}
                     className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
@@ -115,8 +436,8 @@ const SettingsPage: React.FC = () => {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Phone</label>
                   <input 
                     type="text" 
-                    value={settings.company.phone} 
-                    onChange={e => setSettings({...settings, company: {...settings.company, phone: e.target.value}})}
+                    value={companySettings.phone} 
+                    onChange={e => setCompanySettings({...companySettings, phone: e.target.value})}
                     className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
@@ -124,16 +445,16 @@ const SettingsPage: React.FC = () => {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
                   <input 
                     type="email" 
-                    value={settings.company.email} 
-                    onChange={e => setSettings({...settings, company: {...settings.company, email: e.target.value}})}
+                    value={companySettings.email} 
+                    onChange={e => setCompanySettings({...companySettings, email: e.target.value})}
                     className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Office Address</label>
                   <textarea 
-                    value={settings.company.address} 
-                    onChange={e => setSettings({...settings, company: {...settings.company, address: e.target.value}})}
+                    value={companySettings.address} 
+                    onChange={e => setCompanySettings({...companySettings, address: e.target.value})}
                     className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl h-24 focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
                   />
                 </div>
@@ -150,17 +471,17 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Order Prefix</label>
                     <input 
                       type="text" 
-                      value={settings.order.prefix} 
-                      onChange={e => setSettings({...settings, order: {...settings.order, prefix: e.target.value}})}
-                      className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[600]}`} 
+                      value={orderSettings.prefix} 
+                      onChange={e => setOrderSettings({...orderSettings, prefix: e.target.value})}
+                      className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-mono`} 
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Next Number</label>
                     <input 
                       type="number" 
-                      value={settings.order.nextNumber} 
-                      onChange={e => setSettings({...settings, order: {...settings.order, nextNumber: parseInt(e.target.value)}})}
+                      value={orderSettings.nextNumber} 
+                      onChange={e => setOrderSettings({...orderSettings, nextNumber: parseInt(e.target.value)})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
@@ -174,8 +495,8 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Invoice Title</label>
                     <input 
                       type="text" 
-                      value={settings.invoice.title} 
-                      onChange={e => setSettings({...settings, invoice: {...settings.invoice, title: e.target.value}})}
+                      value={invoiceSettings.title} 
+                      onChange={e => setInvoiceSettings({...invoiceSettings, title: e.target.value})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
@@ -183,8 +504,8 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Logo Width (px)</label>
                     <input 
                       type="number" 
-                      value={settings.invoice.logoWidth} 
-                      onChange={e => setSettings({...settings, invoice: {...settings.invoice, logoWidth: parseInt(e.target.value)}})}
+                      value={invoiceSettings.logoWidth} 
+                      onChange={e => setInvoiceSettings({...invoiceSettings, logoWidth: parseInt(e.target.value)})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
@@ -192,16 +513,16 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Logo Height (px)</label>
                     <input 
                       type="number" 
-                      value={settings.invoice.logoHeight} 
-                      onChange={e => setSettings({...settings, invoice: {...settings.invoice, logoHeight: parseInt(e.target.value)}})}
+                      value={invoiceSettings.logoHeight} 
+                      onChange={e => setInvoiceSettings({...invoiceSettings, logoHeight: parseInt(e.target.value)})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
                   <div className="md:col-span-3 space-y-2">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Invoice Footer</label>
                     <textarea 
-                      value={settings.invoice.footer} 
-                      onChange={e => setSettings({...settings, invoice: {...settings.invoice, footer: e.target.value}})}
+                      value={invoiceSettings.footer} 
+                      onChange={e => setInvoiceSettings({...invoiceSettings, footer: e.target.value})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl h-24" 
                     />
                   </div>
@@ -217,49 +538,53 @@ const SettingsPage: React.FC = () => {
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Default Account</label>
                   <select 
-                    value={settings.defaults.accountId}
-                    onChange={e => setSettings({...settings, defaults: {...settings.defaults, accountId: e.target.value}})}
+                    value={systemDefaults.defaultAccountId}
+                    onChange={e => setSystemDefaults({...systemDefaults, defaultAccountId: e.target.value})}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
                   >
-                    {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                    <option value="">Select an account...</option>
+                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Default Payment Method</label>
                   <select 
-                    value={settings.defaults.paymentMethod}
-                    onChange={e => setSettings({...settings, defaults: {...settings.defaults, paymentMethod: e.target.value}})}
+                    value={systemDefaults.defaultPaymentMethod}
+                    onChange={e => setSystemDefaults({...systemDefaults, defaultPaymentMethod: e.target.value})}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
                   >
-                    {settings.paymentMethods.map(pm => <option key={pm.id} value={pm.name}>{pm.name}</option>)}
+                    <option value="">Select a payment method...</option>
+                    {paymentMethods.map(pm => <option key={pm.id} value={pm.name}>{pm.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Default Income Category</label>
                   <select 
-                    value={settings.defaults.incomeCategoryId}
-                    onChange={e => setSettings({...settings, defaults: {...settings.defaults, incomeCategoryId: e.target.value}})}
+                    value={systemDefaults.incomeCategoryId}
+                    onChange={e => setSystemDefaults({...systemDefaults, incomeCategoryId: e.target.value})}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
                   >
-                    {settings.categories.filter(c => c.type === 'Income').map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                    <option value="">Select a category...</option>
+                    {categories.filter(c => c.type === 'Income').map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Default Expense Category</label>
                   <select 
-                    value={settings.defaults.expenseCategoryId}
-                    onChange={e => setSettings({...settings, defaults: {...settings.defaults, expenseCategoryId: e.target.value}})}
+                    value={systemDefaults.expenseCategoryId}
+                    onChange={e => setSystemDefaults({...systemDefaults, expenseCategoryId: e.target.value})}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
                   >
-                    {settings.categories.filter(c => c.type === 'Expense').map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                    <option value="">Select a category...</option>
+                    {categories.filter(c => c.type === 'Expense').map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Records Per Page</label>
                   <input 
                     type="number" 
-                    value={settings.defaults.recordsPerPage} 
-                    onChange={e => setSettings({...settings, defaults: {...settings.defaults, recordsPerPage: parseInt(e.target.value)}})}
+                    value={systemDefaults.recordsPerPage} 
+                    onChange={e => setSystemDefaults({...systemDefaults, recordsPerPage: parseInt(e.target.value)})}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                   />
                 </div>
@@ -271,21 +596,40 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between border-b pb-4">
                 <h3 className="text-xl font-bold text-gray-800">Categories</h3>
-                <button onClick={() => setShowModal('category')} className="${theme.colors.primary[600]} font-bold text-sm flex items-center gap-1 hover:bg-[#ebf4ff] px-3 py-1.5 rounded-lg transition-all">
-                  {ICONS.Plus} Add Category
-                </button>
+                <Button
+                  onClick={() => setShowModal('category')}
+                  variant="primary"
+                  size="md"
+                >
+                  {ICONS.Plus} Add
+                </Button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {settings.categories.map(cat => (
-                  <div key={cat.id} className="flex items-center gap-4 p-4 border rounded-lg bg-gray-50/50">
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
-                    <div className="flex-1">
-                      <p className="font-bold text-gray-800">{cat.name}</p>
-                      <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{cat.type}</p>
+              {loadingCategories ? (
+                <div className="text-center py-8 text-gray-500">Loading categories...</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {categories.map(cat => (
+                    <div key={cat.id} className="flex items-center gap-4 p-4 border rounded-lg bg-gray-50/50 hover:shadow-sm transition-all">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                      <div className="flex-1">
+                        <p className="font-bold text-gray-800">{cat.name}</p>
+                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{cat.type}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteCategory(cat.id)}
+                        className="text-red-500 hover:text-red-700 px-2"
+                      >
+                        {ICONS.Delete}
+                      </button>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {categories.length === 0 && (
+                    <div className="col-span-2 text-center py-8 text-gray-500">
+                      No categories yet. Click "Add Category" to create one.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -293,18 +637,39 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between border-b pb-4">
                 <h3 className="text-xl font-bold text-gray-800">Payment Methods</h3>
-                <button onClick={() => setShowModal('payment')} className="${theme.colors.primary[600]} font-bold text-sm flex items-center gap-1 hover:bg-[#ebf4ff] px-3 py-1.5 rounded-lg transition-all">
-                  {ICONS.Plus} Add Method
-                </button>
+                <Button
+                  onClick={() => setShowModal('payment')}
+                  variant="primary"
+                  size="md"
+                >
+                  {ICONS.Plus} Add
+                </Button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {settings.paymentMethods.map(pm => (
-                  <div key={pm.id} className="p-4 border rounded-lg bg-gray-50/50">
-                    <p className="font-bold text-gray-800">{pm.name}</p>
-                    <p className="text-xs text-gray-400 mt-1">{pm.description}</p>
-                  </div>
-                ))}
-              </div>
+              {loadingPaymentMethods ? (
+                <div className="text-center py-8 text-gray-500">Loading payment methods...</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {paymentMethods.map(pm => (
+                    <div key={pm.id} className="p-4 border rounded-lg bg-gray-50/50 hover:shadow-sm transition-all flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="font-bold text-gray-800">{pm.name}</p>
+                        <p className="text-xs text-gray-400 mt-1">{pm.description || 'No description'}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeletePayment(pm.id)}
+                        className="text-red-500 hover:text-red-700 px-2"
+                      >
+                        {ICONS.Delete}
+                      </button>
+                    </div>
+                  ))}
+                  {paymentMethods.length === 0 && (
+                    <div className="col-span-2 text-center py-8 text-gray-500">
+                      No payment methods yet. Click "Add Method" to create one.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -319,8 +684,8 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Base URL</label>
                     <input 
                       type="text" 
-                      value={settings.courier.steadfast.baseUrl}
-                      onChange={e => setSettings({...settings, courier: {...settings.courier, steadfast: {...settings.courier.steadfast, baseUrl: e.target.value}}})}
+                      value={courierSettings.steadfast.baseUrl}
+                      onChange={e => setCourierSettings({...courierSettings, steadfast: {...courierSettings.steadfast, baseUrl: e.target.value}})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
@@ -328,18 +693,18 @@ const SettingsPage: React.FC = () => {
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">API Key</label>
                       <input 
-                        type="password" 
-                        value={settings.courier.steadfast.apiKey}
-                        onChange={e => setSettings({...settings, courier: {...settings.courier, steadfast: {...settings.courier.steadfast, apiKey: e.target.value}}})}
+                        type="text" 
+                        value={courierSettings.steadfast.apiKey}
+                        onChange={e => setCourierSettings({...courierSettings, steadfast: {...courierSettings.steadfast, apiKey: e.target.value}})}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Secret Key</label>
                       <input 
-                        type="password" 
-                        value={settings.courier.steadfast.secretKey}
-                        onChange={e => setSettings({...settings, courier: {...settings.courier, steadfast: {...settings.courier.steadfast, secretKey: e.target.value}}})}
+                        type="text" 
+                        value={courierSettings.steadfast.secretKey}
+                        onChange={e => setCourierSettings({...courierSettings, steadfast: {...courierSettings.steadfast, secretKey: e.target.value}})}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                       />
                     </div>
@@ -356,8 +721,8 @@ const SettingsPage: React.FC = () => {
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Base URL</label>
                     <input 
                       type="text" 
-                      value={settings.courier.carryBee.baseUrl}
-                      onChange={e => setSettings({...settings, courier: {...settings.courier, carryBee: {...settings.courier.carryBee, baseUrl: e.target.value}}})}
+                      value={courierSettings.carryBee.baseUrl}
+                      onChange={e => setCourierSettings({...courierSettings, carryBee: {...courierSettings.carryBee, baseUrl: e.target.value}})}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
@@ -366,19 +731,46 @@ const SettingsPage: React.FC = () => {
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client ID</label>
                       <input 
                         type="text" 
-                        value={settings.courier.carryBee.clientId}
-                        onChange={e => setSettings({...settings, courier: {...settings.courier, carryBee: {...settings.courier.carryBee, clientId: e.target.value}}})}
+                        value={courierSettings.carryBee.clientId}
+                        onChange={e => setCourierSettings({...courierSettings, carryBee: {...courierSettings.carryBee, clientId: e.target.value}})}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client Secret</label>
                       <input 
-                        type="password" 
-                        value={settings.courier.carryBee.clientSecret}
-                        onChange={e => setSettings({...settings, courier: {...settings.courier, carryBee: {...settings.courier.carryBee, clientSecret: e.target.value}}})}
+                        type="text" 
+                        value={courierSettings.carryBee.clientSecret}
+                        onChange={e => setCourierSettings({...courierSettings, carryBee: {...courierSettings.carryBee, clientSecret: e.target.value}})}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                       />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client Context</label>
+                      <input 
+                        type="text" 
+                        value={courierSettings.carryBee.clientContext}
+                        onChange={e => setCourierSettings({...courierSettings, carryBee: {...courierSettings.carryBee, clientContext: e.target.value}})}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Store ID</label>
+                      <select 
+                        value={courierSettings.carryBee.storeId}
+                        onChange={e => setCourierSettings({...courierSettings, carryBee: {...courierSettings.carryBee, storeId: e.target.value}})}
+                        disabled={loadingCarryBeeStores || carryBeeStores.length === 0}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <option value="">
+                          {loadingCarryBeeStores ? 'Loading stores...' : carryBeeStores.length === 0 ? 'Fill CarryBee credentials first' : 'Select Store'}
+                        </option>
+                        {carryBeeStores.map(store => (
+                          <option key={store.id} value={store.id}>{store.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -469,4 +861,3 @@ const SettingsPage: React.FC = () => {
 };
 
 export default SettingsPage;
-

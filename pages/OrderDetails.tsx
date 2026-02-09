@@ -1,77 +1,123 @@
 
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db, saveDb } from '../db';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '../db';
 import { OrderStatus, Order, UserRole, Transaction } from '../types';
-import { formatCurrency, ICONS } from '../constants';
-import { Button } from '../components';
+import { formatCurrency, ICONS, getStatusColor } from '../constants';
+import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
+import { useOrder, useCustomers, useUsers, useProducts, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
+import { LoadingOverlay } from '../components';
+import { handlePrintOrder } from '../src/utils/printUtils';
 
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToastNotifications();
   const user = db.currentUser;
   const isAdmin = user.role === UserRole.ADMIN;
-  const [order, setOrder] = useState<Order | undefined>(db.orders.find(o => o.id === id));
-  const [isActionOpen, setIsActionOpen] = useState(false);
-
-  // Modal State for Lifecycle Payment
+  
+  // Query data
+  const { data: order, isPending: orderLoading, error: orderError } = useOrder(id || '');
+  const { data: customers = [] } = useCustomers();
+  const { data: users = [] } = useUsers();
+  const { data: products = [] } = useProducts();
+  const { data: accounts = [] } = useAccounts();
+  const { data: companySettings } = useCompanySettings();
+  const { data: invoiceSettings } = useInvoiceSettings();
+  
+  // Mutations
+  const updateMutation = useUpdateOrder();
+  const createOrderMutation = useCreateOrder();
+  const createTransactionMutation = useCreateTransaction();
+  const updateAccountMutation = useUpdateAccount();
+  
+  // Modal and form state
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showSteadfast, setShowSteadfast] = useState(false);
+  const [showCarryBee, setShowCarryBee] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
-    accountId: db.settings.defaults.accountId || db.accounts[0]?.id || '',
+    accountId: db.settings.defaults.accountId || '',
     amount: 0
   });
+  const [isActionOpen, setIsActionOpen] = useState(false);
+  
+  // Get customer and created by user from query results
+  const customer = order ? customers.find(c => c.id === order.customerId) : undefined;
+  const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
+  
+  const loading = orderLoading;
 
-  if (!order) return <div className="p-8 text-center text-gray-500">Order not found.</div>;
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
+  if (orderError || !order) return <div className="p-8 text-center text-gray-500">{orderError?.message || 'Order not found.'}</div>;
 
-  const customer = db.customers.find(c => c.id === order.customerId);
-
-  const updateStatus = (newStatus: OrderStatus, historyKey?: keyof Order['history'], historyText?: string) => {
+  const updateStatus = async (newStatus: OrderStatus, historyKey?: keyof Order['history'], historyText?: string) => {
     if (!order) return;
-    const updatedOrder = { 
-      ...order, 
-      status: newStatus, 
-      history: historyKey ? { ...order.history, [historyKey]: historyText } : order.history
-    };
-    const idx = db.orders.findIndex(o => o.id === id);
-    db.orders[idx] = updatedOrder;
-    setOrder(updatedOrder);
-    saveDb();
-    setIsActionOpen(false);
+    try {
+      const updates = { 
+        ...order, 
+        status: newStatus, 
+        history: historyKey ? { ...order.history, [historyKey]: historyText } : order.history
+      };
+      await updateMutation.mutateAsync({ id: id!, updates });
+      
+      // Explicitly invalidate the query cache after mutation succeeds to prevent stale data (FIX: prevents "not found" race condition)
+      queryClient.invalidateQueries({ queryKey: ['order', id] });
+      
+      setIsActionOpen(false);
+    } catch (err) {
+      console.error('Failed to update order status:', err);
+      toast.error('Failed to update order status');
+    }
   };
 
-  const markProcessing = () => {
+  const markProcessing = async () => {
     const historyText = `Marked as processing by ${user.name}, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
-    updateStatus(OrderStatus.PROCESSING, 'processing', historyText);
+    await updateStatus(OrderStatus.PROCESSING, 'processing', historyText);
   };
 
-  const markPicked = () => {
+  const markPicked = async () => {
     const historyText = `Marked as picked by courier, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
-    updateStatus(OrderStatus.PICKED, 'picked', historyText);
+    await updateStatus(OrderStatus.PICKED, 'picked', historyText);
   };
 
-  const handleLifecyclePayment = () => {
-    const transaction: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      date: paymentForm.date,
-      type: 'Income',
-      category: 'Sales',
-      accountId: paymentForm.accountId,
-      amount: paymentForm.amount,
-      description: `Payment for Order #${order.orderNumber}`,
-      referenceId: order.id,
-      contactId: order.customerId,
-      paymentMethod: 'Cash'
-    };
-
-    const account = db.accounts.find(a => a.id === paymentForm.accountId);
-    if (account) account.currentBalance += paymentForm.amount;
+  const handleLifecyclePayment = async () => {
+    // Try to find account in cached data, fallback to provided ID if not found
+    // (accounts might not have fully loaded when payment modal opens)
+    let account = accounts.find(a => a.id === paymentForm.accountId);
+    
+    if (!account) {
+      // If account not found in cache, it might not be in the list, so just verify it has an ID
+      // The backend will validate that the account exists
+      if (!paymentForm.accountId) {
+        toast.error('Please select an account');
+        return;
+      }
+      // Account not in visible list, but proceed with the ID provided by user
+      // (backend RLS will validate it exists and belongs to user)
+      account = { 
+        id: paymentForm.accountId, 
+        name: 'Selected Account',
+        type: 'Bank',
+        openingBalance: 0,
+        currentBalance: 0
+      };
+    }
 
     const updatedPaid = order.paidAmount + paymentForm.amount;
-    const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${new Date(paymentForm.date).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    const paymentDate = new Date(paymentForm.date);
+    const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     
-    const status = updatedPaid >= order.total ? OrderStatus.COMPLETED : order.status;
+    // Check if this is a partial payment (indicates order has remaining balance to track)
+    const shouldCreateShippingExpense = paymentForm.amount < order.total;
+    
+    // Mark as completed when any payment is added
+    const status = OrderStatus.COMPLETED;
     
     const updatedOrder = { 
       ...order, 
@@ -80,22 +126,108 @@ const OrderDetails: React.FC = () => {
       history: { ...order.history, payment: historyText }
     };
 
-    const idx = db.orders.findIndex(o => o.id === id);
-    db.orders[idx] = updatedOrder;
-    db.transactions.unshift(transaction);
-    
-    setOrder(updatedOrder);
-    saveDb();
-    setShowPaymentModal(false);
+    // Use mutations with sequential flow
+    try {
+      // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
+      const incomeTxn: Transaction = {
+        id: Math.random().toString(36).substr(2, 9),
+        date: paymentForm.date,
+        type: 'Income',
+        category: db.settings.defaults.incomeCategoryId || 'income_sales',
+        accountId: paymentForm.accountId,
+        amount: order.total,
+        description: `Payment for Order #${order.orderNumber}`,
+        referenceId: order.id,
+        contactId: order.customerId,
+        paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
+        createdBy: user.id
+      };
+      await createTransactionMutation.mutateAsync(incomeTxn as any);
+
+      // SEQUENTIAL: Step 2 - Create expense transaction for remaining balance (including shipping et al)
+      if (shouldCreateShippingExpense) {
+        const remainingAmount = order.total - paymentForm.amount;
+        const shippingExpenseTxn: Transaction = {
+          id: Math.random().toString(36).substr(2, 9),
+          date: paymentForm.date,
+          type: 'Expense',
+          category: 'expense_shipping',
+          accountId: paymentForm.accountId,
+          amount: remainingAmount,
+          description: `Shipping costs for Order #${order.orderNumber}`,
+          paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
+          createdBy: user.id
+        };
+        await createTransactionMutation.mutateAsync(shippingExpenseTxn as any);
+      }
+
+      // PARALLEL: Step 3 - Update account balance and order status together
+      const balanceChange = paymentForm.amount;
+      const results = await Promise.allSettled([
+        updateMutation.mutateAsync({ id: id!, updates: updatedOrder }),
+        updateAccountMutation.mutateAsync({
+          id: paymentForm.accountId,
+          updates: { currentBalance: account.currentBalance + balanceChange }
+        })
+      ]);
+      
+      // Check if both mutations succeeded
+      if (results[0].status === 'rejected' || results[1].status === 'rejected') {
+        const orderStatus = results[0].status === 'rejected' ? 'failed' : 'succeeded';
+        const accountStatus = results[1].status === 'rejected' ? 'failed' : 'succeeded';
+        throw new Error(`Payment update failed: Order update ${orderStatus}, Account update ${accountStatus}`);
+      }
+
+      // Explicitly invalidate the query cache to ensure fresh data is fetched (FIX: prevents "not found" race condition)
+      queryClient.invalidateQueries({ queryKey: ['order', id] });
+      // Also invalidate orders list to reflect the payment in list view
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+
+      setShowPaymentModal(false);
+      toast.success('Payment recorded successfully');
+    } catch (err) {
+      console.error('Failed to record payment:', err);
+      toast.error('Failed to record payment');
+    }
   };
 
   const openPayment = () => {
-    setPaymentForm({ ...paymentForm, amount: order.total - order.paidAmount });
+    setPaymentForm({
+      date: new Date().toISOString().split('T')[0],
+      accountId: '',
+      amount: order.total - order.paidAmount
+    });
     setShowPaymentModal(true);
+  };
+
+  const handleDuplicate = async () => {
+    if (!order) return;
+    try {
+      const duplicateOrder = { 
+        orderNumber: db.settings.order.prefix + db.settings.order.nextNumber,
+        orderDate: order.orderDate,
+        customerId: order.customerId,
+        createdBy: user.id,
+        status: order.status,
+        items: order.items,
+        subtotal: order.subtotal,
+        discount: order.discount,
+        shipping: order.shipping,
+        total: order.total,
+        notes: order.notes,
+        paidAmount: 0,
+        history: { created: `${user.name} created this order as duplicate on ${new Date().toLocaleDateString('en-BD')}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}` }
+      };
+      await createOrderMutation.mutateAsync(duplicateOrder as any);
+      navigate('/orders');
+    } catch (err) {
+      toast.error('Failed to duplicate order: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      <LoadingOverlay isLoading={loading && !order} message="Loading order details..." />
       {/* Header with Top Action Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -103,16 +235,13 @@ const OrderDetails: React.FC = () => {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Order Details</h2>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
-            order.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-600' : 
-            order.status === OrderStatus.CANCELLED ? 'bg-red-100 text-red-600' : `bg-[#e6f0ff] ${theme.colors.secondary[600]}`
-          }`}>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
         </div>
         
         <div className="flex items-center gap-2 relative">
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all shadow-sm">
+          <button onClick={() => handlePrintOrder(id!, navigate)} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all shadow-sm">
             {ICONS.Print} Print
           </button>
           <div className="relative">
@@ -129,29 +258,16 @@ const OrderDetails: React.FC = () => {
                   <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
                     {ICONS.Edit} Edit Order
                   </button>
-                  <button onClick={() => {
-                     const duplicateOrder = { ...order, id: Math.random().toString(36).substr(2, 9), orderNumber: db.settings.order.prefix + db.settings.order.nextNumber };
-                     db.settings.order.nextNumber++;
-                     db.orders.unshift(duplicateOrder);
-                     saveDb();
-                     navigate('/orders');
-                  }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+                  <button onClick={handleDuplicate} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
                     {ICONS.Duplicate} Duplicate Order
                   </button>
-                  {order.paidAmount < order.total && (
-                    <Button onClick={openPayment} variant="outline" className="w-full text-left justify-start">
+                  {order.status !== OrderStatus.COMPLETED && (
+                    <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={openPayment}>
                       {ICONS.Banking} Add Payment
-                    </Button>
+                    </button>
                   )}
                   <div className="border-t my-1"></div>
-                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-                    {ICONS.Plus} Add to Steadfast
-                  </button>
-                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-                    {ICONS.Plus} Add to CarryBee
-                  </button>
-                  <div className="border-t my-1"></div>
-                  <button onClick={() => updateStatus(OrderStatus.CANCELLED)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 text-red-500 font-bold">
+                  <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
                     {ICONS.Delete} Cancel Order
                   </button>
                 </div>
@@ -164,22 +280,24 @@ const OrderDetails: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* On-Screen Invoice Format */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="p-10 space-y-10">
+          <div className="p-10 space-y-5">
             <div className="flex justify-between items-start">
               <div>
-                <img 
-                  src={db.settings.company.logo} 
-                  className="rounded-lg object-cover mb-4 shadow-sm border border-gray-100" 
-                  style={{ width: db.settings.invoice.logoWidth, height: db.settings.invoice.logoHeight }}
-                />
-                <h1 className="text-2xl font-black ${theme.colors.primary[600]} uppercase tracking-tighter">{db.settings.company.name}</h1>
+                {(companySettings?.logo || db.settings.company.logo) && (
+                  <img 
+                    src={companySettings?.logo || db.settings.company.logo} 
+                    className="rounded-lg object-cover mb-4" 
+                    style={{ width: invoiceSettings?.logoWidth || db.settings.invoice.logoWidth, height: invoiceSettings?.logoHeight || db.settings.invoice.logoHeight }}
+                  />
+                )}
+                <h1 className="text-xl font-black ${theme.colors.primary[600]} uppercase tracking-tighter">{companySettings?.name || db.settings.company.name}</h1>
                 <div className="mt-2 text-xs text-gray-400 font-medium space-y-1">
-                  <p>{db.settings.company.address}</p>
-                  <p>{db.settings.company.phone} • {db.settings.company.email}</p>
+                  <p>{companySettings?.address || db.settings.company.address}</p>
+                  <p>{companySettings?.phone || db.settings.company.phone} • {companySettings?.email || db.settings.company.email}</p>
                 </div>
               </div>
               <div className="text-right">
-                <h2 className="text-5xl font-black text-gray-300 uppercase leading-none mb-4">{db.settings.invoice.title}</h2>
+                <h2 className="text-3xl font-black text-gray-300 uppercase leading-none mb-2">{invoiceSettings?.title || db.settings.invoice.title}</h2>
                 <div className="space-y-1.5">
                   <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">Order No:&nbsp;&nbsp;</span> {order.orderNumber}</p>
                   <p className="text-sm font-bold text-gray-900"><span className="text-gray-400 font-medium">Date:&nbsp;&nbsp;</span> {order.orderDate}</p>
@@ -187,35 +305,32 @@ const OrderDetails: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-12 border-y border-gray-100 py-8">
+            <div className="grid grid-cols-2 gap-12 border-t border-gray-100 py-4">
               <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Invoiced To</p>
-                <h3 className="text-lg font-black text-gray-900">{customer?.name}</h3>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Billed To</p>
+                <h3 className="text-md font-black text-gray-900">{customer?.name}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed">{customer?.address}</p>
                 <p className="text-sm font-bold ${theme.colors.primary[600]} mt-2">{customer?.phone}</p>
-              </div>
-              <div className="text-right">
-                
               </div>
             </div>
 
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b-2 border-gray-100">
-                  <th className="py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Item Description</th>
-                  <th className="py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Rate</th>
-                  <th className="py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Qty</th>
-                  <th className="py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</th>
+                  <th className="py-4 text-sm font-black text-gray-400 uppercase">Item Description</th>
+                  <th className="py-4 text-sm text-center font-black text-gray-400 uppercase">Rate</th>
+                  <th className="py-4 text-sm text-center font-black text-gray-400 uppercase">Qty</th>
+                  <th className="py-4 text-sm text-right font-black text-gray-400 uppercase">Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {order.items.map((item, idx) => {
-                  const product = db.products.find(p => p.id === item.productId);
+                  const product = products.find(p => p.id === item.productId);
                   return (
                     <tr key={idx} className="group">
                       <td className="py-6">
                         <div className="flex items-center gap-4">
-                          <img src={product?.image} className="w-12 h-12 rounded-xl object-cover border border-gray-100 shadow-sm" />
+                          <img src={product?.image} className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm" />
                           <span className="font-bold text-gray-900">{item.productName}</span>
                         </div>
                       </td>
@@ -234,35 +349,32 @@ const OrderDetails: React.FC = () => {
                   <span className="text-gray-400 font-bold uppercase">Subtotal</span>
                   <span className="font-bold text-gray-900">{formatCurrency(order.subtotal)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400 font-bold uppercase">Discount</span>
-                  <span className="font-bold text-red-500">-{formatCurrency(order.discount)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400 font-bold uppercase">Shipping</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(order.shipping)}</span>
-                </div>
-                <div className="flex justify-between items-center py-6 border-t-4 border-[#0f2f57]">
-                  <span className="text-lg font-black text-gray-900 uppercase tracking-tighter">Net Total</span>
-                  <span className="text-3xl font-black ${theme.colors.primary[600]}">{formatCurrency(order.total)}</span>
-                </div>
-                {order.paidAmount > 0 && (
-                  <div className="flex justify-between text-sm bg-[#ebf4ff] p-3 rounded-xl border border-[#c7dff5]">
-                    <span className="${theme.colors.primary[700]} font-bold uppercase">Paid Amount</span>
-                    <span className="font-black ${theme.colors.primary[700]}">{formatCurrency(order.paidAmount)}</span>
+                {order.discount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400 font-bold uppercase">Discount</span>
+                    <span className="font-bold text-red-500">-{formatCurrency(order.discount)}</span>
                   </div>
                 )}
+                {order.shipping > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400 font-bold uppercase">Shipping</span>
+                    <span className="font-bold text-gray-900">{formatCurrency(order.shipping)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center py-6 border-t-2 border-[#0f2f57]">
+                  <span className="font-black text-gray-900 uppercase tracking-tighter">Net Total</span>
+                  <span className="font-black">{formatCurrency(order.total)}</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100">
-              <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2">Terms & Notes</p>
-              <p className="text-xs text-gray-600 font-medium italic leading-relaxed">{order.notes || 'No specific terms or notes mentioned.'}</p>
-            </div>
+            {order.notes && (
+              <div className="bg-gray-50 p-4 rounded-[10px] border border-gray-100">
+                <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2">Terms & Notes</p>
+                <p className="text-xs text-gray-600 font-medium italic leading-relaxed">{order.notes}</p>
+              </div>
+            )}
 
-            <div className="text-center pt-8 border-t border-gray-50">
-              <p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em]">{db.settings.invoice.footer}</p>
-            </div>
           </div>
         </div>
 
@@ -276,7 +388,7 @@ const OrderDetails: React.FC = () => {
             </div>
             <div className="p-5">
               <p className="text-xs text-gray-500 leading-relaxed font-medium">
-                {order.history.created || `Created by ${order.createdBy} on ${order.orderDate}`}
+                {order.history.created || `Created by ${createdByUser?.name || 'Unknown'} on ${order.orderDate}`}
               </p>
             </div>
           </div>
@@ -295,18 +407,29 @@ const OrderDetails: React.FC = () => {
                   {order.history.processing}
                 </p>
               ) : (
+                <button 
+                  disabled={order.status !== OrderStatus.ON_HOLD}
+                  onClick={markProcessing}
+                  className={`w-full py-3 ${theme.colors.secondary[600]} hover:${theme.colors.secondary[700]} disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
+                >
+                  Mark as Processing
+                </button>
+              )}
+
+              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
                 <>
                   <button 
-                    disabled={order.status !== OrderStatus.ON_HOLD}
-                    onClick={markProcessing}
-                    className={`w-full py-3 ${theme.colors.secondary[600]} hover:${theme.colors.secondary[700]} disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
+                    onClick={() => setShowSteadfast(true)}
+                    className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
                   >
-                    Mark as Processing
+                    {ICONS.Courier} Send to Steadfast
                   </button>
-                  <div className="flex gap-2">
-                    <Button variant="primary" size="sm" className="flex-1">Steadfast</Button>
-                    <Button variant="primary" size="sm" className="flex-1">CarryBee</Button>
-                  </div>
+                  <button 
+                    onClick={() => setShowCarryBee(true)}
+                    className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    {ICONS.Courier} Send to CarryBee
+                  </button>
                 </>
               )}
             </div>
@@ -351,9 +474,6 @@ const OrderDetails: React.FC = () => {
                   <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
                     {order.history.payment}
                   </p>
-                  {order.paidAmount < order.total && (
-                     <Button onClick={openPayment} variant="primary" size="sm" className="w-full">Add Balance Payment</Button>
-                  )}
                 </div>
               ) : (
                 <div className="space-y-4 text-center">
@@ -374,35 +494,30 @@ const OrderDetails: React.FC = () => {
         </div>
       </div>
 
-      {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPaymentModal(false)}></div>
-          <div className="bg-white w-full max-w-md rounded-xl p-8 z-[130] animate-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-gray-900 mb-6">Order Payment</h3>
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Payment Date</label>
-                <input type="date" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border rounded-xl" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Account</label>
-                <select value={paymentForm.accountId} onChange={e => setPaymentForm({...paymentForm, accountId: e.target.value})} className="w-full px-4 py-3 bg-gray-50 border rounded-xl">
-                  {db.accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({formatCurrency(acc.currentBalance)})</option>)}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Amount to Pay</label>
-                <input type="number" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} className="w-full px-4 py-3 bg-gray-50 border rounded-xl font-bold ${theme.colors.primary[600]}" />
-              </div>
-              <div className="pt-4 flex gap-3">
-                <Button onClick={() => setShowPaymentModal(false)} variant="ghost" className="flex-1">Cancel</Button>
-                <Button onClick={handleLifecyclePayment} variant="primary" size="md" className="flex-1">Save Payment</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <CommonPaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSubmit={handleLifecyclePayment}
+        accounts={accounts}
+        paymentForm={paymentForm}
+        setPaymentForm={setPaymentForm}
+        isLoading={updateMutation.isPending || createTransactionMutation.isPending || updateAccountMutation.isPending}
+        title="Record Payment"
+        buttonText="Add Payment"
+      />
+
+      <SteadfastModal 
+        isOpen={showSteadfast} 
+        onClose={() => setShowSteadfast(false)}
+        order={order}
+        customer={customer}
+      />
+      <CarryBeeModal 
+        isOpen={showCarryBee} 
+        onClose={() => setShowCarryBee(false)}
+        order={order}
+        customer={customer}
+      />
     </div>
   );
 };

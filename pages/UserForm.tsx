@@ -151,7 +151,7 @@ const UserForm: React.FC = () => {
         </div>
       )}
 
-      {!isEdit || !loading && (
+      {(!isEdit || !loading) && (
         <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm space-y-6">
           <div className="space-y-6">
             <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
@@ -159,7 +159,7 @@ const UserForm: React.FC = () => {
                 <img src={form.image || `https://ui-avatars.com/api/?name=${form.name || 'User'}&background=10b981&color=fff`} className="w-full h-full object-cover" />
               </div>
               <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-400 uppercase">Profile Photo</p>
+                <p className="text-xs font-bold text-gray-400 uppercase mb-2">Profile Photo</p>
                 <input type="file" id="user-pfp" className="hidden" onChange={handleFileUpload} />
                 <label htmlFor="user-pfp" className={`cursor-pointer px-4 py-2 ${theme.colors.primary[600]} text-white text-xs font-bold rounded-lg hover:${theme.colors.primary[700]}`}>Upload Picture</label>
               </div>

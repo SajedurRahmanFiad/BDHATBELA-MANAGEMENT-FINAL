@@ -10,11 +10,13 @@ import { theme } from '../theme';
 import { useTransactions, useCustomers, useVendors, useOrders, useBills, useUsers, useCategories } from '../src/hooks/useQueries';
 import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useSearch } from '../src/contexts/SearchContext';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { searchQuery } = useSearch();
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>('All');
@@ -72,10 +74,25 @@ const Transactions: React.FC = () => {
   };
 
   const filteredTransactions = useMemo(() => {
-    return transactions
+    let results = transactions
       .filter(t => isWithinRange(t.date))
       .filter(t => typeTab === 'All' || t.type === typeTab);
-  }, [transactions, filterRange, customDates, typeTab]);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(txn => {
+        const category = allCategories.find(c => c.id === txn.category);
+        return (
+          txn.description.toLowerCase().includes(query) ||
+          category?.name.toLowerCase().includes(query) ||
+          txn.type.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [transactions, filterRange, customDates, typeTab, searchQuery, allCategories]);
 
   const getContactName = (contactId: string) => {
     const customer = customers.find(c => c.id === contactId);
@@ -160,11 +177,12 @@ const Transactions: React.FC = () => {
                   const creator = getCreatorName(t);
                   const hasLink = t.referenceId && (orders.some(o => o.id === t.referenceId) || bills.some(b => b.id === t.referenceId));
                   const isLinkedTransaction = !!t.referenceId;
+                  console.log(t);
                   const { date: dateStr, time: timeStr } = formatDateAndTime(t.date);
                   
                   return (
                     <tr key={t.id} onClick={() => handleRowClick(t)} className={`hover:bg-gray-50 transition-all group ${hasLink ? 'cursor-pointer' : ''}`}>
-                      <td className="px-6 py-5 text-sm font-bold text-gray-700"><div className="flex flex-col"><span className="font-bold text-gray-900">{dateStr}</span><span className="text-[11px] text-gray-400 font-medium">{timeStr}</span></div></td>
+                      <td className="px-6 py-5 text-sm font-bold text-gray-700"><div className="flex flex-col"><span className="font-bold text-gray-900">{dateStr}</span></div></td>
                       <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? `bg-[#ebf4ff] ${theme.colors.primary[600]}` : t.type === 'Expense' ? 'bg-red-50 text-red-600' : `bg-[#e6f0ff] ${theme.colors.secondary[600]}`}`}>{t.type}</span></td>
                       <td className="px-6 py-5">{isLinkedTransaction ? (contact ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{contact.name}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>) : (creator ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{creator}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Created By</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>)}</td>
                       <td className="px-6 py-5"><div className="flex flex-col"><p className="text-sm font-bold text-gray-800">{allCategories.find(c => c.id === t.category)?.name || t.category}</p><p className="text-xs text-gray-400 italic max-w-xs truncate">{t.description}</p></div></td>

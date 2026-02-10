@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { User, UserRole } from '../types';
@@ -7,11 +7,26 @@ import { ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
 import { useUsers } from '../src/hooks/useQueries';
+import { useSearch } from '../src/contexts/SearchContext';
 
 const Users: React.FC = () => {
   const navigate = useNavigate();
+  const { searchQuery } = useSearch();
   const { data: users = [], isPending: loading } = useUsers();
   const isAdmin = db.currentUser?.role === UserRole.ADMIN;
+
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return users;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return users.filter(user => 
+      user.name.toLowerCase().includes(query) ||
+      user.phone.includes(query) ||
+      user.role.toLowerCase().includes(query)
+    );
+  }, [users, searchQuery]);
 
   return (
     <div className="space-y-6">
@@ -82,7 +97,7 @@ const Users: React.FC = () => {
             ),
           },
         ]}
-        data={users}
+        data={filteredUsers}
         onRowClick={(user) => navigate(`/users/${user.id}`)}
         emptyMessage="No users found"
         loading={loading}

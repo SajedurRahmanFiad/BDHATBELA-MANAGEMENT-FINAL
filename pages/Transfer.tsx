@@ -23,6 +23,7 @@ const Transfer: React.FC = () => {
   
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     fromAccountId: '',
     toAccountId: '',
     amount: 0,
@@ -49,11 +50,17 @@ const Transfer: React.FC = () => {
       }
 
       try {
+        // Create full ISO datetime from date and time
+        const [hours, minutes] = form.time.split(':').map(Number);
+        const fullDatetime = new Date(form.date);
+        fullDatetime.setHours(hours, minutes, 0, 0);
+        const isoDatetime = fullDatetime.toISOString();
+
         // Create transaction and update both accounts in parallel
         await Promise.all([
           createTransactionMutation.mutateAsync({
             type: 'Transfer',
-            date: form.date,
+            date: isoDatetime,
             accountId: form.fromAccountId,
             toAccountId: form.toAccountId,
             amount: form.amount,
@@ -80,6 +87,7 @@ const Transfer: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
         setForm({
           date: new Date().toISOString().split('T')[0],
+          time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
           fromAccountId: '',
           toAccountId: '',
           amount: 0,
@@ -124,9 +132,15 @@ const Transfer: React.FC = () => {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Transfer Date</label>
-          <input type="date" className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold`} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Transfer Date</label>
+            <input type="date" className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold`} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Transfer Time</label>
+            <input type="time" className={`w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold`} value={form.time} onChange={e => setForm({...form, time: e.target.value})} />
+          </div>
         </div>
 
         <div className="space-y-2">

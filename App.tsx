@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { db, saveDb } from './db';
 import { AuthProvider, useAuth } from './src/contexts/AuthProvider';
 import { ToastProvider } from './src/contexts/ToastContext';
+import { SearchProvider } from './src/contexts/SearchContext';
 import Layout from './components/Layout';
 import ToastContainer from './components/ToastContainer';
 
@@ -230,10 +231,12 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ToastProvider>
-          <HashRouter>
-            <AppContent />
-            <ToastContainer />
-          </HashRouter>
+          <SearchProvider>
+            <HashRouter>
+              <AppContent />
+              <ToastContainer />
+            </HashRouter>
+          </SearchProvider>
         </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>

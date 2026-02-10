@@ -8,15 +8,17 @@ import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
-import { useOrders, useCustomers, useAccounts, useUsers } from '../src/hooks/useQueries';
+import { useOrders, useCustomers, useAccounts, useUsers, useOrderSettings } from '../src/hooks/useQueries';
 import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useSearch } from '../src/contexts/SearchContext';
 import { handlePrintOrder } from '../src/utils/printUtils';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { searchQuery } = useSearch();
   const user = db.currentUser;
   const isAdmin = user?.role === UserRole.ADMIN;
   const isEmployee = user?.role === UserRole.EMPLOYEE;
@@ -32,6 +34,7 @@ const Orders: React.FC = () => {
   const [showCarryBee, setShowCarryBee] = useState<string | null>(null); // Order ID for CarryBee modal
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: '',
     amount: 0
   });
@@ -40,6 +43,7 @@ const Orders: React.FC = () => {
   const { data: customers = [] } = useCustomers();
   const { data: accounts = [] } = useAccounts();
   const { data: users = [] } = useUsers();
+  const { data: orderSettings } = useOrderSettings();
 
   const createOrderMutation = useCreateOrder();
   const deleteOrderMutation = useDeleteOrder();
@@ -73,10 +77,25 @@ const Orders: React.FC = () => {
   };
 
   const filteredOrders = useMemo(() => {
-    return orders
+    let results = orders
       .filter(o => isWithinRange(o.orderDate))
       .filter(o => statusTab === 'All' || o.status === statusTab);
-  }, [orders, filterRange, customDates, statusTab]);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(order => {
+        const customer = customers.find(c => c.id === order.customerId);
+        return (
+          order.orderNumber.toLowerCase().includes(query) ||
+          customer?.name.toLowerCase().includes(query) ||
+          customer?.phone.includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [orders, filterRange, customDates, statusTab, searchQuery, customers]);
 
   // Helper to get creator name from createdBy field or history
   const getCreatorName = (order: Order) => {
@@ -97,8 +116,14 @@ const Orders: React.FC = () => {
   };
 
   const handleDuplicate = async (order: Order) => {
+    if (!orderSettings) {
+      toast.error('Unable to generate new order number. Please try again.');
+      return;
+    }
+
+    const newOrderNumber = `${orderSettings.prefix}${orderSettings.nextNumber}`;
     const newOrder: Omit<Order, 'id'> = {
-      orderNumber: order.orderNumber,
+      orderNumber: newOrderNumber,
       orderDate: new Date().toISOString().split('T')[0],
       customerId: order.customerId,
       createdBy: user?.id || order.createdBy,
@@ -114,8 +139,10 @@ const Orders: React.FC = () => {
     try {
       await createOrderMutation.mutateAsync(newOrder);
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      toast.success('Order duplicated successfully');
     } catch (err) {
       console.error('Failed to duplicate order', err);
+      toast.error('Failed to duplicate order: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -132,6 +159,7 @@ const Orders: React.FC = () => {
   const openPaymentModal = (order: Order) => {
     setPaymentForm({
       date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: order.total - order.paidAmount
     });
@@ -168,9 +196,15 @@ const Orders: React.FC = () => {
       // Check if this is a partial payment (indicates order has remaining balance to track)
       const shouldCreateShippingExpense = paymentForm.amount < order.total;
 
+      // Create full ISO datetime from date and time
+      const [hours, minutes] = paymentForm.time.split(':').map(Number);
+      const fullDatetime = new Date(paymentForm.date);
+      fullDatetime.setHours(hours, minutes, 0, 0);
+      const isoDatetime = fullDatetime.toISOString();
+
       // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
       await createTransactionMutation.mutateAsync({
-        date: paymentForm.date,
+        date: isoDatetime,
         type: 'Income',
         category: db.settings.defaults.incomeCategoryId || 'income_sales',
         accountId: paymentForm.accountId,
@@ -186,7 +220,7 @@ const Orders: React.FC = () => {
       if (shouldCreateShippingExpense) {
         const remainingAmount = order.total - paymentForm.amount;
         await createTransactionMutation.mutateAsync({
-          date: paymentForm.date,
+          date: isoDatetime,
           type: 'Expense',
           category: 'expense_shipping',
           accountId: paymentForm.accountId,
@@ -257,7 +291,7 @@ const Orders: React.FC = () => {
       />
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
-        <div className="overflow-x-auto overflow-y-visible">
+        <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -306,7 +340,7 @@ const Orders: React.FC = () => {
                     </td>
 
                     {/* Mobile Actions Dropdown */}
-                    <td className="px-6 py-5 sm:hidden relative" onClick={e => e.stopPropagation()}>
+                    <td className="px-6 py-5 sm:hidden relative z-50" onClick={e => e.stopPropagation()}>
                       <div className="relative">
                         <button 
                           onClick={() => setOpenActionsMenu(openActionsMenu === order.id ? null : order.id)}
@@ -315,7 +349,7 @@ const Orders: React.FC = () => {
                           {ICONS.More}
                         </button>
                         {openActionsMenu === order.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-2">
+                          <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-gray-100 rounded-lg shadow-2xl z-50 py-2">
                             {isEmployee ? (
                               <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
                             ) : (

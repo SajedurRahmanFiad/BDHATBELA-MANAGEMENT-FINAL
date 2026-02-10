@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Account } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
@@ -8,12 +8,26 @@ import { useAccounts } from '../src/hooks/useQueries';
 import { useCreateAccount, useDeleteAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
+import { useSearch } from '../src/contexts/SearchContext';
 
 const Banking: React.FC = () => {
   const { data: accounts = [], isLoading } = useAccounts();
+  const { searchQuery } = useSearch();
   const createAccountMutation = useCreateAccount();
   const deleteAccountMutation = useDeleteAccount();
   const toast = useToastNotifications();
+
+  const filteredAccounts = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return accounts;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return accounts.filter(account => 
+      account.name.toLowerCase().includes(query) ||
+      account.type.toLowerCase().includes(query)
+    );
+  }, [accounts, searchQuery]);
   
   const [showAddModal, setShowAddModal] = useState(false);
   const [openDeleteMenu, setOpenDeleteMenu] = useState<string | null>(null);
@@ -62,7 +76,7 @@ const Banking: React.FC = () => {
     }
   };
 
-  const totalBalance = accounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
+  const totalBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
 
   return (
     <div className="space-y-6">
@@ -106,7 +120,7 @@ const Banking: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {accounts.map((acc) => (
+        {filteredAccounts.map((acc) => (
           <div key={acc.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group relative">
             <div className="flex justify-between items-start mb-4">
               <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? `bg-[#e6f0ff] ${theme.colors.secondary[600]}` : 'bg-orange-50 text-orange-600'}`}>

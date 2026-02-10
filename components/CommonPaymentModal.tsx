@@ -11,6 +11,7 @@ interface CommonPaymentModalProps {
   accounts: Account[];
   paymentForm: {
     date: string;
+    time: string;
     accountId: string;
     amount: number;
   };
@@ -43,15 +44,27 @@ const CommonPaymentModal: React.FC<CommonPaymentModalProps> = ({
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 z-[210] animate-in zoom-in-95 duration-200 border border-[#ebf4ff]">
         <h3 className="text-2xl font-black text-gray-900 mb-8">{title}</h3>
         <div className="space-y-6">
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Payment Date</label>
-            <input 
-              type="date" 
-              value={paymentForm.date} 
-              onChange={e => setPaymentForm({...paymentForm, date: e.target.value})}
-              disabled={isLoading}
-              className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-50"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Payment Date</label>
+              <input 
+                type="date" 
+                value={paymentForm.date} 
+                onChange={e => setPaymentForm({...paymentForm, date: e.target.value})}
+                disabled={isLoading}
+                className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Payment Time</label>
+              <input 
+                type="time" 
+                value={paymentForm.time} 
+                onChange={e => setPaymentForm({...paymentForm, time: e.target.value})}
+                disabled={isLoading}
+                className="w-full px-6 py-3.5 bg-gray-50 border border-gray-100 rounded-lg font-bold focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-50"
+              />
+            </div>
           </div>
 
           <div className="space-y-1">

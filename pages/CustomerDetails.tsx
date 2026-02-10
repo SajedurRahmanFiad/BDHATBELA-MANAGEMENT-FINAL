@@ -1,11 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Order, OrderStatus, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { Button } from '../components';
-import { useCustomer, useOrdersByCustomerId } from '../src/hooks/useQueries';
+import { useCustomer, useOrdersByCustomerId, useOrderSettings } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
@@ -19,25 +19,25 @@ const CustomerDetails: React.FC = () => {
   const currentUser = db.currentUser;
   const userRole = currentUser?.role || null;
   
-  // Query data
+  // Query data - ALL HOOKS MUST BE AT TOP, CALLED UNCONDITIONALLY
   const { data: customer } = useCustomer(id || '');
   const { data: customerOrders = [] } = useOrdersByCustomerId(id || '');
+  const { data: orderSettings } = useOrderSettings();
   
   // Mutations
   const createMutation = useCreateOrder();
   const toast = useToastNotifications();
 
-  if (userRole === UserRole.EMPLOYEE) {
-    return (
-      <div className="p-8 text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
-        <p className="text-gray-500 mb-6">Employees cannot view customer details. Contact an administrator for assistance.</p>
-        <Button onClick={() => navigate('/customers')} variant="primary">Back to Customers</Button>
-      </div>
-    );
-  }
-
-  if (!customer) return <div className="p-8 text-center text-gray-500">Customer not found.</div>;
+  // Calculate totals from orders - MOVED TO TOP BEFORE CONDITIONALS
+  const { totalRevenue, dueAmount } = useMemo(() => {
+    const completedOrders = customerOrders.filter(o => o.status === OrderStatus.COMPLETED);
+    const pendingOrders = customerOrders.filter(o => o.status === OrderStatus.PROCESSING || o.status === OrderStatus.PICKED);
+    
+    const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
+    const dueAmount = pendingOrders.reduce((sum, o) => sum + (o.total - o.paidAmount), 0);
+    
+    return { totalRevenue, dueAmount };
+  }, [customerOrders]);
 
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
@@ -54,12 +54,18 @@ const CustomerDetails: React.FC = () => {
     try {
       if (!customer) return;
       
+      if (!orderSettings) {
+        toast.error('Unable to generate new order number. Please try again.');
+        return;
+      }
+
+      const newOrderNumber = `${orderSettings.prefix}${orderSettings.nextNumber}`;
       const now = new Date();
       const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
       const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
 
       const newOrder = {
-        orderNumber: order.orderNumber,
+        orderNumber: newOrderNumber,
         orderDate: new Date().toISOString().split('T')[0],
         customerId: customer.id,
         createdBy: order.createdBy,
@@ -76,12 +82,28 @@ const CustomerDetails: React.FC = () => {
       };
 
       await createMutation.mutateAsync(newOrder as any);
+      toast.success('Order duplicated successfully');
       navigate('/orders');
     } catch (error) {
       console.error('Failed to duplicate order', error);
       toast.error('Failed to duplicate order: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
+
+  // CONDITIONAL RENDERING - moved to JSX level, all hooks called before
+  if (userRole === UserRole.EMPLOYEE) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
+        <p className="text-gray-500 mb-6">Employees cannot view customer details. Contact an administrator for assistance.</p>
+        <Button onClick={() => navigate('/customers')} variant="primary">Back to Customers</Button>
+      </div>
+    );
+  }
+
+  if (!customer) {
+    return <div className="p-8 text-center text-gray-500">Customer not found.</div>;
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -114,14 +136,14 @@ const CustomerDetails: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Revenue</p>
-                <p className="text-lg font-black text-gray-900">{formatCurrency(customerOrders.reduce((s, o) => s + o.total, 0))}</p>
+                <p className="text-lg font-black text-gray-900">{formatCurrency(totalRevenue)}</p>
               </div>
             </div>
           </div>
 
           <div className={`bg-white p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20/50 border border-gray-100 text-white`}>
             <p className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Due Amount</p>
-            <h4 className="text-lg font-black text-green-600">{formatCurrency(customer.dueAmount)}</h4>
+            <h4 className="text-lg font-black text-green-600">{formatCurrency(dueAmount)}</h4>
           </div>
         </div>
 

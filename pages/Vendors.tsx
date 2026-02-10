@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
@@ -10,13 +10,28 @@ import { theme } from '../theme';
 import { useVendors } from '../src/hooks/useQueries';
 import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useSearch } from '../src/contexts/SearchContext';
 
 const Vendors: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { searchQuery } = useSearch();
   const { data: vendors = [], isPending } = useVendors();
   const deleteVendorMutation = useDeleteVendor();
+
+  const filteredVendors = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return vendors;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return vendors.filter(vendor => 
+      vendor.name.toLowerCase().includes(query) ||
+      vendor.phone.includes(query) ||
+      vendor.address.toLowerCase().includes(query)
+    );
+  }, [vendors, searchQuery]);
 
   const handleDelete = async (vendorId: string) => {
     if (!confirm('Are you sure you want to delete this vendor?')) return;
@@ -117,7 +132,7 @@ const Vendors: React.FC = () => {
             ),
           },
         ]}
-        data={vendors}
+        data={filteredVendors}
         loading={isPending}
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`)}
         emptyMessage="No vendors found"

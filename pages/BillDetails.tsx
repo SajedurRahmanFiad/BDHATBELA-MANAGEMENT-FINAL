@@ -43,6 +43,7 @@ const BillDetails: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: db.settings.defaults.accountId || '',
     amount: 0
   });
@@ -107,6 +108,12 @@ const BillDetails: React.FC = () => {
       const isFullyPaid = updatedPaid >= bill.total;
       const newStatus = isFullyPaid ? BillStatus.PAID : bill.status;
       
+      // Compose ISO datetime from date and time
+      const [hours, minutes] = paymentForm.time.split(':').map(Number);
+      const fullDatetime = new Date(paymentForm.date);
+      fullDatetime.setHours(hours, minutes, 0, 0);
+      const isoDatetime = fullDatetime.toISOString();
+      
       const updatedBill = { 
         ...bill, 
         paidAmount: updatedPaid,
@@ -119,7 +126,7 @@ const BillDetails: React.FC = () => {
       try {
         const expenseTxn: Transaction = {
           id: Math.random().toString(36).substr(2, 9),
-          date: paymentForm.date,
+          date: isoDatetime,
           type: 'Expense',
           category: db.settings.defaults.expenseCategoryId || 'expense_purchases',
           accountId: paymentForm.accountId,
@@ -169,6 +176,7 @@ const BillDetails: React.FC = () => {
     if (!bill) return;
     setPaymentForm({
       date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: bill.total - bill.paidAmount
     });

@@ -41,7 +41,9 @@ const Dashboard: React.FC = () => {
   const filteredTransactions = useMemo(() => transactions.filter(t => isWithinDateRange(t.date, filterRange, customDates)), [transactions, filterRange, customDates]);
 
   // --- ADMIN CALCULATIONS ---
-  const totalSales = filteredOrders.reduce((sum, o) => sum + o.total, 0);
+  const totalSales = filteredOrders
+    .filter(o => o.status === OrderStatus.COMPLETED)
+    .reduce((sum, o) => sum + o.total, 0);
   const totalPurchases = filteredBills.reduce((sum, b) => sum + b.total, 0);
   const otherExpenses = filteredTransactions
     .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
@@ -65,7 +67,7 @@ const Dashboard: React.FC = () => {
   const myPendingOrders = filteredOrders.filter(o => o.createdBy === user.id && o.status === OrderStatus.ON_HOLD).length;
 
   // --- CHART DATA ---
-  // Calculate cash flow by month from real data (Orders, Bills, Transactions)
+  // Calculate cash flow by month from UNFILTERED real data (not affected by FilterBar)
   const monthlyData = useMemo(() => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const currentYear = new Date().getFullYear();
@@ -76,8 +78,8 @@ const Dashboard: React.FC = () => {
       aggregatedData[m] = { income: 0, expense: 0 };
     });
 
-    // Add income from Orders (sales)
-    filteredOrders.forEach(order => {
+    // Add income from Orders (sales) - using UNFILTERED data
+    orders.forEach(order => {
       const orderDate = new Date(order.orderDate);
       if (orderDate.getFullYear() === currentYear) {
         const monthIndex = orderDate.getMonth();
@@ -86,8 +88,8 @@ const Dashboard: React.FC = () => {
       }
     });
 
-    // Add expense from Bills (purchases)
-    filteredBills.forEach(bill => {
+    // Add expense from Bills (purchases) - using UNFILTERED data
+    bills.forEach(bill => {
       const billDate = new Date(bill.billDate);
       if (billDate.getFullYear() === currentYear) {
         const monthIndex = billDate.getMonth();
@@ -96,8 +98,8 @@ const Dashboard: React.FC = () => {
       }
     });
 
-    // Add other expenses from Transactions
-    filteredTransactions
+    // Add other expenses from Transactions - using UNFILTERED data
+    transactions
       .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
       .forEach(transaction => {
         const txnDate = new Date(transaction.date);
@@ -115,7 +117,7 @@ const Dashboard: React.FC = () => {
       expense: -aggregatedData[name].expense, // Negative for visualization
       profit: aggregatedData[name].income - aggregatedData[name].expense
     }));
-  }, [filteredOrders, filteredBills, filteredTransactions]);
+  }, [orders, bills, transactions]);
 
   // Calculate expenses by category from real data
   const expenseByCategory = useMemo(() => {

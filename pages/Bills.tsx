@@ -11,11 +11,13 @@ import { theme } from '../theme';
 import { useBills, useVendors, useUsers } from '../src/hooks/useQueries';
 import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useSearch } from '../src/contexts/SearchContext';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { searchQuery } = useSearch();
   const user = db.currentUser;
   const { data: bills = [], isPending: billsLoading } = useBills();
   const { data: vendors = [] } = useVendors();
@@ -56,10 +58,25 @@ const Bills: React.FC = () => {
   };
 
   const filteredBills = useMemo(() => {
-    return bills
+    let results = bills
       .filter(b => isWithinRange(b.billDate))
       .filter(b => statusTab === 'All' || b.status === statusTab);
-  }, [bills, filterRange, customDates, statusTab]);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(bill => {
+        const vendor = vendors.find(v => v.id === bill.vendorId);
+        return (
+          bill.billNumber.toLowerCase().includes(query) ||
+          vendor?.name.toLowerCase().includes(query) ||
+          bill.status.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [bills, filterRange, customDates, statusTab, searchQuery, vendors]);
 
   // Helper to get creator name from createdBy field or history
   const getCreatorName = (bill: Bill) => {

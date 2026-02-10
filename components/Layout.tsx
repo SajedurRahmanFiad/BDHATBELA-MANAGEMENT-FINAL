@@ -6,6 +6,7 @@ import { db } from '../db';
 import { UserRole } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { useSearch } from '../src/contexts/SearchContext';
 import { fetchCompanySettings } from '../src/services/supabaseQueries';
 
 interface SidebarItemProps {
@@ -81,6 +82,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, profile } = useAuth();
+  const { searchQuery, setSearchQuery } = useSearch();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -136,7 +138,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </div>
               <div>
                 <h1 className={`text-xl font-black ${theme.colors.text.primary} tracking-tight leading-none`}>{companySettings.name}</h1>
-                <span className={`text-[10px] font-bold ${theme.colors.primary.text} uppercase tracking-widest`}>Management</span>
+                <span className={`text-[10px] font-bold uppercase tracking-widest`}>Management</span>
               </div>
             </div>
           </div>
@@ -206,7 +208,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:${theme.colors.primary.text} ${theme.transitions.normal}`}>
               {ICONS.Search}
             </div>
-            <input type="text" placeholder="Search orders, invoices, or customers..." className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} />
+            <input 
+              type="text" 
+              placeholder="Search orders, invoices, or customers..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} 
+            />
           </div>
 
           <div className="flex items-center gap-4">

@@ -9,13 +9,29 @@ import { theme } from '../theme';
 import { useCustomers } from '../src/hooks/useQueries';
 import { useDeleteCustomer } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useSearch } from '../src/contexts/SearchContext';
+import { useMemo } from 'react';
 
 const Customers: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { searchQuery } = useSearch();
   const { data: customers = [], isPending, error } = useCustomers();
   const deleteCustomerMutation = useDeleteCustomer();
+
+  const filteredCustomers = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return customers;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return customers.filter(customer => 
+      customer.name.toLowerCase().includes(query) ||
+      customer.phone.includes(query) ||
+      customer.address.toLowerCase().includes(query)
+    );
+  }, [customers, searchQuery]);
 
   const handleDelete = async (customerId: string) => {
     if (!confirm('Are you sure you want to delete this customer?')) return;
@@ -122,7 +138,7 @@ const Customers: React.FC = () => {
             ),
           },
         ]}
-        data={customers}
+        data={filteredCustomers}
         loading={isPending}
         onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
         emptyMessage="No customers found"

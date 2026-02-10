@@ -28,6 +28,7 @@ const TransactionForm: React.FC = () => {
 
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     paymentMethod: systemDefaults?.paymentMethod || 'Cash',
     accountId: systemDefaults?.accountId || accounts[0]?.id || '',
     amount: 0,
@@ -73,10 +74,18 @@ const TransactionForm: React.FC = () => {
     try {
       const dateObj = new Date(form.date);
       const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = form.time;
+      
+      // Combine date and time into full ISO datetime string
+      // Parse the time input (HH:mm format) and combine with date
+      const [hours, minutes] = form.time.split(':').map(Number);
+      const fullDatetime = new Date(form.date);
+      fullDatetime.setHours(hours, minutes, 0, 0);
+      const isoDatetime = fullDatetime.toISOString();
 
       const transaction: Omit<Transaction, 'id'> = {
         type: isIncome ? 'Income' : 'Expense',
-        date: form.date,
+        date: isoDatetime,
         paymentMethod: form.paymentMethod,
         accountId: form.accountId,
         amount: form.amount,
@@ -86,7 +95,7 @@ const TransactionForm: React.FC = () => {
         attachmentUrl: form.attachmentUrl,
         createdBy: user.id,
         history: {
-          created: `Created by ${user.name} on ${dateStr}`
+          created: `Created by ${user.name} on ${dateStr}, at ${timeStr}`
         }
       };
 
@@ -120,7 +129,7 @@ const TransactionForm: React.FC = () => {
       </div>
 
       <div className="bg-white p-8 lg:p-12 rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-200/20 space-y-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount (BDT)</label>
             <input 
@@ -138,6 +147,15 @@ const TransactionForm: React.FC = () => {
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold"
               value={form.date}
               onChange={e => setForm({...form, date: e.target.value})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Time</label>
+            <input 
+              type="time" 
+              className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold"
+              value={form.time}
+              onChange={e => setForm({...form, time: e.target.value})}
             />
           </div>
         </div>

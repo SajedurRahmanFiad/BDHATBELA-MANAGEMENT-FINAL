@@ -12,7 +12,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [companySettings, setCompanySettings] = useState({
-    name: 'Your Company',
+    name: 'BD Hatbela',
     logo: db.settings.company.logo
   });
 
@@ -30,14 +30,14 @@ const Login: React.FC = () => {
       try {
         const settings = await fetchCompanySettings();
         setCompanySettings({
-          name: settings.name,
+          name: 'BD Hatbela',
           logo: settings.logo || db.settings.company.logo
         });
       } catch (err) {
         console.error('Failed to load company settings:', err);
         // Use default logo if fetch fails
         setCompanySettings({
-          name: db.settings.company.name,
+          name: 'BD Hatbela',
           logo: db.settings.company.logo
         });
       }
@@ -150,12 +150,6 @@ const Login: React.FC = () => {
             >
               {isSubmitting ? 'Signing in...' : 'Sign In'}
             </button>
-          </div>
-          
-          <div className="mt-6 p-4 bg-gray-50 rounded text-xs text-gray-600 space-y-1">
-            <p className="font-semibold text-gray-700">Demo Admin Credentials:</p>
-            <p>Phone: <code className="bg-white px-2 py-1 rounded">01404020000</code></p>
-            <p>Password: <code className="bg-white px-2 py-1 rounded">admin@bdhatbela</code></p>
           </div>
         </form>
       </div>

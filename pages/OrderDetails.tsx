@@ -239,10 +239,10 @@ const OrderDetails: React.FC = () => {
             {order.status}
           </span>
           {order.history?.courier?.includes('Steadfast') && (
-            <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
+            <img src="/public/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
           )}
           {order.history?.courier?.includes('CarryBee') && (
-            <img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
+            <img src="/public/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
           )}
         </div>
         
@@ -428,13 +428,13 @@ const OrderDetails: React.FC = () => {
                       onClick={() => setShowSteadfast(true)}
                       className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <img src="/uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full" /> Add to Steadfast
+                      <img src="/public/uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full" /> Add to Steadfast
                     </button>
                     <button 
                       onClick={() => setShowCarryBee(true)}
                       className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <img src="/uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full" /> Add to CarryBee
+                      <img src="/public/uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full" /> Add to CarryBee
                     </button>
                   </>
                 )

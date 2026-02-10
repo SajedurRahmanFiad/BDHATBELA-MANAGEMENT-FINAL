@@ -91,8 +91,9 @@ const SettingsPage: React.FC = () => {
     if (courierSettingsData) setCourierSettings(courierSettingsData);
   }, [courierSettingsData]);
 
-  // Fetch CarryBee stores when credentials change
+  // Fetch CarryBee stores when credentials change (debounced to avoid rapid calls while typing)
   useEffect(() => {
+    let timer: any = null;
     const fetchStores = async () => {
       const { baseUrl, clientId, clientSecret, clientContext } = courierSettings.carryBee;
       
@@ -124,7 +125,14 @@ const SettingsPage: React.FC = () => {
       }
     };
 
-    fetchStores();
+    // Debounce: wait 700ms after last change
+    timer = setTimeout(() => {
+      fetchStores();
+    }, 700);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [courierSettings.carryBee.baseUrl, courierSettings.carryBee.clientId, courierSettings.carryBee.clientSecret, courierSettings.carryBee.clientContext]);
 
   const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || loadingCategories || loadingPaymentMethods || loadingUnits;

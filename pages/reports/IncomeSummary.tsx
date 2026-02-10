@@ -6,12 +6,18 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { theme } from '../../theme';
-import { useTransactions, useCustomers } from '../../src/hooks/useQueries';
+import { useTransactions, useCustomers, useCategories, useOrders } from '../../src/hooks/useQueries';
+import { OrderStatus } from '../../types';
 
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
   const { data: transactions = [] } = useTransactions();
   const { data: customers = [] } = useCustomers();
+  const { data: orders = [] } = useOrders();
+  const { data: allCategories = [] } = useCategories();
+  
+  // Create category map for ID -> name lookup
+  const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
   
   const income = transactions.filter(t => t.type === 'Income');
   
@@ -20,8 +26,25 @@ const IncomeSummary: React.FC = () => {
     categoryDataMap[e.category] = (categoryDataMap[e.category] || 0) + e.amount;
   });
 
-  const chartData = Object.entries(categoryDataMap).map(([name, value]) => ({ name, value }));
+  // Map category IDs to names in chart data
+  const chartData = Object.entries(categoryDataMap).map(([categoryId, value]) => ({
+    name: categoryMap.get(categoryId) || categoryId || 'Uncategorized',
+    value
+  }));
   const COLORS = ['#10B981', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5'];
+
+  // Calculate top customers by completed order revenue
+  const completedOrders = orders.filter(o => o.status === OrderStatus.COMPLETED);
+  const customerRevenue: Record<string, number> = {};
+  completedOrders.forEach(order => {
+    customerRevenue[order.customerId] = (customerRevenue[order.customerId] || 0) + order.total;
+  });
+
+  const topCustomers = customers
+    .map(c => ({ ...c, revenue: customerRevenue[c.id] || 0 }))
+    .filter(c => c.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -81,13 +104,13 @@ const IncomeSummary: React.FC = () => {
           <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
             <h3 className="font-bold text-gray-800 mb-4">Top Customers</h3>
             <div className="space-y-4">
-              {customers.slice(0, 3).map((c, i) => (
+              {topCustomers.map((c, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
                     <span className="text-sm font-semibold text-gray-700">{c.name}</span>
                   </div>
-                  <span className={`text-sm font-black ${theme.colors.primary[600]}`}>{formatCurrency(c.totalOrders * 1200)}</span> {/* Mock calc */}
+                  <span className={`text-sm font-black ${theme.colors.primary[600]}`}>{formatCurrency(c.revenue)}</span>
                 </div>
               ))}
             </div>

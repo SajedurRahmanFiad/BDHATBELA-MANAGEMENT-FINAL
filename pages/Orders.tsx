@@ -202,10 +202,10 @@ const Orders: React.FC = () => {
       fullDatetime.setHours(hours, minutes, 0, 0);
       const isoDatetime = fullDatetime.toISOString();
 
-      // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
-      await createTransactionMutation.mutateAsync({
+      // Create transactions. If there are independent inserts (income + expense), run them in parallel
+      const incomeTx = {
         date: isoDatetime,
-        type: 'Income',
+        type: 'Income' as const,
         category: db.settings.defaults.incomeCategoryId || 'income_sales',
         accountId: paymentForm.accountId,
         amount: order.total,
@@ -214,21 +214,29 @@ const Orders: React.FC = () => {
         contactId: order.customerId,
         paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
         createdBy: user.id,
-      });
+      };
 
-      // SEQUENTIAL: Step 2 - Create expense transaction for remaining balance (including shipping et al)
       if (shouldCreateShippingExpense) {
         const remainingAmount = order.total - paymentForm.amount;
-        await createTransactionMutation.mutateAsync({
+        const expenseTx = {
           date: isoDatetime,
-          type: 'Expense',
+          type: 'Expense' as const,
           category: 'expense_shipping',
           accountId: paymentForm.accountId,
           amount: remainingAmount,
           description: `Shipping costs for Order #${order.orderNumber}`,
           paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
           createdBy: user.id,
-        });
+        };
+
+        // Run both insertions in parallel to reduce overall latency
+        await Promise.all([
+          createTransactionMutation.mutateAsync(incomeTx),
+          createTransactionMutation.mutateAsync(expenseTx),
+        ]);
+      } else {
+        // Only income transaction required
+        await createTransactionMutation.mutateAsync(incomeTx);
       }
 
       // PARALLEL: Step 3 - Update account balance and order status together

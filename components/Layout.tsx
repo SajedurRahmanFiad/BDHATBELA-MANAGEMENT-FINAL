@@ -114,6 +114,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
+  // Reset main scroll position when route changes so each page starts at top
+  React.useEffect(() => {
+    // main is the scrollable container in this layout
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
+    // also reset window scroll as a fallback
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }, [location.pathname]);
+
   return (
     <div className={`${theme.colors.bg.secondary} flex overflow-hidden`} style={{ minHeight: '100vh' }}>
       {isSidebarOpen && (

@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
 import { Transaction } from '../types';
-import { ICONS } from '../constants';
+import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
 import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults } from '../src/hooks/useQueries';
@@ -72,6 +72,15 @@ const TransactionForm: React.FC = () => {
     }
 
     try {
+      // Validate balance for expense/purchase transactions
+      if (!isIncome) {
+        const account = accounts.find(a => a.id === form.accountId);
+        if (account && account.currentBalance < form.amount) {
+          toast.error(`Insufficient balance. Account has ${formatCurrency(account.currentBalance)} but transaction requires ${formatCurrency(form.amount)}`);
+          return;
+        }
+      }
+
       const dateObj = new Date(form.date);
       const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       const timeStr = form.time;

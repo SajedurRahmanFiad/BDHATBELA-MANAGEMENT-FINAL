@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -6,8 +5,11 @@ import { db, saveDb } from './db';
 import { AuthProvider, useAuth } from './src/contexts/AuthProvider';
 import { ToastProvider } from './src/contexts/ToastContext';
 import { SearchProvider } from './src/contexts/SearchContext';
+import { RealtimeProvider } from './src/contexts/RealtimeProvider';
+import { NetworkProvider } from './src/contexts/NetworkProvider';
 import Layout from './components/Layout';
 import ToastContainer from './components/ToastContainer';
+import NetworkStatusBanner from './components/NetworkStatusBanner';
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -230,14 +232,19 @@ const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ToastProvider>
-          <SearchProvider>
-            <HashRouter>
-              <AppContent />
-              <ToastContainer />
-            </HashRouter>
-          </SearchProvider>
-        </ToastProvider>
+        <NetworkProvider>
+          <ToastProvider>
+            <SearchProvider>
+              <RealtimeProvider>
+                <HashRouter>
+                  <AppContent />
+                  <NetworkStatusBanner />
+                  <ToastContainer />
+                </HashRouter>
+              </RealtimeProvider>
+            </SearchProvider>
+          </ToastProvider>
+        </NetworkProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

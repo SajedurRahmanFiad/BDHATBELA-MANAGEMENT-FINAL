@@ -128,6 +128,7 @@ export interface Transaction {
   date: string;
   type: 'Income' | 'Expense' | 'Transfer';
   category: string;
+  createdAt?: string;
   accountId: string; // Used for Income/Expense or Source in Transfer
   toAccountId?: string; // Used for Transfer
   amount: number;

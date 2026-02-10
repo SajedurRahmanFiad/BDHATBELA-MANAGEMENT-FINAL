@@ -1,32 +1,70 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { theme } from '../../theme';
+import { useOrders, useBills, useTransactions } from '../../src/hooks/useQueries';
 
 const IncomeVsExpense: React.FC = () => {
   const navigate = useNavigate();
+  const { data: orders = [] } = useOrders();
+  const { data: bills = [] } = useBills();
+  const { data: transactions = [] } = useTransactions();
 
-  // Aggregate by month (Mock logic for demo using transaction dates)
-  const monthlyData: Record<string, { income: number; expense: number }> = {
-    'Jan': { income: 45000, expense: 32000 },
-    'Feb': { income: 52000, expense: 28000 },
-    'Mar': { income: 38000, expense: 45000 },
-    'Apr': { income: 61000, expense: 39000 },
-    'May': { income: 55000, expense: 41000 },
-    'Jun': { income: 72000, expense: 50000 },
-  };
+  // Aggregate real data by month
+  const chartData = useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentYear = new Date().getFullYear();
+    
+    // Initialize structure
+    const aggregatedData: Record<string, { income: number; expense: number }> = {};
+    months.forEach(m => {
+      aggregatedData[m] = { income: 0, expense: 0 };
+    });
 
-  const chartData = Object.entries(monthlyData).map(([name, vals]) => ({
-    name,
-    income: vals.income,
-    expense: vals.expense,
-    profit: vals.income - vals.expense
-  }));
+    // Add income from Orders
+    orders.forEach(order => {
+      const orderDate = new Date(order.orderDate);
+      if (orderDate.getFullYear() === currentYear) {
+        const monthIndex = orderDate.getMonth();
+        const monthName = months[monthIndex];
+        aggregatedData[monthName].income += order.total;
+      }
+    });
 
+    // Add expense from Bills
+    bills.forEach(bill => {
+      const billDate = new Date(bill.billDate);
+      if (billDate.getFullYear() === currentYear) {
+        const monthIndex = billDate.getMonth();
+        const monthName = months[monthIndex];
+        aggregatedData[monthName].expense += bill.total;
+      }
+    });
+
+    // Add other expenses from Transactions
+    transactions
+      .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
+      .forEach(transaction => {
+        const txnDate = new Date(transaction.date);
+        if (txnDate.getFullYear() === currentYear) {
+          const monthIndex = txnDate.getMonth();
+          const monthName = months[monthIndex];
+          aggregatedData[monthName].expense += transaction.amount;
+        }
+      });
+
+    // Convert to chart format
+    return months.map(name => ({
+      name,
+      income: aggregatedData[name].income,
+      expense: aggregatedData[name].expense,
+      profit: aggregatedData[name].income - aggregatedData[name].expense
+    }));
+  }, [orders, bills, transactions]);
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -65,17 +103,43 @@ const IncomeVsExpense: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[
-          { label: 'Highest Revenue Month', value: 'June', amount: 72000, color: `${theme.colors.primary[600]}` },
-          { label: 'Least Expense Month', value: 'February', amount: 28000, color: '${theme.colors.secondary[600]}' },
-          { label: 'Average Monthly Profit', value: 'Steady Growth', amount: 18000, color: 'text-purple-600' }
-        ].map((stat, i) => (
-          <div key={i} className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
-            <h4 className="text-xl font-bold text-gray-900 mt-1">{stat.value}</h4>
-            <p className={`text-lg font-black mt-2 ${stat.color}`}>{formatCurrency(stat.amount)}</p>
-          </div>
-        ))}
+        {(() => {
+          const totalIncome = chartData.reduce((s, d) => s + d.income, 0);
+          const totalExpense = chartData.reduce((s, d) => s + d.expense, 0);
+          const avgProfit = chartData.length > 0 ? (totalIncome - totalExpense) / chartData.length : 0;
+          
+          const highestMonthIndex = chartData.reduce((maxIdx, curr, i) => 
+            curr.income > chartData[maxIdx].income ? i : maxIdx, 0);
+          const lowestExpenseMonthIndex = chartData.reduce((minIdx, curr, i) => 
+            curr.expense < chartData[minIdx].expense ? i : minIdx, 0);
+          
+          return [
+            { 
+              label: 'Highest Revenue Month', 
+              value: chartData[highestMonthIndex]?.name || '—', 
+              amount: chartData[highestMonthIndex]?.income || 0, 
+              color: `${theme.colors.primary[600]}` 
+            },
+            { 
+              label: 'Least Expense Month', 
+              value: chartData[lowestExpenseMonthIndex]?.name || '—', 
+              amount: chartData[lowestExpenseMonthIndex]?.expense || 0, 
+              color: '${theme.colors.secondary[600]}' 
+            },
+            { 
+              label: 'Average Monthly Profit', 
+              value: 'Monthly Avg', 
+              amount: avgProfit, 
+              color: 'text-purple-600' 
+            }
+          ].map((stat, i) => (
+            <div key={i} className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
+              <h4 className="text-xl font-bold text-gray-900 mt-1">{stat.value}</h4>
+              <p className={`text-lg font-black mt-2 ${stat.color}`}>{formatCurrency(stat.amount)}</p>
+            </div>
+          ));
+        })()}
       </div>
     </div>
   );

@@ -6,19 +6,24 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { theme } from '../../theme';
-import { useTransactions, useVendors, useAccounts } from '../../src/hooks/useQueries';
+import { useTransactions, useVendors, useAccounts, useCategories } from '../../src/hooks/useQueries';
 
 const ExpenseSummary: React.FC = () => {
   const navigate = useNavigate();
   const { data: transactions = [] } = useTransactions();
   const { data: vendors = [] } = useVendors();
   const { data: accounts = [] } = useAccounts();
+  const { data: allCategories = [] } = useCategories();
+  
+  // Create category map for ID -> name lookup
+  const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
   
   const expenses = transactions.filter(t => t.type === 'Expense');
   
   const categoryDataMap: Record<string, number> = {};
   expenses.forEach(e => {
-    categoryDataMap[e.category] = (categoryDataMap[e.category] || 0) + e.amount;
+    const categoryName = categoryMap.get(e.category) || e.category || 'Uncategorized';
+    categoryDataMap[categoryName] = (categoryDataMap[categoryName] || 0) + e.amount;
   });
 
   const chartData = Object.entries(categoryDataMap).map(([name, value]) => ({ name, value }));
@@ -29,7 +34,8 @@ const ExpenseSummary: React.FC = () => {
     const csvContent = expenses.map(e => {
       const contact = vendors.find(v => v.id === e.contactId)?.name || 'N/A';
       const account = accounts.find(a => a.id === e.accountId)?.name || 'N/A';
-      return `${e.date},${e.category},"${contact}","${account}",${e.amount},"${e.description}"`;
+      const categoryName = categoryMap.get(e.category) || e.category || 'Uncategorized';
+      return `${e.date},"${categoryName}","${contact}","${account}",${e.amount},"${e.description}"`;
     }).join('\n');
     const blob = new Blob([headers + csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -120,7 +126,7 @@ const ExpenseSummary: React.FC = () => {
               {expenses.slice(0, 10).map((e) => (
                 <tr key={e.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm text-gray-600">{e.date}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-gray-800">{e.category}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-gray-800">{categoryMap.get(e.category) || e.category || 'Uncategorized'}</td>
                   <td className="px-6 py-4 text-right font-black text-red-600">{formatCurrency(e.amount)}</td>
                 </tr>
               ))}

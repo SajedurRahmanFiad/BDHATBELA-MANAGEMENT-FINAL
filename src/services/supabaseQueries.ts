@@ -10,17 +10,41 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
  * Ensures that a valid session exists in the Supabase client before mutations.
  * This prevents "Authentication required" errors from RLS policies.
  */
+// Lightweight cached session to avoid hitting the network on every mutation.
+// The cache is intentionally short lived (60s) to reduce unnecessary auth calls
+// while still allowing normal session rotation.
+let _cachedSession: { session: any; ts: number } | null = null;
 async function ensureAuthenticated() {
   try {
+    const now = Date.now();
+    if (_cachedSession && now - _cachedSession.ts < 60_000) {
+      return _cachedSession.session;
+    }
+
     const { data, error } = await supabase.auth.getSession();
     if (error || !data?.session) {
       throw new Error('No authenticated session available. Please log in.');
     }
-    // Optionally refresh the session to ensure it's valid
-    await supabase.auth.refreshSession();
-    return data.session;
+
+    // Cache the session timestamp to avoid repeated getSession() calls
+    _cachedSession = { session: data.session, ts: Date.now() };
+
+    // Refresh only if session close to expiry (avoid a refresh network call every mutation)
+    try {
+      const exp = (data.session.expires_at && Number(data.session.expires_at)) || 0;
+      const expiresInMs = exp ? (exp * 1000 - Date.now()) : Number.POSITIVE_INFINITY;
+      if (expiresInMs < 120_000) {
+        // If less than 2 minutes to expiry, attempt refresh (best-effort)
+        await supabase.auth.refreshSession();
+      }
+    } catch (refreshErr) {
+      // Log and continue with the existing session if refresh fails
+      console.warn('[supabaseQueries] session refresh failed (non-fatal):', refreshErr);
+    }
+
+    return _cachedSession.session;
   } catch (err: any) {
-    console.error('[supabaseQueries] ensureAuthenticated failed:', err.message);
+    console.error('[supabaseQueries] ensureAuthenticated failed:', err?.message || err);
     throw err;
   }
 }
@@ -41,11 +65,32 @@ async function ensureAuthenticated() {
  * 
  * CRITICAL FIX: Use Promise.race with resolve (not reject) for timeout
  * to avoid race condition where timeout fires first and corrupts data.
+ * 
+ * NETWORK ERROR DETECTION: Identifies network-specific errors (offline, connection lost)
+ * and logs them clearly so NetworkStatusBanner can display appropriate UI feedback.
  */
 async function queryWithTimeout<T>(
   queryBuilder: any,
-  timeoutMs: number = 10000  // Increased from 5s to 10s to handle slower networks
+  timeoutMs: number = 10000  // default 10s
 ): Promise<T[]> {
+  // Helper to detect network-specific errors
+  const isNetworkError = (err: any): boolean => {
+    if (!err) return false;
+    const errMsg = (err?.message || err?.toString() || '').toLowerCase();
+    const errCode = err?.code || '';
+    
+    return (
+      errMsg.includes('failed to fetch') ||
+      errMsg.includes('connection closed') ||
+      errMsg.includes('network') ||
+      errMsg.includes('econnrefused') ||
+      errMsg.includes('etimedout') ||
+      errCode === 'ERR_CONNECTION_CLOSED' ||
+      err instanceof TypeError
+    );
+  };
+
+  // Try once with timeout, then retry once without timeout if timeout/error occurred.
   try {
     const result = await Promise.race([
       queryBuilder,
@@ -53,24 +98,68 @@ async function queryWithTimeout<T>(
         setTimeout(() => resolve({ data: null, error: { message: 'Query timeout' } }), timeoutMs);
       })
     ]) as any;
-    
-    // Handle both Supabase response and timeout response with same logic
+
     const { data, error } = result;
-    
     if (error) {
-      console.error(`[supabaseQueries] Query error:`, error.message);
-      return [];
+      const isNetwork = isNetworkError(error);
+      if (isNetwork) {
+        console.error(`[supabaseQueries] NETWORK ERROR (no retry):`, error?.message || error);
+        // Don't retry network errors - let NetworkProvider handle reconnection
+        return [];
+      }
+      
+      console.warn(`[supabaseQueries] Query error (first attempt):`, error?.message || error);
+      // Retry once without timeout to give the request a chance to complete on flaky networks
+      try {
+        const retry = await queryBuilder;
+        if (retry?.error) {
+          console.error('[supabaseQueries] Query retry failed:', retry.error.message || retry.error);
+          return [];
+        }
+        return retry?.data ?? [];
+      } catch (retryErr) {
+        console.error('[supabaseQueries] Query retry exception:', retryErr);
+        return [];
+      }
     }
-    
+
     if (!data) {
-      console.warn(`[supabaseQueries] Query returned no data`);
-      return [];
+      console.warn('[supabaseQueries] Query returned no data on first attempt, retrying once...');
+      try {
+        const retry = await queryBuilder;
+        if (retry?.error) {
+          console.error('[supabaseQueries] Query retry error:', retry.error.message || retry.error);
+          return [];
+        }
+        return retry?.data ?? [];
+      } catch (retryErr) {
+        console.error('[supabaseQueries] Query retry exception:', retryErr);
+        return [];
+      }
     }
-    
+
     return data;
   } catch (err: any) {
-    console.error(`[supabaseQueries] Query exception:`, err.message);
-    return [];
+    const isNetwork = isNetworkError(err);
+    if (isNetwork) {
+      console.error(`[supabaseQueries] NETWORK ERROR in catch:`, err?.message || err);
+      // Don't retry network errors - let NetworkProvider handle reconnection
+      return [];
+    }
+    
+    console.error(`[supabaseQueries] Query exception (outer):`, err);
+    // Final fallback: attempt one more call without timeout
+    try {
+      const retry = await queryBuilder;
+      if (retry?.error) {
+        console.error('[supabaseQueries] Final retry error:', retry.error.message || retry.error);
+        return [];
+      }
+      return retry?.data ?? [];
+    } catch (finalErr) {
+      console.error('[supabaseQueries] Final retry exception:', finalErr);
+      return [];
+    }
   }
 }
 
@@ -176,7 +265,7 @@ export async function fetchOrders() {
     supabase
       .from('orders')
       .select('*')
-      .order('order_date', { ascending: false })
+      .order('created_at', { ascending: false })
   );
   return mapped.map(mapOrder);
 }
@@ -391,7 +480,7 @@ export async function fetchTransactions() {
     supabase
       .from('transactions')
       .select('*')
-      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
   );
   return mapped.map(mapTransaction);
 }
@@ -513,9 +602,16 @@ export async function deleteTransaction(id: string) {
 }
 
 function mapTransaction(row: any): Transaction {
+  // Prefer a time-aware ISO datetime when available. Some legacy rows may have
+  // date stored as YYYY-MM-DD (no time). In that case prefer Postgres
+  // `created_at` which contains the full timestamp inserted by the DB.
+  const rawDate = row.date ?? row.date_string ?? null;
+  const createdAt = row.created_at ?? row.createdAt ?? null;
+  const dateValue = rawDate && rawDate.toString().length > 10 ? rawDate : (createdAt || rawDate || '');
+
   return {
     id: row.id,
-    date: row.date,
+    date: dateValue,
     type: row.type,
     category: row.category,
     accountId: row.account_id ?? row.accountId,
@@ -528,6 +624,7 @@ function mapTransaction(row: any): Transaction {
     attachmentName: row.attachment_name ?? row.attachmentName,
     attachmentUrl: row.attachment_url ?? row.attachmentUrl,
     createdBy: row.created_by ?? row.createdBy,
+    createdAt: createdAt || null,
   };
 }
 
@@ -685,7 +782,7 @@ export async function fetchBills() {
     supabase
       .from('bills')
       .select('*')
-      .order('bill_date', { ascending: false })
+      .order('created_at', { ascending: false })
   );
   return mapped.map(mapBill);
 }

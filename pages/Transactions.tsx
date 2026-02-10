@@ -73,26 +73,19 @@ const Transactions: React.FC = () => {
     return true;
   };
 
-  const filteredTransactions = useMemo(() => {
-    let results = transactions
-      .filter(t => isWithinRange(t.date))
-      .filter(t => typeTab === 'All' || t.type === typeTab);
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(txn => {
-        const category = allCategories.find(c => c.id === txn.category);
-        return (
-          txn.description.toLowerCase().includes(query) ||
-          category?.name.toLowerCase().includes(query) ||
-          txn.type.toLowerCase().includes(query)
-        );
-      });
+  const getCreatorName = (transaction: Transaction) => {
+    if (!transaction.createdBy?.trim()) return null;
+    const user = userMap.get(transaction.createdBy);
+    if (user?.name) return user.name;
+    
+    // Fallback: extract creator name from history field
+    if (transaction.history?.created) {
+      const match = transaction.history.created.match(/Created by (.+?) on/);
+      if (match) return match[1];
     }
-
-    return results;
-  }, [transactions, filterRange, customDates, typeTab, searchQuery, allCategories]);
+    
+    return null;
+  };
 
   const getContactName = (contactId: string) => {
     const customer = customers.find(c => c.id === contactId);
@@ -102,20 +95,45 @@ const Transactions: React.FC = () => {
     return null;
   };
 
-  const getCreatorName = (transaction: Transaction) => {
-    if (!transaction.createdBy?.trim()) return null;
-    const user = userMap.get(transaction.createdBy);
-    return user?.name || null;
-  };
+  const filteredTransactions = useMemo(() => {
+    let results = transactions
+      .filter(t => isWithinRange(t.date))
+      .filter(t => typeTab === 'All' || t.type === typeTab);
 
-  const formatDateAndTime = (dateString: string) => {
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(transaction => {
+        const contact = transaction.contactId ? getContactName(transaction.contactId) : null;
+        const creator = getCreatorName(transaction);
+        const category = allCategories.find(c => c.id === transaction.category)?.name || transaction.category || '';
+        
+        return (
+          transaction.description.toLowerCase().includes(query) ||
+          category.toLowerCase().includes(query) ||
+          transaction.type.toLowerCase().includes(query) ||
+          (contact?.name.toLowerCase().includes(query)) ||
+          (creator?.toLowerCase?.().includes(query)) ||
+          formatCurrency(transaction.amount).includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [transactions, filterRange, customDates, typeTab, searchQuery, customers, vendors, allCategories, users]);
+
+  const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     try {
-      const date = new Date(dateString);
-      const dateStr = date.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
-      const timeStr = date.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: true });
+      // Prefer a time-aware value. If `dateString` is a date-only string (YYYY-MM-DD)
+      // or missing, fall back to DB `createdAt` which contains the timestamp.
+      const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
+      const date = new Date(candidate);
+      const timeZone = 'Asia/Dhaka';
+      const dateStr = date.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric', timeZone });
+      const timeStr = date.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone });
       return { date: dateStr, time: timeStr };
-    } catch {
-      return { date: dateString, time: '' };
+    } catch (e) {
+      return { date: dateString || createdAt || '', time: '' };
     }
   };
 
@@ -177,17 +195,16 @@ const Transactions: React.FC = () => {
                   const creator = getCreatorName(t);
                   const hasLink = t.referenceId && (orders.some(o => o.id === t.referenceId) || bills.some(b => b.id === t.referenceId));
                   const isLinkedTransaction = !!t.referenceId;
-                  console.log(t);
-                  const { date: dateStr, time: timeStr } = formatDateAndTime(t.date);
+                  const { date: dateStr, time: timeStr } = formatDateAndTime(t.date, (t as any).createdAt);
                   
                   return (
                     <tr key={t.id} onClick={() => handleRowClick(t)} className={`hover:bg-gray-50 transition-all group ${hasLink ? 'cursor-pointer' : ''}`}>
-                      <td className="px-6 py-5 text-sm font-bold text-gray-700"><div className="flex flex-col"><span className="font-bold text-gray-900">{dateStr}</span></div></td>
-                      <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? `bg-[#ebf4ff] ${theme.colors.primary[600]}` : t.type === 'Expense' ? 'bg-red-50 text-red-600' : `bg-[#e6f0ff] ${theme.colors.secondary[600]}`}`}>{t.type}</span></td>
+                      <td className="px-6 py-5 text-sm font-bold text-gray-700"><div className="flex flex-col"><span className="font-bold text-gray-900">{dateStr}</span><span className="text-[11px] text-gray-400 font-medium">{timeStr}</span></div></td>
+                      <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? `bg-[#ebf4ff]` : t.type === 'Expense' ? 'bg-red-50 text-red-600' : `bg-[#e6f0ff]`}`}>{t.type}</span></td>
                       <td className="px-6 py-5">{isLinkedTransaction ? (contact ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{contact.name}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>) : (creator ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{creator}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Created By</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>)}</td>
                       <td className="px-6 py-5"><div className="flex flex-col"><p className="text-sm font-bold text-gray-800">{allCategories.find(c => c.id === t.category)?.name || t.category}</p><p className="text-xs text-gray-400 italic max-w-xs truncate">{t.description}</p></div></td>
-                      <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? '${theme.colors.primary[600]}' : t.type === 'Expense' ? 'text-red-600' : '${theme.colors.secondary[600]}'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
-                      <td className="px-6 py-5 text-center">{t.attachmentUrl ? <div className="p-2 bg-[#ebf4ff] ${theme.colors.primary[600]} rounded-lg inline-block">{ICONS.Download}</div> : <span className="text-gray-200">—</span>}</td>
+                      <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? 'text-emerald-600' : t.type === 'Expense' ? 'text-red-600' : 'text-black'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
+                      <td className="px-6 py-5 text-center">{t.attachmentUrl ? <div className={`p-2 bg-[#ebf4ff] ${theme.colors.primary[600]} rounded-lg inline-block`}>{ICONS.Download}</div> : <span className="text-gray-200">—</span>}</td>
                       <td className="justify-end px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
                         <IconButton
                           icon={ICONS.Delete}

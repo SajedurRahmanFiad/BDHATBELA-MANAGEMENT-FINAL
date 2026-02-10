@@ -160,9 +160,41 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createOrder,
+    onMutate: async (newOrder) => {
+      // Cancel outgoing queries to prevent race conditions
+      await queryClient.cancelQueries({ queryKey: ['orders'] });
+      
+      // Get the current orders list
+      const previousOrders = queryClient.getQueryData<Order[]>(['orders']) || [];
+      
+      // Create optimistic order with temp ID (will be replaced after server response)
+      const optimisticOrder: Order = {
+        ...newOrder,
+        id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+        paidAmount: newOrder.paidAmount || 0,
+      } as Order;
+      
+      // Optimistically add to the top of the list (newest first)
+      queryClient.setQueryData(['orders'], [optimisticOrder, ...previousOrders]);
+      
+      return { previousOrders, optimisticOrder };
+    },
+    onError: (err, newOrder, context) => {
+      // Rollback to previous data on error
+      if (context?.previousOrders) {
+        queryClient.setQueryData(['orders'], context.previousOrders);
+      }
+    },
     onSuccess: async (data) => {
       // Cache the newly created order for immediate access in details view
       queryClient.setQueryData(['order', data.id], data);
+      
+      // Replace optimistic data with real data from server
+      const previousOrders = queryClient.getQueryData<Order[]>(['orders']) || [];
+      const updatedOrders = previousOrders
+        .filter(o => !o.id.startsWith('temp-')) // Remove temp entries
+        .map(o => o); // Keep existing real orders
+      queryClient.setQueryData(['orders'], [data, ...updatedOrders]);
       
       // Increment nextNumber in settings after successful order creation
       try {
@@ -175,7 +207,8 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         console.error('Failed to update order settings:', err);
       }
       
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // Refetch in background to validate data
+      await queryClient.refetchQueries({ queryKey: ['orders'] });
     },
   });
 }
@@ -268,12 +301,44 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createBill,
-    onSuccess: (data) => {
+    onMutate: async (newBill) => {
+      // Cancel outgoing queries to prevent race conditions
+      await queryClient.cancelQueries({ queryKey: ['bills'] });
+      
+      // Get the current bills list
+      const previousBills = queryClient.getQueryData<Bill[]>(['bills']) || [];
+      
+      // Create optimistic bill with temp ID (will be replaced after server response)
+      const optimisticBill: Bill = {
+        ...newBill,
+        id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+        paidAmount: newBill.paidAmount || 0,
+      } as Bill;
+      
+      // Optimistically add to the top of the list (newest first)
+      queryClient.setQueryData(['bills'], [optimisticBill, ...previousBills]);
+      
+      return { previousBills, optimisticBill };
+    },
+    onError: (err, newBill, context) => {
+      // Rollback to previous data on error
+      if (context?.previousBills) {
+        queryClient.setQueryData(['bills'], context.previousBills);
+      }
+    },
+    onSuccess: async (data) => {
       // Cache the newly created bill for immediate access in details view
       queryClient.setQueryData(['bill', data.id], data);
-      // Invalidate bills list to refetch when user goes back
-      // Users cache is now 5 minutes (matching bills cache), so no need to invalidate on every bill creation
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      
+      // Replace optimistic data with real data from server
+      const previousBills = queryClient.getQueryData<Bill[]>(['bills']) || [];
+      const updatedBills = previousBills
+        .filter(b => !b.id.startsWith('temp-')) // Remove temp entries
+        .map(b => b); // Keep existing real bills
+      queryClient.setQueryData(['bills'], [data, ...updatedBills]);
+      
+      // Refetch in background to validate data
+      await queryClient.refetchQueries({ queryKey: ['bills'] });
     },
   });
 }

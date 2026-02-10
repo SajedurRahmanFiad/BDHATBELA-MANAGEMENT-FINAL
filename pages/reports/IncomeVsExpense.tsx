@@ -118,13 +118,11 @@ const IncomeVsExpense: React.FC = () => {
               label: 'Highest Revenue Month', 
               value: chartData[highestMonthIndex]?.name || '—', 
               amount: chartData[highestMonthIndex]?.income || 0, 
-              color: `${theme.colors.primary[600]}` 
             },
             { 
               label: 'Least Expense Month', 
               value: chartData[lowestExpenseMonthIndex]?.name || '—', 
               amount: chartData[lowestExpenseMonthIndex]?.expense || 0, 
-              color: '${theme.colors.secondary[600]}' 
             },
             { 
               label: 'Average Monthly Profit', 

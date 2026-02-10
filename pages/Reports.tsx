@@ -18,13 +18,13 @@ const ReportCard: React.FC<{
       onClick={() => navigate(to)}
       className={`flex items-start gap-4 p-6 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-[#c7dff5] transition-all text-left w-full group`}
     >
-      <div className={`p-4 rounded-lg ${color} transition-transform group-hover:scale-110 duration-300`}>
+      <div className={`p-4 rounded-[50%] ${color} transition-transform group-hover:scale-110 duration-300`}>
         {icon}
       </div>
       <div>
         <h3 className="font-bold text-gray-900 text-lg">{title}</h3>
         <p className="text-sm text-gray-500 mt-1 leading-relaxed">{description}</p>
-        <div className={`mt-4 flex items-center gap-1 ${theme.colors.primary[600]} text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity`}>
+        <div className={`mt-4 flex items-center gap-1 text-xs font-bold uppercase tracking-widest opacity-40 group-hover:opacity-100 transition-opacity`}>
           View Report {ICONS.ChevronRight}
         </div>
       </div>

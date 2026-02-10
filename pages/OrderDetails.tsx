@@ -234,10 +234,16 @@ const OrderDetails: React.FC = () => {
           <button onClick={() => navigate('/orders')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
-          <h2 className="text-2xl font-bold text-gray-900">Order Details</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Order: {order.orderNumber}</h2>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
+          {order.history?.courier?.includes('Steadfast') && (
+            <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
+          )}
+          {order.history?.courier?.includes('CarryBee') && (
+            <img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
+          )}
         </div>
         
         <div className="flex items-center gap-2 relative">
@@ -257,9 +263,6 @@ const OrderDetails: React.FC = () => {
                 <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in duration-150 origin-top-right">
                   <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
                     {ICONS.Edit} Edit Order
-                  </button>
-                  <button onClick={handleDuplicate} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-                    {ICONS.Duplicate} Duplicate Order
                   </button>
                   {order.status !== OrderStatus.COMPLETED && (
                     <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={openPayment}>
@@ -416,21 +419,25 @@ const OrderDetails: React.FC = () => {
                 </button>
               )}
 
-              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
-                <>
-                  <button 
-                    onClick={() => setShowSteadfast(true)}
-                    className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    {ICONS.Courier} Send to Steadfast
-                  </button>
-                  <button 
-                    onClick={() => setShowCarryBee(true)}
-                    className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    {ICONS.Courier} Send to CarryBee
-                  </button>
-                </>
+              {order.history.courier ? (
+                <p className="text-xs text-gray-700 leading-relaxed font-bold bg-gray-50 p-3 rounded-xl">{order.history.courier}</p>
+              ) : (
+                order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier && (
+                  <>
+                    <button 
+                      onClick={() => setShowSteadfast(true)}
+                      className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <img src="/uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full" /> Add to Steadfast
+                    </button>
+                    <button 
+                      onClick={() => setShowCarryBee(true)}
+                      className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <img src="/uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full" /> Add to CarryBee
+                    </button>
+                  </>
+                )
               )}
             </div>
           </div>

@@ -49,23 +49,46 @@ const ProfitLoss: React.FC = () => {
 
   // Filter and calculate P&L based on date range
   const plData = useMemo(() => {
-    // Only completed orders count as sales
-    const completedOrders = orders.filter(o => o.status === OrderStatus.COMPLETED && isWithinRange(o.orderDate));
-    const grossSales = completedOrders.reduce((s, o) => s + o.total, 0);
+    // Prefer sales from transactions (Income type), fallback to completed orders
+    const salesFromTransactions = transactions
+      .filter(t => t.type === 'Income' && !!t.referenceId && isWithinRange(t.date))
+      .reduce((s, t) => s + t.amount, 0);
+
+    const grossSales = salesFromTransactions > 0
+      ? salesFromTransactions
+      : orders.filter(o => o.status === OrderStatus.COMPLETED && isWithinRange(o.orderDate))
+          .reduce((s, o) => s + o.total, 0);
     
-    // All bills in range count as COGS (purchases)
-    const purchaseBills = bills.filter(b => isWithinRange(b.billDate));
-    const costOfPurchases = purchaseBills.reduce((s, b) => s + b.total, 0);
+    // Prefer purchases from transactions (Expense type with expense_purchases category), fallback to bills
+    const purchasesFromTransactions = transactions
+      .filter(t => t.type === 'Expense' && t.category === 'expense_purchases' && isWithinRange(t.date))
+      .reduce((s, t) => s + t.amount, 0);
+
+    const costOfPurchases = purchasesFromTransactions > 0
+      ? purchasesFromTransactions
+      : bills.filter(b => isWithinRange(b.billDate))
+          .reduce((s, b) => s + b.total, 0);
     
     const grossProfit = grossSales - costOfPurchases;
 
-    // All other expenses in range (excluding purchase category)
-    const expenses = transactions.filter(t => 
-      t.type === 'Expense' && 
-      t.category !== 'expense_purchases' && 
+    // Aggregate operating expenses by category name (not individual transactions)
+    const expensesByCategory: Record<string, number> = {};
+    const operatingExpenseTransactions = transactions.filter(t =>
+      t.type === 'Expense' &&
+      t.category !== 'expense_purchases' &&
       isWithinRange(t.date)
     );
-    const totalOperatingExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+
+    operatingExpenseTransactions.forEach(txn => {
+      const categoryName = categoryMap.get(txn.category) || txn.category || 'Uncategorized';
+      expensesByCategory[categoryName] = (expensesByCategory[categoryName] || 0) + txn.amount;
+    });
+
+    const expenses = Object.entries(expensesByCategory)
+      .map(([categoryName, amount]) => ({ categoryName, amount }))
+      .sort((a, b) => b.amount - a.amount); // Sort by amount descending
+
+    const totalOperatingExpenses = Object.values(expensesByCategory).reduce((s, amt) => s + amt, 0);
     
     const netProfit = grossProfit - totalOperatingExpenses;
 
@@ -75,11 +98,9 @@ const ProfitLoss: React.FC = () => {
       grossProfit,
       expenses,
       totalOperatingExpenses,
-      netProfit,
-      completedOrders,
-      purchaseBills
+      netProfit
     };
-  }, [orders, bills, transactions, dateRange, customFrom, customTo]);
+  }, [orders, bills, transactions, dateRange, customFrom, customTo, categoryMap]);
 
   return (
     <div className="space-y-6">
@@ -90,9 +111,9 @@ const ProfitLoss: React.FC = () => {
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Profit and Loss Statement</h2>
         </div>
-        <button 
-          onClick={() => window.print()} 
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl transition-colors"
+        <button
+          onClick={() => window.print()}
+          className={`flex items-center gap-2 px-4 py-2 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl transition-colors`}
         >
           {ICONS.Print} Print Statement
         </button>
@@ -166,12 +187,9 @@ const ProfitLoss: React.FC = () => {
       <div className="max-w-3xl mx-auto bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-8 bg-gray-50 border-b border-gray-100 text-center">
           {db.settings.company.logo && (
-            <img src={db.settings.company.logo} className="w-16 h-16 rounded-xl mx-auto mb-4 grayscale opacity-50" />
+            <img src={db.settings.company.logo} className="w-16 h-16 rounded-xl mx-auto mb-4" />
           )}
           <h3 className="text-xl font-bold text-gray-900">{db.settings.company.name}</h3>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">
-            For the period ending {new Date().toLocaleDateString('en-BD', { month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
         </div>
 
         <div className="p-8 space-y-2">
@@ -192,16 +210,21 @@ const ProfitLoss: React.FC = () => {
 
           <div className="pt-8">
             <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Operating Expenses</h4>
-            {plData.expenses.slice(0, 5).map((e, i) => {
-              const categoryName = categoryMap.get(e.category) || e.category || 'Uncategorized';
-              return <PLRow key={i} label={categoryName} amount={e.amount} indent />;
-            })}
-            {plData.expenses.length > 5 && (
-              <PLRow 
-                label="Other Miscellaneous" 
-                amount={plData.expenses.slice(5).reduce((s,e) => s+e.amount, 0)} 
-                indent 
-              />
+            {plData.expenses.length > 0 ? (
+              <>
+                {plData.expenses.slice(0, 5).map((e, i) => (
+                  <PLRow key={i} label={e.categoryName} amount={e.amount} indent />
+                ))}
+                {plData.expenses.length > 5 && (
+                  <PLRow 
+                    label="Other Expenses" 
+                    amount={plData.expenses.slice(5).reduce((s,e) => s+e.amount, 0)} 
+                    indent 
+                  />
+                )}
+              </>
+            ) : (
+              <PLRow label="None" amount={0} indent />
             )}
             <PLRow label="Total Operating Expenses" amount={plData.totalOperatingExpenses} isBold isTotal />
           </div>

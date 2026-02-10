@@ -41,13 +41,27 @@ const Dashboard: React.FC = () => {
   const filteredTransactions = useMemo(() => transactions.filter(t => isWithinDateRange(t.date, filterRange, customDates)), [transactions, filterRange, customDates]);
 
   // --- ADMIN CALCULATIONS ---
-  const totalSales = filteredOrders
-    .filter(o => o.status === OrderStatus.COMPLETED)
-    .reduce((sum, o) => sum + o.total, 0);
-  const totalPurchases = filteredBills.reduce((sum, b) => sum + b.total, 0);
+  // Prefer transaction-based metrics. Fallback to orders/bills if transactions missing.
+  const salesFromTransactions = filteredTransactions
+    .filter(t => t.type === 'Income' && !!t.referenceId)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalSales = salesFromTransactions > 0
+    ? salesFromTransactions
+    : filteredOrders.filter(o => o.status === OrderStatus.COMPLETED).reduce((sum, o) => sum + o.total, 0);
+
+  const purchasesFromTransactions = filteredTransactions
+    .filter(t => t.type === 'Expense' && t.category === 'expense_purchases')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalPurchases = purchasesFromTransactions > 0
+    ? purchasesFromTransactions
+    : filteredBills.reduce((sum, b) => sum + b.total, 0);
+
   const otherExpenses = filteredTransactions
     .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
     .reduce((sum, t) => sum + t.amount, 0);
+
   const totalProfit = totalSales - totalPurchases - otherExpenses;
 
   const orderCounts = {
@@ -78,37 +92,18 @@ const Dashboard: React.FC = () => {
       aggregatedData[m] = { income: 0, expense: 0 };
     });
 
-    // Add income from Orders (sales) - using UNFILTERED data
-    orders.forEach(order => {
-      const orderDate = new Date(order.orderDate);
-      if (orderDate.getFullYear() === currentYear) {
-        const monthIndex = orderDate.getMonth();
-        const monthName = months[monthIndex];
-        aggregatedData[monthName].income += order.total;
+    // Aggregate month data primarily from transactions (income & expense)
+    transactions.forEach(txn => {
+      const txnDate = new Date(txn.date);
+      if (txnDate.getFullYear() !== currentYear) return;
+      const monthIndex = txnDate.getMonth();
+      const monthName = months[monthIndex];
+      if (txn.type === 'Income') {
+        aggregatedData[monthName].income += txn.amount;
+      } else if (txn.type === 'Expense') {
+        aggregatedData[monthName].expense += txn.amount;
       }
     });
-
-    // Add expense from Bills (purchases) - using UNFILTERED data
-    bills.forEach(bill => {
-      const billDate = new Date(bill.billDate);
-      if (billDate.getFullYear() === currentYear) {
-        const monthIndex = billDate.getMonth();
-        const monthName = months[monthIndex];
-        aggregatedData[monthName].expense += bill.total;
-      }
-    });
-
-    // Add other expenses from Transactions - using UNFILTERED data
-    transactions
-      .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
-      .forEach(transaction => {
-        const txnDate = new Date(transaction.date);
-        if (txnDate.getFullYear() === currentYear) {
-          const monthIndex = txnDate.getMonth();
-          const monthName = months[monthIndex];
-          aggregatedData[monthName].expense += transaction.amount;
-        }
-      });
 
     // Convert to chart format
     return months.map(name => ({

@@ -383,38 +383,26 @@ const OrderForm: React.FC = () => {
               className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-lg h-32 focus:ring-2 focus:ring-[#3c5a82] focus:bg-white outline-none font-medium text-sm transition-all" 
             />
           </div>
-          <div className="w-full md:w-96 space-y-4 bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100">
-            <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest">
+          <div className="w-full md:w-96 space-y-4 bg-gray-50/50 p-8 rounded-lg border border-gray-100">
+            <div className="flex justify-between items-center text-gray-500 text-[12px] font-bold uppercase tracking-widest">
               <span>Subtotal</span>
               <span className="text-gray-900 font-black">{formatCurrency(subtotal)}</span>
             </div>
-            <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest">
+            <div className="flex justify-between items-center text-gray-500 text-[12px] font-bold uppercase tracking-widest">
               <span>Discount</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-300 font-black">৳</span>
+                <span className="text-xs text-gray-500 font-black">৳</span>
                 <input 
                   type="number" 
                   value={discount} 
                   onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} 
-                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
-                />
-              </div>
-            </div>
-            <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest">
-              <span>Shipping</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-300 font-black">৳</span>
-                <input 
-                  type="number" 
-                  value={shipping} 
-                  onChange={(e) => setShipping(parseFloat(e.target.value) || 0)} 
-                  className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
+                  className="w-20 text-right py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
                 />
               </div>
             </div>
             <div className="pt-6 border-t-4 border-[#c7dff5] flex justify-between items-center">
-              <span className="text-lg font-black text-gray-900 uppercase tracking-tighter">Grand Total</span>
-              <span className="text-3xl font-black ${theme.colors.primary[600]}">{formatCurrency(total)}</span>
+              <span className="text-sm font-black text-gray-900 uppercase tracking-tighter">Total</span>
+              <span className="text-sm font-black text-[#3c5a82]">{formatCurrency(total)}</span>
             </div>
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">

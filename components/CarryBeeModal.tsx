@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { theme } from '../theme';
 import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder } from '../src/services/supabaseQueries';
 import { useCourierSettings } from '../src/hooks/useQueries';
+import { useUpdateOrder } from '../src/hooks/useMutations';
+import { db } from '../db';
 import type { Order, Customer } from '../types';
 
 interface CarryBeeModalProps {
@@ -38,6 +40,7 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
   const [loadingZones, setLoadingZones] = useState(false);
   const [loadingAreas, setLoadingAreas] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const updateOrder = useUpdateOrder();
 
   // Fetch cities on mount
   useEffect(() => {
@@ -304,6 +307,12 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                   if (result.error) {
                     alert(`Failed to send order: ${result.error}`);
                   } else {
+                    try {
+                      const historyText = `Sent to CarryBee by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+                      await updateOrder.mutateAsync({ id: order.id, updates: { history: { ...order.history, courier: historyText } } });
+                    } catch (err) {
+                      console.error('[CarryBeeModal] Failed to update order sent flag:', err);
+                    }
                     alert('Order sent to CarryBee successfully!');
                     onClose();
                   }
@@ -317,7 +326,7 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
               disabled={!selectedCity || !selectedZone || submitting}
               className="flex-1 py-2 px-4 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? 'Sending...' : 'Send'}
+              {submitting ? 'Adding...' : 'Add'}
             </button>
           </div>
         </div>

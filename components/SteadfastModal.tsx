@@ -3,6 +3,8 @@ import { theme } from '../theme';
 import type { Order, Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { submitSteadfastOrder } from '../src/services/supabaseQueries';
+import { useUpdateOrder } from '../src/hooks/useMutations';
+import { db } from '../db';
 
 interface SteadfastModalProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
   const { data: courierSettings } = useCourierSettings();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const updateOrder = useUpdateOrder();
 
   if (!isOpen) return null;
 
@@ -96,6 +99,12 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
       }
 
       console.log('[SteadfastModal] Order submitted successfully to Steadfast');
+      try {
+        const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+        await updateOrder.mutateAsync({ id: order.id, updates: { history: { ...order.history, courier: historyText } } });
+      } catch (err) {
+        console.error('[SteadfastModal] Failed to update order sent flag:', err);
+      }
       onClose();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';

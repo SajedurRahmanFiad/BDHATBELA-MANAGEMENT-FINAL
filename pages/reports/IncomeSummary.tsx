@@ -110,7 +110,7 @@ const IncomeSummary: React.FC = () => {
                     <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
                     <span className="text-sm font-semibold text-gray-700">{c.name}</span>
                   </div>
-                  <span className={`text-sm font-black ${theme.colors.primary[600]}`}>{formatCurrency(c.revenue)}</span>
+                  <span className={`text-sm font-black`}>{formatCurrency(c.revenue)}</span>
                 </div>
               ))}
             </div>

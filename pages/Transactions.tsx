@@ -180,8 +180,6 @@ const Transactions: React.FC = () => {
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Contact</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest"><>Category <br></br> Notes</></th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
-                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Attachment</th>
-                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -204,15 +202,6 @@ const Transactions: React.FC = () => {
                       <td className="px-6 py-5">{isLinkedTransaction ? (contact ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{contact.name}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>) : (creator ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{creator}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Created By</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>)}</td>
                       <td className="px-6 py-5"><div className="flex flex-col"><p className="text-sm font-bold text-gray-800">{allCategories.find(c => c.id === t.category)?.name || t.category}</p><p className="text-xs text-gray-400 italic max-w-xs truncate">{t.description}</p></div></td>
                       <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? 'text-emerald-600' : t.type === 'Expense' ? 'text-red-600' : 'text-black'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
-                      <td className="px-6 py-5 text-center">{t.attachmentUrl ? <div className={`p-2 bg-[#ebf4ff] ${theme.colors.primary[600]} rounded-lg inline-block`}>{ICONS.Download}</div> : <span className="text-gray-200">—</span>}</td>
-                      <td className="justify-end px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <IconButton
-                          icon={ICONS.Delete}
-                          variant="danger"
-                          title="Delete"
-                          onClick={() => handleDelete(t.id)}
-                        />
-                      </td>
                     </tr>
                   );
                 })

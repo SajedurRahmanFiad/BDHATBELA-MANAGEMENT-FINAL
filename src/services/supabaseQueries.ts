@@ -344,14 +344,22 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.history && { history: updates.history }),
     })
     .eq('id', id)
-    .select()
-    .single();
-  
+    .select();
+
   if (error) {
     console.error('[supabaseQueries] updateOrder error:', error);
     throw error;
   }
-  return mapOrder(data);
+
+  // Supabase may return an array when multiple rows are affected or none.
+  // If no rows are returned (e.g., RLS prevents returning the row), handle gracefully.
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    console.warn('[supabaseQueries] updateOrder: update succeeded but no row was returned (possible RLS). Returning null.');
+    return null;
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapOrder(row);
 }
 
 export async function deleteOrder(id: string) {

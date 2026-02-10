@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
@@ -28,6 +29,7 @@ const Orders: React.FC = () => {
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
   const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
   const [showSteadfast, setShowSteadfast] = useState<string | null>(null); // Order ID for Steadfast modal
@@ -337,6 +339,12 @@ const Orders: React.FC = () => {
                     <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(order.status)}`}>{order.status}</span>
+                      {order.history?.courier?.includes('Steadfast') && (
+                        <img src="/uploads/steadfast.png" alt="Steadfast" className="inline-block w-5 h-5 rounded-full ml-2" />
+                      )}
+                      {order.history?.courier?.includes('CarryBee') && (
+                        <img src="/uploads/carrybee.png" alt="CarryBee" className="inline-block w-5 h-5 rounded-full ml-2" />
+                      )}
                     </td>
                     <td className="px-6 py-5 text-right">
                       <span className="font-black text-gray-900 text-base">{formatCurrency(order.total)}</span>
@@ -348,41 +356,47 @@ const Orders: React.FC = () => {
                     </td>
 
                     {/* Mobile Actions Dropdown */}
-                    <td className="px-6 py-5 sm:hidden relative z-50" onClick={e => e.stopPropagation()}>
-                      <div className="relative">
+                    <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={e => e.stopPropagation()}>
+                      <div className="relative z-[999]">
                         <button 
-                          onClick={() => setOpenActionsMenu(openActionsMenu === order.id ? null : order.id)}
+                          onClick={(e) => {
+                            const target = e.currentTarget as HTMLElement;
+                            if (openActionsMenu === order.id) {
+                              setOpenActionsMenu(null);
+                              setAnchorEl(null);
+                            } else {
+                              setOpenActionsMenu(order.id);
+                              setAnchorEl(target);
+                            }
+                          }}
                           className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
                         >
                           {ICONS.More}
                         </button>
-                        {openActionsMenu === order.id && (
-                          <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-gray-100 rounded-lg shadow-2xl z-50 py-2">
-                            {isEmployee ? (
-                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                            ) : (
-                              <>
-                                <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                <button onClick={() => { handleDuplicate(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
-                                {order.status !== OrderStatus.COMPLETED && (
-                                  <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
-                                )}
-                                <div className="border-t my-1"></div>
-                                <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
-                                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
-                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
-                                  <>
-                                    <div className="border-t my-1"></div>
-                                    <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]">ST Steadfast</button>
-                                    <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-orange-500">CB CarryBee</button>
-                                  </>
-                                )}
-                                <div className="border-t my-1"></div>
-                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                              </>
-                            )}
-                          </div>
-                        )}
+                        <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
+                          {isEmployee ? (
+                            <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                          ) : (
+                            <>
+                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                              {order.status !== OrderStatus.COMPLETED && (
+                                <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
+                              )}
+                              <div className="border-t my-1"></div>
+                              <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
+                              <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier && (
+                                <>
+                                  <div className="border-t my-1"></div>
+                                  <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
+                                  <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
+                                </>
+                              )}
+                              <div className="border-t my-1"></div>
+                              <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                            </>
+                          )}
+                        </PortalMenu>
                       </div>
                     </td>
 
@@ -395,17 +409,16 @@ const Orders: React.FC = () => {
                           ) : (
                             <>
                               <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                              <button onClick={() => handleDuplicate(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
                               {order.status !== OrderStatus.COMPLETED && (
                                 <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
                               )}
                               <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
                               <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier && (
                                 <>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                                  <button onClick={() => setShowSteadfast(order.id)} className="px-3 py-1 text-[9px] font-black text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast">ST</button>
-                                  <button onClick={() => setShowCarryBee(order.id)} className="px-3 py-1 text-[9px] font-black text-orange-500 hover:bg-orange-50 rounded-lg" title="Send to CarryBee">CB</button>
+                                  <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>
+                                  <button onClick={() => setShowCarryBee(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-orange-50 rounded-lg" title="Send to CarryBee"><img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full"/></button>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                 </>
                               )}

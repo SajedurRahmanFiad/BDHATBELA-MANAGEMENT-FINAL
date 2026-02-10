@@ -79,6 +79,7 @@ export interface Order {
   notes?: string;
   history: {
     created: string;
+    courier?: string;
     processing?: string;
     picked?: string;
     completed?: string;
@@ -88,6 +89,9 @@ export interface Order {
   processedAt?: string; // ISO timestamp when marked processing
   completedAt?: string; // ISO timestamp when marked completed
   paidAt?: string; // ISO timestamp when payment received
+  // Flags set when the order has been sent to external couriers
+  sentToSteadfast?: boolean;
+  sentToCarryBee?: boolean;
 }
 
 export interface Bill {

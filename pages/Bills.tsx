@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
+import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
@@ -28,6 +29,7 @@ const Bills: React.FC = () => {
   const [statusTab, setStatusTab] = useState<BillStatus | 'All'>('All');
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
   const createMutation = useCreateBill();
   const deleteMutation = useDeleteBill();
@@ -209,22 +211,29 @@ const Bills: React.FC = () => {
                   </td>
 
                   {/* Mobile Actions Dropdown */}
-                  <td className="px-6 py-5 sm:hidden relative" onClick={e => e.stopPropagation()}>
-                    <div className="relative">
-                      <button 
-                        onClick={() => setOpenActionsMenu(openActionsMenu === bill.id ? null : bill.id)}
+                  <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={e => e.stopPropagation()}>
+                    <div className="relative z-[999]">
+                      <button
+                        onClick={(e) => {
+                          const target = e.currentTarget as HTMLElement;
+                          if (openActionsMenu === bill.id) {
+                            setOpenActionsMenu(null);
+                            setAnchorEl(null);
+                          } else {
+                            setOpenActionsMenu(bill.id);
+                            setAnchorEl(target);
+                          }
+                        }}
                         className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
                       >
                         {ICONS.More}
                       </button>
-                      {openActionsMenu === bill.id && (
-                        <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-lg z-50 py-2">
-                          <button onClick={() => { navigate(`/bills/edit/${bill.id}`); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                          <button onClick={() => { handleDuplicate(bill); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
-                          <div className="border-t my-1"></div>
-                          <button onClick={() => { handleDelete(bill.id); setOpenActionsMenu(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                        </div>
-                      )}
+                      <PortalMenu anchorEl={anchorEl} open={openActionsMenu === bill.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
+                        <button onClick={() => { navigate(`/bills/edit/${bill.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                        <button onClick={() => { handleDuplicate(bill); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
+                        <div className="border-t my-1"></div>
+                        <button onClick={() => { handleDelete(bill.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                      </PortalMenu>
                     </div>
                   </td>
 

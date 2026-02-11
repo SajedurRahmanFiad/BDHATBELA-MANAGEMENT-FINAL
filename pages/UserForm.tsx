@@ -135,7 +135,7 @@ const UserForm: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-20">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">{isEdit ? 'Edit Profile' : 'Add System User'}</h2>
+        <h2 className="md:text-2xl text-xl font-bold text-gray-900">{isEdit ? 'Edit Profile' : 'Add User'}</h2>
         <button onClick={() => navigate('/users')} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-500 hover:bg-gray-50">Cancel</button>
       </div>
 
@@ -155,7 +155,7 @@ const UserForm: React.FC = () => {
         <div className="bg-white p-8 rounded-lg border border-gray-100 shadow-sm space-y-6">
           <div className="space-y-6">
             <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
-              <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border">
+              <div className="w-20 h-20 rounded-[50%] overflow-hidden bg-white border">
                 <img src={form.image || `https://ui-avatars.com/api/?name=${form.name || 'User'}&background=10b981&color=fff`} className="w-full h-full object-cover" />
               </div>
               <div className="space-y-2">
@@ -200,7 +200,7 @@ const UserForm: React.FC = () => {
               className="w-full"
               disabled={saving}
             >
-              {saving ? 'Saving...' : 'Save User Details'}
+              {saving ? 'Saving...' : 'Save Details'}
             </Button>
             
             {isEdit && isAdmin && (

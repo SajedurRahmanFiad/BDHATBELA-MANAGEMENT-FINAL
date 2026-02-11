@@ -73,7 +73,7 @@ const CustomerForm: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-black text-gray-900 tracking-tight">{isEdit ? 'Edit Customer' : 'New Customer'}</h2>
+        <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">{isEdit ? 'Edit Customer' : 'New Customer'}</h2>
         <button onClick={() => navigate(-1)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-xl transition-all">Cancel</button>
       </div>
       <div className="bg-white p-10 rounded-xl border border-gray-100 shadow-xl space-y-8">

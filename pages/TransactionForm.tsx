@@ -129,21 +129,20 @@ const TransactionForm: React.FC = () => {
     <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">Record {isIncome ? 'Income' : 'Expense'}</h2>
-          <p className="text-gray-500 font-medium">Log a new financial movement in your accounts</p>
+          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Record {isIncome ? 'Income' : 'Expense'}</h2>
         </div>
         <button onClick={() => navigate(-1)} className="p-3 text-gray-400 hover:text-gray-600 bg-white border border-gray-100 rounded-lg shadow-sm">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l18 18"></path></svg>
         </button>
       </div>
 
-      <div className="bg-white p-8 lg:p-12 rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-200/20 space-y-10">
+      <div className="bg-white p-8 lg:p-12 rounded-lg border border-gray-100 shadow-xl shadow-gray-200/20 space-y-10">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount (BDT)</label>
             <input 
               type="number" 
-              className={`w-full text-3xl font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? '${theme.colors.primary[600]}' : 'text-red-600'}`}
+              className={`w-full text-xl font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? '${theme.colors.primary[600]}' : 'text-red-600'}`}
               value={form.amount}
               onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})}
               placeholder="0.00"
@@ -189,7 +188,7 @@ const TransactionForm: React.FC = () => {
               value={form.category}
               onChange={e => setForm({...form, category: e.target.value})}
             >
-              <option value="">-- Select a category --</option>
+              <option value="">Select a category</option>
               {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}

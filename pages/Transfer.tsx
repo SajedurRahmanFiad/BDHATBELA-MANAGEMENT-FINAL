@@ -104,15 +104,15 @@ const Transfer: React.FC = () => {
     <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">Fund Transfer</h2>
+          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Fund Transfer</h2>
           <p className="text-gray-500 font-medium">Move balances between your business accounts</p>
         </div>
       </div>
 
-      <div className="bg-white p-8 lg:p-12 rounded-[2.5rem] border border-gray-100 shadow-xl space-y-8">
+      <div className="bg-white p-8 lg:p-12 rounded-lg border border-gray-100 shadow-xl space-y-8">
         <div className="space-y-2">
           <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount to Transfer (BDT)</label>
-          <input type="number" className={`w-full text-4xl font-black px-6 py-4 bg-[#ebf4ff] border-2 border-transparent focus:border-[#3c5a82] rounded-xl transition-all outline-none ${theme.colors.primary[600]}`} value={form.amount} onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})} placeholder="0.00" />
+          <input type="number" className={`w-full text-xl font-black px-6 py-4 bg-[#ebf4ff] border-2 border-transparent focus:border-[#3c5a82] rounded-xl transition-all outline-none ${theme.colors.primary[600]}`} value={form.amount} onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})} placeholder="0.00" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

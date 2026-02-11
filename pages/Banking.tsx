@@ -83,8 +83,7 @@ const Banking: React.FC = () => {
       <LoadingOverlay isLoading={isLoading} message="Loading accounts..." />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Banking & Accounts</h2>
-          <p className="text-gray-500 text-sm">Monitor balances and manage cash flow across all accounts</p>
+          <h2 className="md:text-2xl text-xl font-bold text-gray-900">Banking & Accounts</h2>
         </div>
         <Button
           onClick={() => setShowAddModal(true)}

@@ -150,8 +150,7 @@ const Transactions: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Financial Transactions</h2>
-          <p className="text-gray-500 text-sm">Review all income and expense history</p>
+          <h2 className="md:text-2xl text-xl font-bold text-gray-900 tracking-tight">Financial Transactions</h2>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => navigate('/transactions/new/income')} variant="primary" size="md" icon={ICONS.Plus}>Income</Button>

@@ -384,15 +384,14 @@ const SettingsPage: React.FC = () => {
       <LoadingOverlay isLoading={loading} message="Loading settings..." />
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">System Settings</h2>
-          <p className="text-gray-500 text-sm">Configure your accounting environment and business rules</p>
+          <h2 className="md:text-2xl text-xl font-bold text-gray-900">Settings</h2>
         </div>
         <Button
           onClick={handleSave}
           variant="primary"
           size="md"
         >
-          Save All Changes
+          Save Changes
         </Button>
       </div>
 
@@ -685,7 +684,8 @@ const SettingsPage: React.FC = () => {
             <div className="space-y-10 animate-in fade-in duration-300">
               <section className="space-y-6">
                 <h3 className="text-xl font-bold text-gray-800 border-b pb-4 flex items-center gap-2">
-                  <span className="${theme.colors.secondary[600]}">Steadfast</span> Logistics
+                  <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
+                  <span className="">Steadfast</span> Secrets
                 </h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -697,7 +697,7 @@ const SettingsPage: React.FC = () => {
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">API Key</label>
                       <input 
@@ -722,7 +722,8 @@ const SettingsPage: React.FC = () => {
 
               <section className="space-y-6">
                 <h3 className="text-xl font-bold text-gray-800 border-b pb-4 flex items-center gap-2">
-                  <span className="text-orange-600">CarryBee</span> Fulfillment
+                  <img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
+                  <span className="">CarryBee</span> Secrets
                 </h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -734,7 +735,7 @@ const SettingsPage: React.FC = () => {
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client ID</label>
                       <input 
@@ -754,7 +755,7 @@ const SettingsPage: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client Context</label>
                       <input 

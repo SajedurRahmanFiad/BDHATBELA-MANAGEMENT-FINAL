@@ -59,27 +59,6 @@ const Bills: React.FC = () => {
     return true;
   };
 
-  const filteredBills = useMemo(() => {
-    let results = bills
-      .filter(b => isWithinRange(b.billDate))
-      .filter(b => statusTab === 'All' || b.status === statusTab);
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(bill => {
-        const vendor = vendors.find(v => v.id === bill.vendorId);
-        return (
-          bill.billNumber.toLowerCase().includes(query) ||
-          vendor?.name.toLowerCase().includes(query) ||
-          bill.status.toLowerCase().includes(query)
-        );
-      });
-    }
-
-    return results;
-  }, [bills, filterRange, customDates, statusTab, searchQuery, vendors]);
-
   // Helper to get creator name from createdBy field or history
   const getCreatorName = (bill: Bill) => {
     // First try to lookup from createdBy database field using O(1) Map lookup
@@ -97,6 +76,29 @@ const Bills: React.FC = () => {
     
     return null;
   };
+
+  const filteredBills = useMemo(() => {
+    let results = bills
+      .filter(b => isWithinRange(b.billDate))
+      .filter(b => statusTab === 'All' || b.status === statusTab);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(bill => {
+        const vendor = vendors.find(v => v.id === bill.vendorId);
+        const creatorName = getCreatorName(bill);
+        return (
+          bill.billNumber.toLowerCase().includes(query) ||
+          vendor?.name.toLowerCase().includes(query) ||
+          bill.status.toLowerCase().includes(query) ||
+          creatorName?.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [bills, filterRange, customDates, statusTab, searchQuery, vendors]);
 
   const handleDuplicate = async (bill: Bill) => {
     try {
@@ -145,8 +147,7 @@ const Bills: React.FC = () => {
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">Purchase Bills</h2>
-          <p className="text-gray-500 font-medium text-sm">Manage vendor procurement and supply chain payables</p>
+          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Purchase Bills</h2>
         </div>
         <Button
           onClick={() => navigate('/bills/new')}

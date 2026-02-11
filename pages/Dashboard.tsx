@@ -75,10 +75,11 @@ const Dashboard: React.FC = () => {
   const totalPayables = filteredBills.reduce((sum, b) => sum + (b.total - b.paidAmount), 0);
 
   // --- EMPLOYEE CALCULATIONS ---
-  const myTotalCreated = filteredOrders.filter(o => o.createdBy === user.id).length;
+  // For employees the top FilterBar should not affect stat cards — use unfiltered `orders` for stats
+  const myTotalCreated = orders.filter(o => o.createdBy === user.id).length;
   const todayStr = new Date().toISOString().split('T')[0];
-  const myCreatedToday = filteredOrders.filter(o => o.createdBy === user.id && o.orderDate === todayStr).length;
-  const myPendingOrders = filteredOrders.filter(o => o.createdBy === user.id && o.status === OrderStatus.ON_HOLD).length;
+  const myCreatedToday = orders.filter(o => o.createdBy === user.id && o.orderDate === todayStr).length;
+  const myPendingOrders = orders.filter(o => o.createdBy === user.id && o.status === OrderStatus.ON_HOLD).length;
 
   // --- CHART DATA ---
   // Calculate cash flow by month from UNFILTERED real data (not affected by FilterBar)
@@ -158,9 +159,10 @@ const Dashboard: React.FC = () => {
     return data.length > 0 ? data : [{ name: 'No Data', value: 1, color: '#D1D5DB' }];
   }, [filteredTransactions, totalPurchases, allCategories]);
 
+  // The performance chart should respect the current filter
   const employeePerformanceData = dashUsers.map(u => ({
     name: u.name.split(' ')[0],
-    orders: orders.filter(o => o.createdBy === u.id).length
+    orders: filteredOrders.filter(o => o.createdBy === u.id).length
   })).sort((a, b) => b.orders - a.orders);
 
   if (isAdmin) {

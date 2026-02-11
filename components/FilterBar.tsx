@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ICONS } from '../constants';
 import { theme } from '../theme';
+import { useSearch } from '../src/contexts/SearchContext';
 
 export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
 
@@ -27,6 +28,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
   title
 }) => {
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const { searchQuery, setSearchQuery } = useSearch();
   const ranges: FilterRange[] = ['All Time', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'];
 
   return (
@@ -101,7 +103,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
       {isMobileFilterOpen && (
         <div className="fixed inset-0 z-[150] flex items-end justify-center">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsMobileFilterOpen(false)}></div>
-          <div className="bg-white w-full rounded-t-[3rem] p-8 z-[160] animate-in slide-in-from-bottom duration-300 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white w-full rounded-t-2xl p-8 z-[160] animate-in slide-in-from-bottom duration-300 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black text-gray-900">Filter {title}</h3>
               <button onClick={() => setIsMobileFilterOpen(false)} className="p-2 text-gray-400">
@@ -110,6 +112,23 @@ const FilterBar: React.FC<FilterBarProps> = ({
             </div>
             
             <div className="space-y-8">
+              {/* Search Box */}
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Search</p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none"
+                  />
+                  <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
+                    {ICONS.Search}
+                  </span>
+                </div>
+              </div>
+
               <div>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Time Period</p>
                 <div className="grid grid-cols-2 gap-2">

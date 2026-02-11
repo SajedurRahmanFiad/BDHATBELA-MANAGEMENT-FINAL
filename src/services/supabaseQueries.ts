@@ -995,14 +995,24 @@ function mapVendor(row: any): Vendor {
 
 // ========== PRODUCTS ==========
 
-export async function fetchProducts() {
-  const mapped = await queryWithTimeout<Product>(
-    supabase
+export async function fetchProducts(category?: string) {
+  console.log('[supabaseQueries] fetchProducts called', category ? 'for category: ' + category : '');
+  try {
+    let query = supabase
       .from('products')
-      .select('*')
-      .order('created_at', { ascending: false })
-  );
-  return mapped.map(mapProduct);
+      .select('id, name, image, category, sale_price, purchase_price, created_at')
+      .order('created_at', { ascending: false });
+    
+    if (category) {
+      query = query.eq('category', category);
+    }
+    
+    const mapped = await queryWithTimeout<Product>(query);
+    return mapped.map(mapProduct);
+  } catch (err) {
+    console.error('[supabaseQueries] fetchProducts error:', err);
+    return [];
+  }
 }
 
 export async function fetchProductById(id: string) {

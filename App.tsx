@@ -62,143 +62,143 @@ import PrintOrder from './pages/PrintOrder';
 
 // Inner app component that uses auth context
 const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ user, profile, isLoading }) => {
-  // Check authentication state - require user AND profile for full access
-  // If user exists but profile is null, still show protected content (profile might be loading)
-  const isAuthenticatedWithProfile = user && profile;
+  // Check authentication state - only require user since profile is GUARANTEED to exist when user exists
+  // Profile is always loaded along with user by AuthProvider, never null during normal operation
+  const isAuthenticated = !!user;
   
   return (
     <Routes>
-      {/* Public login route - redirect to dashboard if logged in with profile */}
+      {/* Public login route - redirect to dashboard if logged in */}
       <Route path="/login" element={
-        isAuthenticatedWithProfile ? <Navigate to="/dashboard" replace /> : <Login />
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
       } />
-      
-      {/* Protected routes - require authentication */}
+
+      {/* Protected routes - require authenticated user (profile guaranteed) */}
       <Route path="/" element={
-        user ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />
       } />
       
       <Route path="/dashboard" element={
-        user ? <Layout><Dashboard /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Dashboard /></Layout> : <Navigate to="/login" replace />
       } />
       
       <Route path="/orders" element={
-        user ? <Layout><Orders /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Orders /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/orders/new" element={
-        user ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/orders/edit/:id" element={
-        user ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/orders/:id" element={
-        user ? <Layout><OrderDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><OrderDetails /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/print-order/:id" element={
-        user ? <PrintOrder /> : <Navigate to="/login" replace />
+        isAuthenticated ? <PrintOrder /> : <Navigate to="/login" replace />
       } />
       
       <Route path="/bills" element={
-        user ? <Layout><Bills /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Bills /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/bills/new" element={
-        user ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/bills/edit/:id" element={
-        user ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/bills/:id" element={
-        user ? <Layout><BillDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><BillDetails /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/banking/accounts" element={
-        user ? <Layout><Banking /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Banking /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/banking/transfer" element={
-        user ? <Layout><Transfer /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Transfer /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/banking/transactions" element={
-        user ? <Layout><Transactions /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Transactions /></Layout> : <Navigate to="/login" replace />
       } />
       
       <Route path="/transactions" element={
-        user ? <Navigate to="/banking/transactions" replace /> : <Navigate to="/login" replace />
+        isAuthenticated ? <Navigate to="/banking/transactions" replace /> : <Navigate to="/login" replace />
       } />
       <Route path="/transactions/new/:type" element={
-        user ? <Layout><TransactionForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><TransactionForm /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/customers" element={
-        user ? <Layout><Customers /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Customers /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/customers/new" element={
-        user ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/customers/edit/:id" element={
-        user ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/customers/:id" element={
-        user ? <Layout><CustomerDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><CustomerDetails /></Layout> : <Navigate to="/login" replace />
       } />
       
       <Route path="/vendors" element={
-        user ? <Layout><Vendors /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Vendors /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/new" element={
-        user ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/edit/:id" element={
-        user ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/:id" element={
-        user ? <Layout><VendorDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><VendorDetails /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/products" element={
-        user ? <Layout><Products /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Products /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/products/new" element={
-        user ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/products/edit/:id" element={
-        user ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/users" element={
-        user ? <Layout><Users /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Users /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/users/new" element={
-        user ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/users/edit/:id" element={
-        user ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/users/:id" element={
-        user ? <Layout><UserDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><UserDetails /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/reports" element={
-        user ? <Layout><Reports /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><Reports /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/reports/expense" element={
-        user ? <Layout><ExpenseSummary /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><ExpenseSummary /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/reports/income" element={
-        user ? <Layout><IncomeSummary /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><IncomeSummary /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/reports/income-vs-expense" element={
-        user ? <Layout><IncomeVsExpense /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><IncomeVsExpense /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/reports/profit-loss" element={
-        user ? <Layout><ProfitLoss /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><ProfitLoss /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/settings" element={
-        user ? <Layout><SettingsPage /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? <Layout><SettingsPage /></Layout> : <Navigate to="/login" replace />
       } />
 
       {/* Catch all - redirect based on auth state */}
-      <Route path="*" element={user ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
+      <Route path="*" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
     </Routes>
   );
 };

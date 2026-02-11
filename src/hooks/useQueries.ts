@@ -185,11 +185,11 @@ export function useVendor(id: string | undefined): UseQueryResult<Vendor | null,
 
 // ========== PRODUCTS ==========
 
-export function useProducts(): UseQueryResult<Product[], Error> {
+export function useProducts(category?: string): UseQueryResult<Product[], Error> {
   return useQuery({
-    queryKey: ['products'],
-    queryFn: fetchProducts,
-    staleTime: 30 * 60 * 1000, // 30 minutes for products
+    queryKey: ['products', category],
+    queryFn: () => fetchProducts(category), // FIX: Wrap to pass category parameter
+    staleTime: 5 * 60 * 1000, // FIX: Reduced from 30 to 5 minutes to match orders/customers - ensure fresh product data
   });
 }
 
@@ -198,7 +198,7 @@ export function useProduct(id: string | undefined): UseQueryResult<Product | nul
     queryKey: ['product', id],
     queryFn: () => fetchProductById(id || ''),
     enabled: !!id,
-    staleTime: 30 * 60 * 1000,
+    staleTime: 5 * 60 * 1000, // FIX: Reduced from 30 to 5 minutes to match other entities
   });
 }
 

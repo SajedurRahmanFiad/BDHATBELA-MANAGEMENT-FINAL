@@ -6,7 +6,7 @@ import { db } from '../db';
 import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { theme } from '../theme';
-import { useBill, useVendors, useUsers, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useBill, useVendors, useUsers, useAccounts, useCompanySettings, useInvoiceSettings, useProducts } from '../src/hooks/useQueries';
 import { useUpdateBill, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
@@ -22,6 +22,7 @@ const BillDetails: React.FC = () => {
   const { data: vendors = [] } = useVendors();
   const { data: users = [] } = useUsers();
   const { data: accounts = [] } = useAccounts();
+  const { data: products = [] } = useProducts();
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   
@@ -191,13 +192,13 @@ const BillDetails: React.FC = () => {
           <button onClick={() => navigate('/bills')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
-          <h2 className="text-2xl font-bold text-gray-900">Purchase Bill #{bill.billNumber}</h2>
+          <h2 className="text-md md:text-2xl font-bold text-gray-900">#{bill.billNumber}</h2>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(bill.status)}`}>
             {bill.status}
           </span>
         </div>
         <div className="flex items-center gap-2 relative">
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all">
+          <button className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all">
             {ICONS.Print} Print Bill
           </button>
           <div className="relative">
@@ -205,12 +206,14 @@ const BillDetails: React.FC = () => {
               onClick={() => setIsActionOpen(!isActionOpen)}
               className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
             >
-              {ICONS.More} Actions
+              {ICONS.More} <span className="hidden md:inline">Actions</span>
             </button>
             {isActionOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
                 <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-50 py-2">
+                  <button onClick={() => { window.print(); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
+                  <button onClick={() => { window.print(); setIsActionOpen(false); }} className="md:hidden border-t w-full text-left px-4 py-2 text-sm hover:bg-gray-50"></button>
                   <button onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Mark Processing</button>
                   <button onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Mark Received</button>
                   <div className="border-t my-1"></div>
@@ -223,84 +226,100 @@ const BillDetails: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-8 space-y-8">
-            <div className="flex justify-between items-start">
-              <div>
+          <div className="p-3 sm:p-4 md:p-6 lg:p-8 space-y-6 sm:space-y-8">
+            <div className="flex flex-row justify-between items-start gap-3 sm:gap-4">
+              <div className="min-w-0">
                 {(companySettings?.logo || db.settings.company.logo) && (
-                  <img src={companySettings?.logo || db.settings.company.logo} className="rounded-xl object-cover mb-4 border" style={{ width: invoiceSettings?.logoWidth || db.settings.invoice.logoWidth, height: invoiceSettings?.logoHeight || db.settings.invoice.logoHeight }} />
+                  <img 
+                    src={companySettings?.logo || db.settings.company.logo} 
+                    className="rounded-lg object-cover mb-2 sm:mb-3 lg:mb-4 w-auto h-auto"
+                    style={{ 
+                      maxWidth: 'min(100px, 20%)',
+                      maxHeight: 'auto'
+                    }}
+                  />
                 )}
-                <h1 className="text-2xl font-extrabold ${theme.colors.secondary[600]} uppercase tracking-tighter">Purchase Bill</h1>
-                <p className="text-sm text-gray-500">{companySettings?.name || db.settings.company.name}</p>
+                <h1 className="text-sm sm:text-base lg:text-xl font-black text-blue-600 uppercase tracking-tighter break-words">{companySettings?.name || db.settings.company.name}</h1>
+                <div className="mt-1 sm:mt-2 text-[9px] sm:text-[10px] lg:text-xs text-gray-400 font-medium space-y-0.5 sm:space-y-1">
+                  <p className="break-words">{companySettings?.address || db.settings.company.address}</p>
+                  <p className="text-[8px] sm:text-[9px] break-words">{companySettings?.phone || db.settings.company.phone} • {companySettings?.email || db.settings.company.email}</p>
+                </div>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-bold text-gray-900">Bill No: #{bill.billNumber}</p>
-                <p className="text-sm text-gray-500">Date: {bill.billDate}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-8 border-t border-gray-100 py-4">
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase mb-3">Bill From (Vendor)</p>
-                <h3 className="text-lg font-bold text-gray-900">{vendor?.name}</h3>
-                <p className="text-sm text-gray-600">{vendor?.address}</p>
-                <p className="text-sm text-gray-600">{vendor?.phone}</p>
+              <div className="text-right flex-shrink-0">
+                <h2 className="text-sm sm:text-2xl lg:text-3xl font-black text-gray-300 uppercase leading-none mb-1 sm:mb-2 break-words">{invoiceSettings?.title || db.settings.invoice.title}</h2>
+                <div className="space-y-0.5 sm:space-y-1 lg:space-y-1.5 text-[9px] sm:text-sm">
+                  <p className="text-[9px] sm:text-sm font-bold text-gray-900 break-words">Bill No: #{bill.billNumber}</p>
+                  <p className="text-[9px] sm:text-sm text-gray-500">{bill.billDate}</p>
+                </div>
               </div>
             </div>
 
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b-2 border-gray-100">
-                  <th className="py-4 text-xs font-bold text-gray-400 uppercase">Description</th>
-                  <th className="py-4 text-center text-xs font-bold text-gray-400 uppercase">Cost</th>
-                  <th className="py-4 text-center text-xs font-bold text-gray-400 uppercase">Qty</th>
-                  <th className="py-4 text-right text-xs font-bold text-gray-400 uppercase">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {bill.items.map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="py-5 font-bold text-gray-800">{item.productName}</td>
-                    <td className="py-5 text-center text-gray-600 font-medium">{formatCurrency(item.rate)}</td>
-                    <td className="py-5 text-center text-gray-600 font-medium">{item.quantity}</td>
-                    <td className="py-5 text-right font-black text-gray-900">{formatCurrency(item.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="border-t border-gray-100 py-2 sm:py-3 lg:py-4">
+              <p className="text-[8px] sm:text-[9px] lg:text-[10px] font-black text-gray-400 uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-2 sm:mb-3 lg:mb-4">Bill From (Vendor)</p>
+              <h3 className="text-sm sm:text-base lg:text-lg font-black text-gray-900 break-words">{vendor?.name}</h3>
+              <p className="text-[10px] sm:text-xs lg:text-sm text-gray-500 leading-relaxed break-words">{vendor?.address}</p>
+              <p className="text-[10px] sm:text-xs lg:text-sm font-bold text-cyan-600 mt-1 sm:mt-1.5 lg:mt-2 break-words">{vendor?.phone}</p>
+            </div>
 
-            <div className="flex justify-end pt-4">
-              <div className="w-full max-w-xs space-y-3">
-                <div className="flex justify-between text-gray-500">
-                  <span className="text-sm font-medium">Subtotal</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(bill.subtotal)}</span>
+            <div className="overflow-x-auto -mx-3 sm:-mx-4 md:-mx-6 lg:-mx-10">
+              <div className="px-3 sm:px-4 md:px-6 lg:px-10">
+                <table className="w-full text-left text-[10px] sm:text-xs lg:text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-gray-100">
+                      <th className="py-2 sm:py-3 lg:py-4 font-black text-gray-400 uppercase">Description</th>
+                      <th className="py-2 sm:py-3 lg:py-4 text-center font-black text-gray-400 uppercase whitespace-nowrap px-1">Cost</th>
+                      <th className="py-2 sm:py-3 lg:py-4 text-center font-black text-gray-400 uppercase whitespace-nowrap px-1">Qty</th>
+                      <th className="py-2 sm:py-3 lg:py-4 text-right font-black text-gray-400 uppercase whitespace-nowrap px-1">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {bill.items.map((item, idx) => {
+                      const product = products.find(p => p.id === item.productId);
+                      return (
+                        <tr key={idx} className="group">
+                          <td className="py-3 sm:py-4 lg:py-6">
+                            <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 min-w-0">
+                              <img src={product?.image} className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full object-cover border border-gray-100 shadow-sm flex-shrink-0" />
+                              <span className="font-bold text-gray-900 text-[10px] sm:text-xs lg:text-base break-words">{item.productName}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 sm:py-4 lg:py-6 text-center text-gray-500 font-bold px-1 whitespace-nowrap">{formatCurrency(item.rate)}</td>
+                          <td className="py-3 sm:py-4 lg:py-6 text-center text-gray-500 font-bold px-1 whitespace-nowrap">{item.quantity}</td>
+                          <td className="py-3 sm:py-4 lg:py-6 text-right font-black text-gray-900 px-1 whitespace-nowrap">{formatCurrency(item.amount)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+           <div className="flex flex-col items-end pt-2 sm:pt-3 lg:pt-6 px-0">
+              <div className="w-full sm:w-full md:w-98 lg:max-w-xs space-y-2 sm:space-y-3 lg:space-y-4">
+                <div className="flex justify-between text-[10px] sm:text-xs lg:text-sm gap-2">
+                  <span className="text-gray-400 font-bold uppercase flex-shrink-0">Subtotal</span>
+                  <span className="font-bold text-gray-900 flex-shrink-0">{formatCurrency(bill.subtotal)}</span>
                 </div>
                 {bill.discount > 0 && (
-                  <div className="flex justify-between text-gray-500">
-                    <span className="text-sm font-medium">Discount</span>
-                    <span className="font-bold text-red-500">-{formatCurrency(bill.discount)}</span>
+                  <div className="flex justify-between text-[10px] sm:text-xs lg:text-sm gap-2">
+                    <span className="text-gray-400 font-bold uppercase flex-shrink-0">Discount</span>
+                    <span className="font-bold text-red-500 flex-shrink-0">-{formatCurrency(bill.discount)}</span>
                   </div>
                 )}
                 {bill.shipping > 0 && (
-                  <div className="flex justify-between text-gray-500">
-                    <span className="text-sm font-medium">Shipping</span>
-                    <span className="font-bold text-gray-900">{formatCurrency(bill.shipping)}</span>
+                  <div className="flex justify-between text-[10px] sm:text-xs lg:text-sm gap-2">
+                    <span className="text-gray-400 font-bold uppercase flex-shrink-0">Shipping</span>
+                    <span className="font-bold text-gray-900 flex-shrink-0">{formatCurrency(bill.shipping)}</span>
                   </div>
                 )}
-                <div className={`flex justify-between items-center py-4 border-t-2 border-[#3c5a82]`}>
-                  <span className="text-lg font-black text-gray-900 uppercase">Total Payable</span>
-                  <span className="text-2xl font-black ${theme.colors.secondary[600]}">{formatCurrency(bill.total)}</span>
+                <div className="flex justify-between items-center py-2 sm:py-3 lg:py-4 border-t-2 border-[#0f2f57] gap-2">
+                  <span className="font-black text-gray-900 uppercase tracking-tighter text-[11px] sm:text-xs lg:text-sm flex-shrink-0">Total Payable</span>
+                  <span className="font-black text-sm sm:text-base lg:text-lg flex-shrink-0">{formatCurrency(bill.total)}</span>
                 </div>
               </div>
             </div>
-
-            {/* Footer from Settings */}
-            {(invoiceSettings?.footer || db.settings.invoice.footer) && (
-              <div className="mt-8 pt-6 border-t border-gray-200 text-center">
-                <p className="text-xs text-gray-500 whitespace-pre-wrap">{invoiceSettings?.footer || db.settings.invoice.footer}</p>
-              </div>
-            )}
           </div>
         </div>
 

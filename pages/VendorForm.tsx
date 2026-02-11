@@ -94,7 +94,7 @@ const VendorForm: React.FC = () => {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Business Name</label>
+              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Vendor/Business Name</label>
               <input 
                 type="text" 
                 className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-blue-500 focus:bg-white rounded-lg font-bold transition-all outline-none"

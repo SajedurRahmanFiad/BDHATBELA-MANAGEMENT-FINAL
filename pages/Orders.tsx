@@ -78,27 +78,6 @@ const Orders: React.FC = () => {
     return true;
   };
 
-  const filteredOrders = useMemo(() => {
-    let results = orders
-      .filter(o => isWithinRange(o.orderDate))
-      .filter(o => statusTab === 'All' || o.status === statusTab);
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(order => {
-        const customer = customers.find(c => c.id === order.customerId);
-        return (
-          order.orderNumber.toLowerCase().includes(query) ||
-          customer?.name.toLowerCase().includes(query) ||
-          customer?.phone.includes(query)
-        );
-      });
-    }
-
-    return results;
-  }, [orders, filterRange, customDates, statusTab, searchQuery, customers]);
-
   // Helper to get creator name from createdBy field or history
   const getCreatorName = (order: Order) => {
     // First try to lookup from createdBy database field using O(1) Map lookup
@@ -116,6 +95,29 @@ const Orders: React.FC = () => {
     
     return null;
   };
+
+  const filteredOrders = useMemo(() => {
+    let results = orders
+      .filter(o => isWithinRange(o.orderDate))
+      .filter(o => statusTab === 'All' || o.status === statusTab);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(order => {
+        const customer = customers.find(c => c.id === order.customerId);
+        const creatorName = getCreatorName(order);
+        return (
+          order.orderNumber.toLowerCase().includes(query) ||
+          customer?.name.toLowerCase().includes(query) ||
+          customer?.phone.includes(query) ||
+          creatorName?.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    return results;
+  }, [orders, filterRange, customDates, statusTab, searchQuery, customers]);
 
   const handleDuplicate = async (order: Order) => {
     if (!orderSettings) {
@@ -276,8 +278,7 @@ const Orders: React.FC = () => {
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">Sales Orders</h2>
-          <p className="text-gray-500 font-medium text-sm">Monitor and process your client fulfillment cycle</p>
+          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Orders</h2>
         </div>
         <Button
           onClick={() => navigate('/orders/new')}
@@ -320,6 +321,7 @@ const Orders: React.FC = () => {
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : filteredOrders.map((order) => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
+                const isOwner = order.createdBy === user?.id;
                 return (
                   <tr 
                     key={order.id} 
@@ -339,10 +341,10 @@ const Orders: React.FC = () => {
                     <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(order.status)}`}>{order.status}</span>
-                      {order.history?.courier?.includes('Steadfast') && (
+                      {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('Steadfast') && (
                         <img src="/uploads/steadfast.png" alt="Steadfast" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
-                      {order.history?.courier?.includes('CarryBee') && (
+                      {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('CarryBee') && (
                         <img src="/uploads/carrybee.png" alt="CarryBee" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
                     </td>
@@ -375,7 +377,11 @@ const Orders: React.FC = () => {
                         </button>
                         <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
                           {isEmployee ? (
-                            <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                            isOwner ? (
+                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                            ) : (
+                              <button disabled className="w-full text-left px-4 py-2.5 text-sm text-gray-400 flex items-center gap-2 font-bold">{ICONS.More} No Actions</button>
+                            )
                           ) : (
                             <>
                               <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
@@ -401,11 +407,13 @@ const Orders: React.FC = () => {
                     </td>
 
                     {/* Desktop Hover Actions */}
-                    {hoveredRow === order.id && (
+                    {hoveredRow === order.id && (isAdmin || (isEmployee && isOwner)) && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
                           {isEmployee ? (
-                            <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                            isOwner ? (
+                              <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                            ) : null
                           ) : (
                             <>
                               <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>

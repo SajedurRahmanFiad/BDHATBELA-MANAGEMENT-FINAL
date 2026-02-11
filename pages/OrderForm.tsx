@@ -29,17 +29,6 @@ const OrderForm: React.FC = () => {
     );
   }
 
-  // Restrict employees from editing orders
-  if (isEdit && isEmployee) {
-    return (
-      <div className="p-8 text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
-        <p className="text-gray-500 mb-6">Employees cannot edit orders. Contact an administrator for assistance.</p>
-        <Button onClick={() => navigate('/orders')} variant="primary">Back to Orders</Button>
-      </div>
-    );
-  }
-
   // Query data
   const { data: customers = [] } = useCustomers();
   const { data: products = [] } = useProducts();
@@ -71,11 +60,20 @@ const OrderForm: React.FC = () => {
   // Initialize form with existing order data when loaded
   React.useEffect(() => {
     if (existingOrderData) {
-      if (!isAdmin && existingOrderData.status !== OrderStatus.ON_HOLD) {
-        toast.warning('Employees can only edit orders that are currently "On Hold".');
-        navigate('/orders');
-        return;
+      if (isEdit && isEmployee) {
+        if (existingOrderData.createdBy !== user.id) {
+          toast.error('Access Denied: you can only edit orders you created.');
+          navigate('/orders');
+          return;
+        }
+        if (existingOrderData.status !== OrderStatus.ON_HOLD) {
+          toast.warning('Employees can only edit orders that are currently "On Hold".');
+          navigate('/orders');
+          return;
+        }
       }
+
+      // For admins (or permitted employees) populate form
       setCustomerId(existingOrderData.customerId);
       setOrderDate(existingOrderData.orderDate);
       setOrderNumber(existingOrderData.orderNumber);
@@ -87,7 +85,7 @@ const OrderForm: React.FC = () => {
       // Use Supabase settings for new orders
       setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
     }
-  }, [existingOrderData, isEdit, isAdmin, orderSettings, navigate, toast]);
+  }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const total = subtotal - discount + shipping;

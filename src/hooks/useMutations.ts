@@ -807,30 +807,42 @@ export function useCreateProduct(): UseMutationResult<Product, Error, Partial<Pr
   return useMutation({
     mutationFn: createProduct,
     onMutate: async (newProduct) => {
-      // Cancel outgoing queries
+      // Cancel outgoing queries to prevent race conditions
       await queryClient.cancelQueries({ queryKey: ['products'] });
       
-      // Snapshot previous data
-      const previousProducts = queryClient.getQueryData<Product[]>(['products']);
+      // Get the current products list
+      const previousProducts = queryClient.getQueryData<Product[]>(['products']) || [];
       
-      // Optimistically add to list
-      if (previousProducts) {
-        const optimisticProduct = {
-          ...newProduct,
-          id: `temp-${Date.now()}`,
-        } as Product;
-        queryClient.setQueryData(['products'], [...previousProducts, optimisticProduct]);
-      }
+      // Create optimistic product with temp ID (will be replaced after server response)
+      const optimisticProduct: Product = {
+        ...newProduct,
+        id: `temp-${Date.now()}`,
+      } as Product;
       
-      return { previousProducts };
+      // Optimistically add to the top of the list (newest first)
+      queryClient.setQueryData(['products'], [optimisticProduct, ...previousProducts]);
+      
+      return { previousProducts, optimisticProduct };
     },
     onError: (err, newProduct, context) => {
+      // Rollback to previous data on error
       if (context?.previousProducts) {
         queryClient.setQueryData(['products'], context.previousProducts);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
+    onSuccess: async (data) => {
+      // Cache the newly created product for immediate access in details view
+      queryClient.setQueryData(['product', data.id], data);
+      
+      // Replace optimistic data with real data from server
+      const previousProducts = queryClient.getQueryData<Product[]>(['products']) || [];
+      const updatedProducts = previousProducts
+        .filter(p => !p.id.startsWith('temp-')) // Remove temp entries
+        .map(p => p); // Keep existing real products
+      queryClient.setQueryData(['products'], [data, ...updatedProducts]);
+      
+      // Refetch in background to validate data
+      await queryClient.refetchQueries({ queryKey: ['products'] });
     },
   });
 }

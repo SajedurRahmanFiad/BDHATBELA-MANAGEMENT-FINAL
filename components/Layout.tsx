@@ -91,6 +91,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Use profile from Auth context if available, fallback to db.currentUser
   const user = profile || db.currentUser;
 
+  // Load company settings on mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -103,6 +104,29 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     loadSettings();
   }, []);
 
+  // Reset main scroll position when route changes so each page starts at top
+  React.useEffect(() => {
+    // main is the scrollable container in this layout
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
+    // also reset window scroll as a fallback
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }, [location.pathname]);
+
+  // Safety check: if user is somehow null (shouldn't happen with route guards), show loading
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="inline-block p-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+          <p className="mt-4 text-gray-600 font-medium">Loading user data...</p>
+        </div>
+      </div>
+    );
+  }
+
   const handleLogout = async () => {
     try {
       await signOut();
@@ -113,15 +137,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
-
-  // Reset main scroll position when route changes so each page starts at top
-  React.useEffect(() => {
-    // main is the scrollable container in this layout
-    const main = document.querySelector('main');
-    if (main) main.scrollTop = 0;
-    // also reset window scroll as a fallback
-    try { window.scrollTo(0, 0); } catch (e) {}
-  }, [location.pathname]);
 
   return (
     <div className={`${theme.colors.bg.secondary} flex overflow-hidden`} style={{ minHeight: '100vh' }}>
@@ -236,19 +251,31 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <div className="fixed inset-0 z-40" onClick={() => setIsPlusOpen(false)}></div>
                   <div className={`absolute right-0 mt-3 w-56 ${theme.colors.bg.primary} border ${theme.colors.border.primary} rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in slide-in-from-top-2 duration-200 origin-top-right`}>
                     <div className={`px-4 py-2 text-[10px] font-bold ${theme.colors.text.tertiary} uppercase tracking-widest border-b ${theme.colors.border.primary} mb-1`}>Quick Actions</div>
-                    {[
-                      { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
-                      { label: 'New Bill', to: '/bills/new', icon: ICONS.Briefcase },
-                      { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers },
-                      { label: 'New Vendor', to: '/vendors/new', icon: ICONS.Vendors },
-                      { label: 'Add Income', to: '/transactions/new/income', icon: ICONS.PlusCircle },
-                      { label: 'Add Expense', to: '/transactions/new/expense', icon: ICONS.Delete },
-                    ].map((item) => (
-                      <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
-                        <span className="opacity-70">{item.icon}</span>
-                        {item.label}
-                      </Link>
-                    ))}
+                      {user.role === UserRole.EMPLOYEE ? (
+                        [
+                          { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
+                          { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers }
+                        ].map((item) => (
+                          <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
+                            <span className="opacity-70">{item.icon}</span>
+                            {item.label}
+                          </Link>
+                        ))
+                      ) : (
+                        [
+                          { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
+                          { label: 'New Bill', to: '/bills/new', icon: ICONS.Briefcase },
+                          { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers },
+                          { label: 'New Vendor', to: '/vendors/new', icon: ICONS.Vendors },
+                          { label: 'Add Income', to: '/transactions/new/income', icon: ICONS.PlusCircle },
+                          { label: 'Add Expense', to: '/transactions/new/expense', icon: ICONS.Delete },
+                        ].map((item) => (
+                          <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
+                            <span className="opacity-70">{item.icon}</span>
+                            {item.label}
+                          </Link>
+                        ))
+                      )}
                   </div>
                 </>
               )}

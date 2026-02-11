@@ -6,7 +6,7 @@ import { fetchCompanySettings } from '../src/services/supabaseQueries';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { signIn, isLoading, user } = useAuth();
+  const { signIn, isLoading, user, profile } = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -16,11 +16,12 @@ const Login: React.FC = () => {
     logo: db.settings.company.logo
   });
 
-  // Redirect if already logged in (backup navigation)
+  // Redirect to dashboard when user is fully authenticated
+  // Profile is now GUARANTEED to exist when user exists (never null)
   useEffect(() => {
-    console.log('[Login] useEffect checking auth - isLoading:', isLoading, 'user:', !!user, 'should navigate:', !isLoading && !!user);
+    console.log('[Login] Checking redirect - isLoading:', isLoading, 'authenticated:', !!user);
     if (!isLoading && user) {
-      console.log('[Login] This is a backup redirect - user state already updated');
+      console.log('[Login] User authenticated, navigating to dashboard');
       navigate('/dashboard', { replace: true });
     }
   }, [user, isLoading, navigate]);
@@ -66,15 +67,18 @@ const Login: React.FC = () => {
       }
 
       console.log('[Login] Sign-in successful, user:', data?.user?.email);
-      setIsSubmitting(false);
       
-      // signIn now updates user/profile state immediately, so navigate directly
-      // Wait 300ms to let React batch and propagate state updates through context
-      console.log('[Login] Navigating to dashboard in 300ms...');
-      setTimeout(() => {
-        console.log('[Login] setTimeout callback executing - navigating to /dashboard');
-        navigate('/dashboard', { replace: true });
-      }, 300);
+      // Check if profile was loaded successfully
+      if (!data?.profileLoaded) {
+        console.error('[Login] Sign-in succeeded but profile not loaded');
+        setError(data?.error?.message || 'Failed to load user profile. Please try again or contact administrator.');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Navigation will happen automatically via useEffect when profile is ready
+      console.log('[Login] Profile loaded, waiting for state to propagate...');
+      // Don't set isSubmitting to false yet - let the loading state show until redirect
       
     } catch (err: any) {
       console.error('[Login] Sign-in exception:', err);

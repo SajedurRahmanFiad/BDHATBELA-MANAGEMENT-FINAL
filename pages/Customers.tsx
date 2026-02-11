@@ -2,7 +2,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Customer } from '../types';
+import { db } from '../db';
+import { Customer, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton, TableLoadingSkeleton } from '../components';
 import { theme } from '../theme';
@@ -19,6 +20,7 @@ const Customers: React.FC = () => {
   const { searchQuery } = useSearch();
   const { data: customers = [], isPending, error } = useCustomers();
   const deleteCustomerMutation = useDeleteCustomer();
+  const isAdmin = db.currentUser.role === UserRole.ADMIN;
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -49,8 +51,7 @@ const Customers: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Customers</h2>
-          <p className="text-gray-500 text-sm">Manage client relationships and account balances</p>
+          <h2 className="md:text-2xl text-xl font-bold text-gray-900">Customers</h2>
         </div>
         <Button 
           onClick={() => navigate('/customers/new')}
@@ -93,7 +94,7 @@ const Customers: React.FC = () => {
           {
             key: 'totalOrders',
             label: 'Total Orders',
-            align: 'center',
+            align: 'center' as const,
             render: (count) => (
               <span className="px-2 py-1 bg-gray-100 rounded-lg text-xs font-bold text-gray-600">
                 {count}
@@ -103,7 +104,7 @@ const Customers: React.FC = () => {
           {
             key: 'dueAmount',
             label: 'Due Amount',
-            align: 'right',
+            align: 'right' as const,
             render: (amount) => (
               <span className={`font-bold ${amount > 0 ? 'text-red-500' : 'text-green-500'}`}>
                 {formatCurrency(amount)}
@@ -113,7 +114,7 @@ const Customers: React.FC = () => {
           {
             key: 'id',
             label: 'Actions',
-            align: 'right',
+            align: 'right' as const,
             render: (customerId) => (
               <div className="justify-end flex items-center gap-2">
                 <IconButton
@@ -125,15 +126,17 @@ const Customers: React.FC = () => {
                     navigate(`/customers/edit/${customerId}`);
                   }}
                 />
-                <IconButton
-                  icon={ICONS.Delete}
-                  variant="danger"
-                  title="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(customerId);
-                  }}
-                />
+                {isAdmin && (
+                  <IconButton
+                    icon={ICONS.Delete}
+                    variant="danger"
+                    title="Delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(customerId);
+                    }}
+                  />
+                )}
               </div>
             ),
           },

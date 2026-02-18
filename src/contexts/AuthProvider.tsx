@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import supabase, { phoneToEmail } from '../services/supabaseClient';
+import { loginUser } from '../services/supabaseQueries';
 import { db, saveDb } from '../../db';
 
 type AuthContextType = {
@@ -41,59 +41,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Tries to return database profile, falls back to saved profile, then minimal profile
    * NEVER returns null - always returns a valid profile object
    */
-  const fetchProfile = async (userId?: string, email?: string, savedProfileFallback?: any): Promise<any> => {
-    if (!userId && !email) {
-      console.warn('[Auth] No userId or email provided to fetchProfile');
+  // Note: fetchProfile is now simplified - mostly used for fallback since user data comes from users table
+  const fetchProfile = async (userId?: string, savedProfileFallback?: any): Promise<any> => {
+    if (!userId) {
+      console.warn('[Auth] No userId provided to fetchProfile');
       if (savedProfileFallback) {
         console.log('[Auth] Using saved profile as fallback');
         return savedProfileFallback;
       }
-      return createFallbackProfile('unknown', email);
+      return createFallbackProfile('unknown');
     }
 
-    try {
-      let query: any;
-      if (userId) {
-        console.log('[Auth] Fetching profile for userId:', userId);
-        query = supabase.from('users').select('*').eq('id', userId).single();
-      } else {
-        const phone = email!.split('@')[0].replace(/[^0-9]/g, '');
-        console.log('[Auth] Fetching profile for phone:', phone);
-        query = supabase.from('users').select('*').eq('phone', phone).single();
-      }
-
-      // Extended timeout: 15 seconds for slower databases
-      const { data, error } = await Promise.race([
-        query,
-        new Promise<any>((resolve) =>
-          setTimeout(() => resolve({ data: null, error: new Error('profile_fetch_timeout') }), 15000)
-        )
-      ]) as any;
-
-      if (data) {
-        console.log('[Auth] Profile fetched successfully from database:', data.name);
-        return data;
-      }
-
-      // If fetch failed, try to use saved profile
-      if (savedProfileFallback) {
-        console.warn('[Auth] Profile fetch failed (' + error?.message + '), using saved profile:', savedProfileFallback.name);
-        return savedProfileFallback;
-      }
-
-      // Last resort: create minimal fallback profile
-      console.warn('[Auth] Profile fetch failed and no saved profile available, creating minimal fallback');
-      const fallback = createFallbackProfile(userId || 'unknown', email);
-      return fallback;
-    } catch (err) {
-      console.error('[Auth] Profile fetch exception:', err);
-      // Even on exception, try to use saved profile first
-      if (savedProfileFallback) {
-        console.log('[Auth] Exception during fetch, using saved profile:', savedProfileFallback.name);
-        return savedProfileFallback;
-      }
-      return createFallbackProfile(userId || 'unknown', email);
+    // If we have a saved profile, use it (since loginUser already fetched from DB)
+    if (savedProfileFallback) {
+      console.log('[Auth] Using saved profile for userId:', userId);
+      return savedProfileFallback;
     }
+
+    // Last resort: create minimal fallback
+    console.warn('[Auth] No saved profile available, creating minimal fallback for:', userId);
+    return createFallbackProfile(userId);
   };
 
   useEffect(() => {
@@ -103,15 +70,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const init = async () => {
       try {
-        console.log('[Auth] Initializing - attempting to restore session...');
+        console.log('[Auth] Initializing - attempting to restore session from localStorage...');
 
-        // Step 1: Check if we have a saved session in localStorage
+        // Check if we have a saved session in localStorage (DB-driven auth, no Supabase Auth)
         const savedProfile = localStorage.getItem('userProfile');
         const savedUser = localStorage.getItem('userData');
         let parsedSavedProfile: any = null;
 
-        // Step 2: Immediately restore from localStorage if available
-        // This provides instant UI without waiting for Supabase
         if (savedProfile && savedUser) {
           try {
             parsedSavedProfile = JSON.parse(savedProfile);
@@ -130,29 +95,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Step 3: Get current session from Supabase
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (session?.user && mounted) {
-          console.log('[Auth] Active Supabase session found:', session.user.email);
-          setUser(session.user);
-          localStorage.setItem('userData', JSON.stringify(session.user));
-
-          // Step 4: Fetch profile from database (guaranteed to return profile object)
-          // Pass saved profile as fallback in case fetch fails
-          const profile = await fetchProfile(session.user.id, session.user.email || undefined, parsedSavedProfile);
-
-          if (mounted) {
-            console.log('[Auth] Setting profile:', profile.name);
-            setProfile(profile);
-            db.currentUser = profile as any;
-            saveDb();
-            localStorage.setItem('userProfile', JSON.stringify(profile));
-            localStorage.setItem('isLoggedIn', 'true');
-          }
-        } else if (!session?.user && !parsedSavedProfile) {
-          // No session and no saved profile - user is logged out
-          console.log('[Auth] No session found and no saved profile - user is logged out');
+        // No Supabase Auth session check - we rely entirely on localStorage for direct table auth
+        if (!parsedSavedProfile) {
+          console.log('[Auth] No saved profile - user is logged out');
           if (mounted) {
             setUser(null);
             setProfile(null);
@@ -162,11 +107,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.removeItem('userProfile');
             localStorage.removeItem('userData');
           }
-        } else if (!session?.user && parsedSavedProfile) {
-          // No current session but we have saved profile - keep it for now
-          // The onAuthStateChange listener will handle clearing it if needed
-          console.log('[Auth] No current session but keeping saved profile from localStorage');
-          // Profile is already set from Step 2 above
         }
 
         initCompleted = true;
@@ -185,67 +125,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Start initialization
     init();
 
-    // Subscribe to auth state changes for real-time updates
-    const subscription = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('[Auth] Auth state changed - event:', _event, 'hasSession:', !!session?.user);
-
-      // Skip updates while init is still running to prevent race conditions
-      if (!initCompleted) {
-        console.log('[Auth] Ignoring auth change during initialization');
-        return;
-      }
-
-      try {
-        if (session?.user) {
-          // User just signed in or session was restored
-          console.log('[Auth] User authenticated via listener:', session.user.email);
-          if (mounted) {
-            setUser(session.user);
-            localStorage.setItem('userData', JSON.stringify(session.user));
-
-            // Get the saved profile to use as fallback if fetch fails
-            let savedProfile: any = null;
-            const savedProfileStr = localStorage.getItem('userProfile');
-            if (savedProfileStr) {
-              try {
-                savedProfile = JSON.parse(savedProfileStr);
-              } catch (e) {
-                console.warn('[Auth] Failed to parse saved profile for fallback');
-              }
-            }
-
-            // Fetch fresh profile from database, with saved profile as fallback
-            const profile = await fetchProfile(session.user.id, session.user.email || undefined, savedProfile);
-            if (mounted) {
-              console.log('[Auth] Setting profile from listener:', profile.name);
-              setProfile(profile);
-              db.currentUser = profile as any;
-              saveDb();
-              localStorage.setItem('userProfile', JSON.stringify(profile));
-              localStorage.setItem('isLoggedIn', 'true');
-              window.dispatchEvent(new Event('authChange'));
-            }
-          }
-        } else {
-          // User signed out
-          console.log('[Auth] User signed out via listener');
-          if (mounted) {
-            setUser(null);
-            setProfile(null);
-            db.currentUser = null as any;
-            saveDb();
-            localStorage.removeItem('isLoggedIn');
-            localStorage.removeItem('userProfile');
-            localStorage.removeItem('userData');
-            window.dispatchEvent(new Event('authChange'));
-          }
-        }
-      } catch (err) {
-        console.error('[Auth] Error handling auth state change:', err);
-      }
-    });
-
-    unsubscribe = subscription.data?.subscription?.unsubscribe || (() => {});
+    // No Supabase Auth subscription - direct table auth via localStorage
+    unsubscribe = () => {};
 
     return () => {
       console.log('[Auth] Cleaning up auth provider');
@@ -261,76 +142,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signIn = async (phoneOrEmail: string, password: string) => {
-    // Support phone-based sign-in using phoneToEmail helper
-    let email = phoneOrEmail;
-    if (!phoneOrEmail.includes('@')) {
-      email = phoneToEmail(phoneOrEmail);
-    }
+    // Extract phone number from phoneOrEmail
+    const phone = phoneOrEmail.includes('@') ? phoneOrEmail.split('@')[0] : phoneOrEmail;
 
-    console.log('[Auth] signIn called with email:', email);
+    console.log('[Auth] signIn called with phone:', phone);
 
     try {
-      const res = await supabase.auth.signInWithPassword({ email, password });
+      // Direct table authentication - no Supabase Auth
+      const { user: dbUser, error: loginError } = await loginUser(phone, password);
 
-      if (res.error) {
-        console.error('[Auth] signIn failed:', res.error.message);
-        // Check if this is an email confirmation issue
-        if (res.error.message?.includes('Email not confirmed') || res.error.status === 422) {
-          res.error.message = 'Email confirmation required. Please have administrator disable email confirmation in Supabase dashboard under Authentication > Providers > Email, then toggle off "Confirm email"';
-        }
-        return res;
+      if (loginError || !dbUser) {
+        console.error('[Auth] signIn failed:', loginError);
+        return { error: { message: loginError || 'Login failed' } };
       }
 
       // Sign in succeeded - update state immediately
-      if (res.data?.user) {
-        console.log('[Auth] signIn successful for:', res.data.user.email);
-        setUser(res.data.user);
+      console.log('[Auth] signIn successful for:', dbUser.phone);
+      setUser(dbUser as any);
+      setProfile(dbUser);
+      db.currentUser = dbUser as any;
+      saveDb();
+      localStorage.setItem('userProfile', JSON.stringify(dbUser));
+      localStorage.setItem('userData', JSON.stringify(dbUser));
+      localStorage.setItem('isLoggedIn', 'true');
+      setIsLoading(false);
+      window.dispatchEvent(new Event('authChange'));
 
-        // Get saved profile for fallback
-        let savedProfile: any = null;
-        const savedProfileStr = localStorage.getItem('userProfile');
-        if (savedProfileStr) {
-          try {
-            savedProfile = JSON.parse(savedProfileStr);
-          } catch (e) {
-            console.warn('[Auth] Failed to parse saved profile for signIn fallback');
-          }
-        }
-
-        // Fetch profile - this is REQUIRED for dashboard access
-        // Pass saved profile as fallback
-        const profile = await fetchProfile(res.data.user.id, res.data.user.email || undefined, savedProfile);
-
-        setProfile(profile);
-        db.currentUser = profile as any;
-        saveDb();
-        localStorage.setItem('userProfile', JSON.stringify(profile));
-        localStorage.setItem('userData', JSON.stringify(res.data.user));
-        localStorage.setItem('isLoggedIn', 'true');
-        setIsLoading(false);
-        window.dispatchEvent(new Event('authChange'));
-
-        console.log('[Auth] User profile loaded:', profile.name);
-        return { ...res, profileLoaded: true };
-      }
-
-      return res;
-    } catch (err) {
-      console.error('[Auth] signIn exception:', err);
-      return { error: err };
+      console.log('[Auth] User profile loaded:', dbUser.name);
+      return { data: { user: dbUser }, error: null, profileLoaded: true };
+    } catch (err: any) {
+      console.error('[Auth] signIn exception:', err?.message || err);
+      return { error: { message: err?.message || 'Login failed' } };
     }
   };
 
   const signOut = async () => {
     console.log('[Auth] signOut called');
 
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error('[Auth] Supabase signOut error:', err);
-    }
-
-    // Clear state regardless of Supabase result
+    // Direct table auth - just clear local state (no Supabase Auth to sign out from)
     setUser(null);
     setProfile(null);
     db.currentUser = null as any;

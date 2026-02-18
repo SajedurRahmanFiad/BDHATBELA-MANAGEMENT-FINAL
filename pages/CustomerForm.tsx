@@ -54,15 +54,15 @@ const CustomerForm: React.FC = () => {
           totalOrders: 0,
           dueAmount: 0,
         };
-        // Trigger mutation and navigate immediately (don't wait for background tasks)
-        createMutation.mutateAsync(newCustomer).then(
-          () => {
-            navigate('/customers');
-          },
-          (err) => {
-            setError(err instanceof Error ? err.message : 'Failed to create customer');
-          }
-        );
+
+        // Await the mutation so we can catch AbortError and other failures
+        try {
+          await createMutation.mutateAsync(newCustomer);
+          navigate('/customers');
+        } catch (err: any) {
+          console.error('Create customer failed:', err);
+          setError(err instanceof Error ? err.message : 'Failed to create customer');
+        }
       }
     } catch (err) {
       console.error(`Failed to ${isEdit ? 'update' : 'create'} customer:`, err);

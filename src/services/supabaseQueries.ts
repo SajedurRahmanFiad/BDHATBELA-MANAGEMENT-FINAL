@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import supabase, { phoneToEmail } from './supabaseClient';
+import supabase from './supabaseClient';
 import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
 import { db } from '../../db';
 
@@ -13,36 +13,24 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 // Lightweight cached session to avoid hitting the network on every mutation.
 // The cache is intentionally short lived (60s) to reduce unnecessary auth calls
 // while still allowing normal session rotation.
-let _cachedSession: { session: any; ts: number } | null = null;
 async function ensureAuthenticated() {
+  // Frontend-only auth mode: rely on `db.currentUser` or localStorage snapshot
   try {
-    const now = Date.now();
-    if (_cachedSession && now - _cachedSession.ts < 60_000) {
-      return _cachedSession.session;
+    if ((db as any).currentUser) {
+      return { user: (db as any).currentUser } as any;
     }
 
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data?.session) {
-      throw new Error('No authenticated session available. Please log in.');
-    }
-
-    // Cache the session timestamp to avoid repeated getSession() calls
-    _cachedSession = { session: data.session, ts: Date.now() };
-
-    // Refresh only if session close to expiry (avoid a refresh network call every mutation)
-    try {
-      const exp = (data.session.expires_at && Number(data.session.expires_at)) || 0;
-      const expiresInMs = exp ? (exp * 1000 - Date.now()) : Number.POSITIVE_INFINITY;
-      if (expiresInMs < 120_000) {
-        // If less than 2 minutes to expiry, attempt refresh (best-effort)
-        await supabase.auth.refreshSession();
+    const saved = localStorage.getItem('userData');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return { user: parsed } as any;
+      } catch (e) {
+        // fallthrough to error
       }
-    } catch (refreshErr) {
-      // Log and continue with the existing session if refresh fails
-      console.warn('[supabaseQueries] session refresh failed (non-fatal):', refreshErr);
     }
 
-    return _cachedSession.session;
+    throw new Error('No authenticated session available. Please log in.');
   } catch (err: any) {
     console.error('[supabaseQueries] ensureAuthenticated failed:', err?.message || err);
     throw err;
@@ -193,24 +181,52 @@ export async function fetchCustomerById(id: string) {
 export async function createCustomer(customer: Omit<Customer, 'id'>) {
   await ensureAuthenticated();
   const id = crypto.randomUUID();
-  const { data, error } = await supabase
-    .from('customers')
-    .insert([{
-      id,
-      name: customer.name,
-      phone: customer.phone,
-      address: customer.address,
-      total_orders: customer.totalOrders || 0,
-      due_amount: customer.dueAmount || 0,
-    }])
-    .select()
-    .single();
-  
-  if (error) {
-    console.error('[supabaseQueries] createCustomer error:', error);
-    throw error;
+  // Helper to perform the insert (kept separate so we can retry on Abort)
+  const doInsert = async () => {
+    const res = await supabase
+      .from('customers')
+      .insert([{
+        id,
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+        total_orders: customer.totalOrders || 0,
+        due_amount: customer.dueAmount || 0,
+      }])
+      .select()
+      .single();
+    return res;
+  };
+
+  try {
+    const { data, error } = await doInsert();
+    if (error) {
+      console.error('[supabaseQueries] createCustomer error:', error);
+      throw error;
+    }
+    return mapCustomer(data);
+  } catch (err: any) {
+    // Retry once if the request was aborted (transient network cancellation)
+    const name = err?.name || err?.code || '';
+    if (name === 'AbortError' || name === 'ABORT_ERR' || String(err).toLowerCase().includes('abort')) {
+      console.warn('[supabaseQueries] createCustomer aborted - retrying once');
+      try {
+        await new Promise((r) => setTimeout(r, 250));
+        const { data: data2, error: error2 } = await doInsert();
+        if (error2) {
+          console.error('[supabaseQueries] createCustomer retry error:', error2);
+          throw error2;
+        }
+        return mapCustomer(data2);
+      } catch (err2) {
+        console.error('[supabaseQueries] createCustomer abort/retry failed:', err2);
+        throw err2;
+      }
+    }
+
+    console.error('[supabaseQueries] createCustomer error:', err);
+    throw err;
   }
-  return mapCustomer(data);
 }
 
 export async function updateCustomer(id: string, updates: Partial<Customer>) {
@@ -676,63 +692,98 @@ export async function fetchUserById(id: string) {
   return mapUser(data);
 }
 
+/**
+ * Direct table authentication: fetch user by phone and validate password.
+ * Returns full user object on success, null/error on failure.
+ * No Supabase Auth dependency - entirely database-driven for debugging simplicity.
+ */
+export async function loginUser(phone: string, password: string) {
+  try {
+    console.log('[supabaseQueries] loginUser - fetching user by phone:', phone);
+
+    // Fetch user from users table by phone
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('phone', phone)
+      .single();
+
+    if (error) {
+      console.error('[supabaseQueries] loginUser - user not found:', error?.message);
+      return { user: null, error: 'User not found' };
+    }
+
+    if (!data) {
+      return { user: null, error: 'User not found' };
+    }
+
+    // Validate password against stored hash
+    console.log('[supabaseQueries] loginUser - validating password');
+    try {
+      const bcrypt = await import('bcryptjs');
+      const passwordValid = bcrypt.compareSync(password, data.password_hash || '');
+
+      if (!passwordValid) {
+        console.error('[supabaseQueries] loginUser - password mismatch');
+        return { user: null, error: 'Invalid password' };
+      }
+    } catch (bcryptErr: any) {
+      console.error('[supabaseQueries] loginUser - bcrypt error:', bcryptErr?.message);
+      return { user: null, error: 'Password validation failed' };
+    }
+
+    console.log('[supabaseQueries] loginUser - success for user:', data.id);
+    return { user: mapUser(data), error: null };
+  } catch (err: any) {
+    console.error('[supabaseQueries] loginUser exception:', err?.message || err);
+    return { user: null, error: err?.message || 'Login failed' };
+  }
+}
+
 export async function createUser(user: Omit<User, 'id'> & { password?: string }) {
   try {
-    // Convert phone to email using the same method as login
-    const email = phoneToEmail(user.phone);
     const password = user.password;
     
     if (!password) {
       throw new Error('Password is required to create a user');
     }
     
-    console.log('[supabaseQueries] Creating auth user with email:', email);
+    // Generate UUID for user id
+    const id = crypto.randomUUID();
+    console.log('[supabaseQueries] Creating user with phone:', user.phone, 'id:', id);
     
-    // Create Supabase Auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name: user.name,
-          phone: user.phone,
-        }
-      }
-    });
-    
-    if (authError) {
-      console.error('[supabaseQueries] Auth signup error:', authError);
-      throw authError;
+    // Client-side hashing of password using bcryptjs
+    let passwordHash: string;
+    try {
+      const bcrypt = await import('bcryptjs');
+      const saltRounds = 12;
+      passwordHash = bcrypt.hashSync(password, saltRounds);
+      console.log('[supabaseQueries] Password hashed successfully');
+    } catch (hashErr: any) {
+      console.error('[supabaseQueries] Password hashing failed:', hashErr?.message);
+      throw new Error(`Password hashing failed: ${hashErr?.message || 'Unknown error'}`);
     }
-    
-    // Get the Auth user ID
-    const userId = authData?.user?.id;
-    console.log('[supabaseQueries] Auth user created:', userId, 'Confirmed:', authData?.user?.user_metadata?.email_confirmed);
-    
-    if (!userId) {
-      throw new Error('Failed to create auth user - no user ID returned. If email confirmation is enabled in Supabase Auth settings, please disable it.');
-    }
-    
-    // Create user profile with the Auth user's ID
-    console.log('[supabaseQueries] Creating user profile in public schema...');
+
+    console.log('[supabaseQueries] Inserting user row into users table');
     const { data: profileData, error: profileError } = await supabase
       .from('users')
       .insert([{
-        id: userId,
+        id: id,
         name: user.name,
         phone: user.phone,
         role: user.role,
         image: user.image,
+        password_hash: passwordHash,
       }])
       .select()
       .single();
-    
+
     if (profileError) {
       console.error('[supabaseQueries] Create profile error:', profileError);
       throw profileError;
     }
-    
-    console.log('[supabaseQueries] User created successfully - can now sign in');
+
+    console.log('[supabaseQueries] User created successfully - can now sign in (frontend-password mode)');
     return mapUser(profileData);
   } catch (err) {
     console.error('[supabaseQueries] createUser error:', err);
@@ -770,6 +821,18 @@ export async function deleteUser(id: string) {
     console.error('[supabaseQueries] deleteUser error:', error);
     throw error;
   }
+}
+
+/**
+ * Extract readable error message from Supabase or JavaScript errors
+ */
+export function getErrorMessage(err: any): string {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (err.message) return err.message;
+  if (err.details) return err.details;
+  if (err.hint) return err.hint;
+  return JSON.stringify(err);
 }
 
 function mapUser(row: any): User {
@@ -1437,9 +1500,9 @@ export async function fetchCompanySettings() {
     const { data, error } = await supabase
       .from('company_settings')
       .select('*')
-      .single();
+      .maybeSingle();
     
-    if (error) {
+    if (error || !data) {
       console.error('[supabaseQueries] fetchCompanySettings error:', error);
       // Return default settings if not found
       return {
@@ -1536,9 +1599,9 @@ export async function fetchOrderSettings() {
     const { data, error } = await supabase
       .from('order_settings')
       .select('*')
-      .single();
+      .maybeSingle();
     
-    if (error) {
+    if (error || !data) {
       console.error('[supabaseQueries] fetchOrderSettings error:', error);
       return { prefix: 'ORD-', nextNumber: 1 };
     }
@@ -1608,9 +1671,9 @@ export async function fetchInvoiceSettings() {
     const { data, error } = await supabase
       .from('invoice_settings')
       .select('*')
-      .single();
+      .maybeSingle();
     
-    if (error) {
+    if (error || !data) {
       console.error('[supabaseQueries] fetchInvoiceSettings error:', error);
       return { title: 'Invoice', logoWidth: 120, logoHeight: 120, footer: '' };
     }
@@ -1686,9 +1749,9 @@ export async function fetchSystemDefaults() {
     const { data, error } = await supabase
       .from('system_defaults')
       .select('*')
-      .single();
+      .maybeSingle();
     
-    if (error) {
+    if (error || !data) {
       console.error('[supabaseQueries] fetchSystemDefaults error:', error);
       return {
         defaultAccountId: '',
@@ -1779,9 +1842,9 @@ export async function fetchCourierSettings() {
     const { data, error } = await supabase
       .from('courier_settings')
       .select('*')
-      .single();
+      .maybeSingle();
     
-    if (error) {
+    if (error || !data) {
       console.error('[supabaseQueries] fetchCourierSettings error:', error);
       return {
         steadfast: { baseUrl: '', apiKey: '', secretKey: '' },

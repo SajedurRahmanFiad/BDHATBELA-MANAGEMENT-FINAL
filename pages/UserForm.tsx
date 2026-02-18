@@ -7,6 +7,7 @@ import { theme } from '../theme';
 import { useUser } from '../src/hooks/useQueries';
 import { useCreateUser, useUpdateUser, useDeleteUser } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { getErrorMessage } from '../src/services/supabaseQueries';
 
 const UserForm: React.FC = () => {
   const { id } = useParams();
@@ -109,7 +110,8 @@ const UserForm: React.FC = () => {
       navigate('/users');
     } catch (err) {
       console.error('Failed to save user:', err);
-      toast.error('Failed to save user: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      const errorMsg = getErrorMessage(err);
+      toast.error('Failed to save user: ' + errorMsg);
     } finally {
       setSaving(false);
     }
@@ -125,7 +127,8 @@ const UserForm: React.FC = () => {
       navigate('/users');
     } catch (err) {
       console.error('Failed to delete user:', err);
-      toast.error('Failed to delete user: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      const errorMsg = getErrorMessage(err);
+      toast.error('Failed to delete user: ' + errorMsg);
     } finally {
       setSaving(false);
       setShowDeleteConfirm(false);

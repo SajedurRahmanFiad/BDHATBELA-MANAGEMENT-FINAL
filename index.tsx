@@ -2,7 +2,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import supabase from './src/services/supabaseClient';
 import { fetchCustomers } from './src/services/supabaseQueries';
 
 const rootElement = document.getElementById('root');
@@ -31,14 +30,18 @@ root.render(
     }
   },
   async testConnection() {
-    console.log('🧪 Testing Supabase connection...');
+    console.log('🧪 Testing session (direct table auth)...');
     try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) throw error;
-      console.log('✅ Connected! Session:', data);
-      return data;
+      const userData = localStorage.getItem('userData');
+      if (userData) {
+        const user = JSON.parse(userData);
+        console.log('✅ User session active:', user);
+        return user;
+      }
+      console.log('ℹ️ No active session - user not logged in');
+      return null;
     } catch (err) {
-      console.error('❌ Connection error:', err);
+      console.error('❌ Session check error:', err);
       throw err;
     }
   },

@@ -186,6 +186,12 @@ export async function fetchCustomers() {
 }
 
 export async function fetchCustomerById(id: string) {
+  // Guard against optimistic temporary IDs created by the UI
+  if (!id) return null;
+  if (id.startsWith('temp-')) {
+    console.warn('[supabaseQueries] fetchCustomerById called with temp id, returning null:', id);
+    return null;
+  }
   const { data, error } = await supabase
     .from('customers')
     .select('*')
@@ -273,6 +279,12 @@ export async function updateCustomer(id: string, updates: Partial<Customer>) {
 }
 
 export async function deleteCustomer(id: string) {
+  // Prevent deleting optimistic/temp entities on the server
+  if (id.startsWith('temp-')) {
+    const error = new Error('Cannot delete unsaved customer. Please refresh and try again.');
+    console.error('[supabaseQueries] deleteCustomer error:', error);
+    throw error;
+  }
   const { error } = await supabase
     .from('customers')
     .delete()

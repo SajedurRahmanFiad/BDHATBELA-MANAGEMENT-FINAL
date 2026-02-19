@@ -20,10 +20,31 @@ async function ensureAuthenticated() {
       return { user: (db as any).currentUser } as any;
     }
 
+    // Prefer persisted user id and fetch full profile if needed
+    const storedId = localStorage.getItem('currentUserId');
+    if (storedId) {
+      try {
+        // fetchUserById is defined later in this module; call it to populate db.currentUser
+        const fetched = await fetchUserById(storedId);
+        if (fetched) {
+          db.currentUser = fetched as any;
+          try {
+            localStorage.setItem('userData', JSON.stringify(fetched));
+            localStorage.setItem('userProfile', JSON.stringify(fetched));
+          } catch {}
+          return { user: fetched } as any;
+        }
+      } catch (err) {
+        console.warn('[supabaseQueries] Failed to fetch stored user id profile:', err);
+      }
+    }
+
+    // Backwards compatibility: try legacy full snapshot
     const saved = localStorage.getItem('userData');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        db.currentUser = parsed as any;
         return { user: parsed } as any;
       } catch (e) {
         // fallthrough to error

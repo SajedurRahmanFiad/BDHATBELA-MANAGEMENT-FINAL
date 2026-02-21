@@ -379,11 +379,40 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
 }
 
 export async function deleteOrder(id: string) {
+  // Ensure we have a valid session for RLS-protected deletes
+  await ensureAuthenticated();
+
+  // Delete related transactions for this order:
+  // - Sale Income transactions (type = 'Income')
+  // - Shipping Expense transactions (type = 'Expense' and category = 'expense_shipping')
+  const { error: incomeErr } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('reference_id', id)
+    .eq('type', 'Income');
+
+  if (incomeErr) {
+    console.error('[supabaseQueries] deleteOrder: failed to delete income transactions:', incomeErr);
+    throw incomeErr;
+  }
+
+  const { error: shippingErr } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('reference_id', id)
+    .eq('type', 'Expense')
+    .eq('category', 'expense_shipping');
+
+  if (shippingErr) {
+    console.error('[supabaseQueries] deleteOrder: failed to delete shipping expense transactions:', shippingErr);
+    throw shippingErr;
+  }
+
   const { error } = await supabase
     .from('orders')
     .delete()
     .eq('id', id);
-  
+
   if (error) {
     console.error('[supabaseQueries] deleteOrder error:', error);
     throw error;
@@ -932,11 +961,26 @@ export async function updateBill(id: string, updates: Partial<Bill>) {
 }
 
 export async function deleteBill(id: string) {
+  // Ensure authenticated for RLS
+  await ensureAuthenticated();
+
+  // Delete related expense transactions for this bill (payments recorded against bill)
+  const { error: txErr } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('reference_id', id)
+    .eq('type', 'Expense');
+
+  if (txErr) {
+    console.error('[supabaseQueries] deleteBill: failed to delete related transactions:', txErr);
+    throw txErr;
+  }
+
   const { error } = await supabase
     .from('bills')
     .delete()
     .eq('id', id);
-  
+
   if (error) {
     console.error('[supabaseQueries] deleteBill error:', error);
     throw error;

@@ -7,6 +7,7 @@ import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
 import { useCustomers, useOrder, useProducts, useOrderSettings } from '../src/hooks/useQueries';
+import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 
@@ -61,11 +62,7 @@ const OrderForm: React.FC = () => {
   React.useEffect(() => {
     if (existingOrderData) {
       if (isEdit && isEmployee) {
-        if (existingOrderData.createdBy !== user.id) {
-          toast.error('Access Denied: you can only edit orders you created.');
-          navigate('/orders');
-          return;
-        }
+        // Employees are allowed to edit any order that is in draft (On Hold).
         if (existingOrderData.status !== OrderStatus.ON_HOLD) {
           toast.warning('Employees can only edit orders that are currently "On Hold".');
           navigate('/orders');
@@ -86,6 +83,34 @@ const OrderForm: React.FC = () => {
       setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
     }
   }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
+
+  // If redirected back from creating a new customer, pre-select it (read query param first, then fallback to location.state)
+  const location = useLocation();
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const selectedFromQuery = params.get('selectedCustomerId');
+      if (selectedFromQuery) {
+        setCustomerId(selectedFromQuery);
+        // remove the query param without reloading
+        const newUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, newUrl);
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const state: any = (location && (location as any).state) || {};
+    if (state.selectedCustomerId) {
+      setCustomerId(state.selectedCustomerId);
+      try {
+        window.history.replaceState({}, document.title);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [location]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const total = subtotal - discount + shipping;
@@ -249,7 +274,10 @@ const OrderForm: React.FC = () => {
                     ))}
                   </div>
                   <button 
-                    onClick={() => { setShowCustomerSearch(false); navigate('/customers/new'); }} 
+                    onClick={() => {
+                      setShowCustomerSearch(false);
+                      navigate('/customers/new', { state: { fromOrderForm: true, redirectPath: isEdit ? `/orders/edit/${id}` : '/orders/new' } });
+                    }} 
                     className="w-full mt-2 py-3 ${theme.colors.primary[600]} text-[10px] font-black uppercase tracking-widest border-t border-gray-50 hover:bg-[#ebf4ff] transition-colors"
                   >
                     + Add New Customer

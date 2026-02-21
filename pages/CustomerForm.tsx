@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Customer } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -18,6 +19,8 @@ const CustomerForm: React.FC = () => {
   const { data: customer, isPending: loading, error: fetchError } = useCustomer(isEdit ? id : undefined);
   const createMutation = useCreateCustomer();
   const updateMutation = useUpdateCustomer();
+  const location = useLocation();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (customer) {
@@ -57,8 +60,26 @@ const CustomerForm: React.FC = () => {
 
         // Await the mutation so we can catch AbortError and other failures
         try {
-          await createMutation.mutateAsync(newCustomer);
-          navigate('/customers');
+          const created = await createMutation.mutateAsync(newCustomer);
+          // Ensure the newly created customer is present in the customers cache
+          try {
+            queryClient.setQueryData(['customers'], (old: any) => {
+              if (!old) return [created];
+              // Avoid duplicates (match by id)
+              if (Array.isArray(old) && old.some((c: any) => c.id === created.id)) return old;
+              return [...old, created];
+            });
+          } catch (e) {
+            // ignore cache update errors
+          }
+          const state: any = (location && (location as any).state) || {};
+          if (state.fromOrderForm && state.redirectPath) {
+            // Redirect back to the order form and pass the created customer id via query param
+            const url = `${state.redirectPath}${state.redirectPath.includes('?') ? '&' : '?'}selectedCustomerId=${created.id}`;
+            navigate(url);
+          } else {
+            navigate('/customers');
+          }
         } catch (err: any) {
           console.error('Create customer failed:', err);
           setError(err instanceof Error ? err.message : 'Failed to create customer');

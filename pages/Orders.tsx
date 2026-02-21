@@ -377,11 +377,13 @@ const Orders: React.FC = () => {
                         </button>
                         <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
                           {isEmployee ? (
-                            isOwner ? (
-                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                            ) : (
-                              <button disabled className="w-full text-left px-4 py-2.5 text-sm text-gray-400 flex items-center gap-2 font-bold">{ICONS.More} No Actions</button>
-                            )
+                            // Employees can Edit/Delete only when order is in draft (On Hold). Otherwise show N/A.
+                            order.status === OrderStatus.ON_HOLD ? (
+                              <>
+                                <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                              </>
+                            ) : null
                           ) : (
                             <>
                               <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
@@ -406,13 +408,16 @@ const Orders: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Desktop Hover Actions */}
-                    {hoveredRow === order.id && (isAdmin || (isEmployee && isOwner)) && (
+                    {/* Desktop Hover Actions: admins keep full actions; employees see Edit/Delete when order is draft, otherwise N/A */}
+                    {hoveredRow === order.id && (isAdmin || (isEmployee && order.status === OrderStatus.ON_HOLD)) && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
                           {isEmployee ? (
-                            isOwner ? (
-                              <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                            order.status === OrderStatus.ON_HOLD ? (
+                              <>
+                                <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                                <button onClick={() => handleDelete(order.id)} className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                              </>
                             ) : null
                           ) : (
                             <>

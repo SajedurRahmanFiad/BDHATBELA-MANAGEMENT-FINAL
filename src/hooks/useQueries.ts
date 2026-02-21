@@ -46,7 +46,7 @@ export function useCustomer(id: string | undefined): UseQueryResult<Customer | n
   return useQuery({
     queryKey: ['customer', id],
     queryFn: () => fetchCustomerById(id || ''),
-    enabled: !!id,
+    enabled: !!id && !(id || '').startsWith('temp-'),
     staleTime: 5 * 60 * 1000,
   });
 }

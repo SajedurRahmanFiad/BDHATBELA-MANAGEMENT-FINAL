@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Customer } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useCustomer } from '../src/hooks/useQueries';
+import { useCustomer, useCustomers } from '../src/hooks/useQueries';
 import { useCreateCustomer, useUpdateCustomer } from '../src/hooks/useMutations';
 
 const CustomerForm: React.FC = () => {
@@ -17,6 +17,7 @@ const CustomerForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const { data: customer, isPending: loading, error: fetchError } = useCustomer(isEdit ? id : undefined);
+  const { data: customersList = [] } = useCustomers();
   const createMutation = useCreateCustomer();
   const updateMutation = useUpdateCustomer();
   const location = useLocation();
@@ -29,8 +30,17 @@ const CustomerForm: React.FC = () => {
         phone: customer.phone, 
         address: customer.address 
       });
+      return;
     }
-  }, [customer]);
+
+    // If this is an optimistic/local-only customer (temp id), populate from cached list
+    if (id && id.startsWith('temp-')) {
+      const optimistic = (customersList || []).find(c => c.id === id);
+      if (optimistic) {
+        setForm({ name: optimistic.name, phone: optimistic.phone, address: optimistic.address });
+      }
+    }
+  }, [customer, customersList, id]);
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {
@@ -111,7 +121,7 @@ const CustomerForm: React.FC = () => {
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Full Name</label>
               <input 
                 type="text" 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.name}
                 onChange={e => setForm({...form, name: e.target.value})}
               />
@@ -120,7 +130,7 @@ const CustomerForm: React.FC = () => {
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Phone Number</label>
               <input 
                 type="text" 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.phone}
                 onChange={e => setForm({...form, phone: e.target.value})}
               />
@@ -128,7 +138,7 @@ const CustomerForm: React.FC = () => {
             <div className="space-y-2">
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Address</label>
               <textarea 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg font-medium h-32 transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-lg font-medium h-32 transition-all outline-none"
                 value={form.address}
                 onChange={e => setForm({...form, address: e.target.value})}
               />

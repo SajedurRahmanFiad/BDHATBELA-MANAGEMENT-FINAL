@@ -72,9 +72,15 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
         queryClient.setQueryData(['customers'], context.previousCustomers);
       }
     },
-    onSuccess: () => {
-      // Refetch in background to get server-generated IDs
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    onSuccess: async (data: Customer) => {
+      // Replace optimistic entries with server result and refetch
+      if (data && data.id) {
+        queryClient.setQueryData(['customer', data.id], data);
+        const prev = queryClient.getQueryData<Customer[]>(['customers']) || [];
+        const cleaned = (prev || []).filter(c => !String(c.id).startsWith('temp-'));
+        queryClient.setQueryData(['customers'], [data, ...cleaned]);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }

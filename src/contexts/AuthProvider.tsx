@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser } from '../services/supabaseQueries';
+import { loginUser, fetchUserById } from '../services/supabaseQueries';
 import { db, saveDb } from '../../db';
 
 type AuthContextType = {
@@ -16,6 +16,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const POLL_MS = 2500; // interval to poll for user details when only id stored
 
   console.log('[AuthProvider] Mounting - initializing context provider');
 
@@ -71,17 +72,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const init = async () => {
       try {
         console.log('[Auth] Initializing - attempting to restore session from localStorage...');
-
-        // Check if we have a saved session in localStorage (DB-driven auth, no Supabase Auth)
-        const savedProfile = localStorage.getItem('userProfile');
-        const savedUser = localStorage.getItem('userData');
+        // New approach: store only user id persistently. Poll the users table
+        // until the full user profile can be fetched. While fetching, remain
+        // in loading state and do NOT expose fallback profiles.
+        const storedId = localStorage.getItem('currentUserId');
         let parsedSavedProfile: any = null;
 
-        if (savedProfile && savedUser) {
+        // Backwards compatibility: if older full snapshot exists, use it immediately
+        const legacyProfile = localStorage.getItem('userProfile');
+        const legacyUserData = localStorage.getItem('userData');
+        if (legacyProfile && legacyUserData) {
           try {
-            parsedSavedProfile = JSON.parse(savedProfile);
-            const parsedUser = JSON.parse(savedUser);
-            console.log('[Auth] Restored session from localStorage:', parsedSavedProfile.name);
+            parsedSavedProfile = JSON.parse(legacyProfile);
+            const parsedUser = JSON.parse(legacyUserData);
+            console.log('[Auth] Restored legacy session from localStorage:', parsedSavedProfile.name);
             if (mounted) {
               setUser(parsedUser);
               setProfile(parsedSavedProfile);
@@ -89,15 +93,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               saveDb();
             }
           } catch (e) {
-            console.warn('[Auth] Failed to parse saved session data');
+            console.warn('[Auth] Failed to parse saved legacy session data, clearing...');
             localStorage.removeItem('userProfile');
             localStorage.removeItem('userData');
           }
         }
 
-        // No Supabase Auth session check - we rely entirely on localStorage for direct table auth
-        if (!parsedSavedProfile) {
-          console.log('[Auth] No saved profile - user is logged out');
+        if (!parsedSavedProfile && storedId) {
+          // We only have an id; poll for the full profile until it is available
+          console.log('[Auth] Found stored user id - polling for full profile:', storedId);
+          if (mounted) {
+            setIsLoading(true);
+          }
+
+          let stopped = false;
+          const tryFetch = async () => {
+            try {
+              const fetched = await fetchUserById(storedId);
+              if (fetched && mounted) {
+                console.log('[Auth] Fetched user profile from server:', fetched.name);
+                setUser(fetched as any);
+                setProfile(fetched);
+                db.currentUser = fetched as any;
+                saveDb();
+                stopped = true;
+                if (mounted) setIsLoading(false);
+                window.dispatchEvent(new Event('authChange'));
+              }
+            } catch (err) {
+              console.warn('[Auth] Poll fetch failed - will retry:', err);
+            }
+          };
+
+          // Immediate attempt then interval
+          await tryFetch();
+          const interval = setInterval(async () => {
+            if (stopped || !mounted) {
+              clearInterval(interval);
+              return;
+            }
+            await tryFetch();
+          }, POLL_MS);
+
+        }
+
+        // If neither legacy profile nor stored id exists, treat as logged out
+        if (!parsedSavedProfile && !storedId) {
+          console.log('[Auth] No saved profile or id - user is logged out');
           if (mounted) {
             setUser(null);
             setProfile(null);
@@ -106,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.removeItem('isLoggedIn');
             localStorage.removeItem('userProfile');
             localStorage.removeItem('userData');
+            localStorage.removeItem('currentUserId');
           }
         }
 
@@ -156,12 +199,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: { message: loginError || 'Login failed' } };
       }
 
-      // Sign in succeeded - update state immediately
+      // Sign in succeeded - persist only the user id and set profile immediately
       console.log('[Auth] signIn successful for:', dbUser.phone);
       setUser(dbUser as any);
       setProfile(dbUser);
       db.currentUser = dbUser as any;
       saveDb();
+      // Persist only id for subsequent page loads; full profile is cached too for compatibility
+      localStorage.setItem('currentUserId', dbUser.id);
       localStorage.setItem('userProfile', JSON.stringify(dbUser));
       localStorage.setItem('userData', JSON.stringify(dbUser));
       localStorage.setItem('isLoggedIn', 'true');
@@ -187,6 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('userProfile');
     localStorage.removeItem('userData');
+    localStorage.removeItem('currentUserId');
     localStorage.removeItem('currentUser');
     window.dispatchEvent(new Event('authChange'));
 

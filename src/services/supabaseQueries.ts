@@ -20,10 +20,31 @@ async function ensureAuthenticated() {
       return { user: (db as any).currentUser } as any;
     }
 
+    // Prefer persisted user id and fetch full profile if needed
+    const storedId = localStorage.getItem('currentUserId');
+    if (storedId) {
+      try {
+        // fetchUserById is defined later in this module; call it to populate db.currentUser
+        const fetched = await fetchUserById(storedId);
+        if (fetched) {
+          db.currentUser = fetched as any;
+          try {
+            localStorage.setItem('userData', JSON.stringify(fetched));
+            localStorage.setItem('userProfile', JSON.stringify(fetched));
+          } catch {}
+          return { user: fetched } as any;
+        }
+      } catch (err) {
+        console.warn('[supabaseQueries] Failed to fetch stored user id profile:', err);
+      }
+    }
+
+    // Backwards compatibility: try legacy full snapshot
     const saved = localStorage.getItem('userData');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        db.currentUser = parsed as any;
         return { user: parsed } as any;
       } catch (e) {
         // fallthrough to error
@@ -165,6 +186,12 @@ export async function fetchCustomers() {
 }
 
 export async function fetchCustomerById(id: string) {
+  // Guard against optimistic temporary IDs created by the UI
+  if (!id) return null;
+  if (id.startsWith('temp-')) {
+    console.warn('[supabaseQueries] fetchCustomerById called with temp id, returning null:', id);
+    return null;
+  }
   const { data, error } = await supabase
     .from('customers')
     .select('*')
@@ -252,6 +279,12 @@ export async function updateCustomer(id: string, updates: Partial<Customer>) {
 }
 
 export async function deleteCustomer(id: string) {
+  // Prevent deleting optimistic/temp entities on the server
+  if (id.startsWith('temp-')) {
+    const error = new Error('Cannot delete unsaved customer. Please refresh and try again.');
+    console.error('[supabaseQueries] deleteCustomer error:', error);
+    throw error;
+  }
   const { error } = await supabase
     .from('customers')
     .delete()

@@ -37,6 +37,17 @@ const Customers: React.FC = () => {
 
   const handleDelete = async (customerId: string) => {
     if (!confirm('Are you sure you want to delete this customer?')) return;
+
+    // If this is an optimistic local-only item (temp id), remove it from the cache
+    if (customerId.startsWith('temp-')) {
+      queryClient.setQueryData(['customers'], (old: any[] | undefined) => {
+        if (!old) return old;
+        return old.filter(c => c.id !== customerId);
+      });
+      toast.success('Customer deleted');
+      return;
+    }
+
     try {
       await deleteCustomerMutation.mutateAsync(customerId);
       queryClient.invalidateQueries({ queryKey: ['customers'] });

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { theme } from '../theme';
 import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder } from '../src/services/supabaseQueries';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
+import { OrderStatus } from '../types';
 import { db } from '../db';
 import type { Order, Customer } from '../types';
 
@@ -41,6 +42,26 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
   const [loadingAreas, setLoadingAreas] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const updateOrder = useUpdateOrder();
+  const pollingIntervalRef = useRef<number | null>(null);
+  const pollingCancelledRef = useRef<boolean>(false);
+
+  // Ensure polling stops when modal is closed or component unmounts
+  useEffect(() => {
+    if (!isOpen) {
+      pollingCancelledRef.current = true;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }
+    return () => {
+      pollingCancelledRef.current = true;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [isOpen]);
 
   // Fetch cities on mount
   useEffect(() => {
@@ -308,10 +329,64 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                     alert(`Failed to send order: ${result.error}`);
                   } else {
                     try {
+                      // Extract consignment id from possible response shapes
+                      // Edge function returns data that may nest the order object.
+                      // Check several possible paths defensively.
+                      const consignmentId = (
+                        (result && (result.order?.consignment_id || result.consignment_id)) ||
+                        (result.data && (result.data.order?.consignment_id || result.data.consignment_id)) ||
+                        null
+                      );
+
                       const historyText = `Sent to CarryBee by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
-                      await updateOrder.mutateAsync({ id: order.id, updates: { history: { ...order.history, courier: historyText } } });
+
+                      const updates: any = { history: { ...order.history, courier: historyText } };
+                      if (consignmentId) updates.carrybee_consignment_id = consignmentId;
+
+                      await updateOrder.mutateAsync({ id: order.id, updates });
+
+                      // Start polling CarryBee order details to detect transfer_status
+                      if (consignmentId) {
+                        const targetStatus = 'At the sorting hub';
+                        pollingCancelledRef.current = false;
+
+                        const poll = async () => {
+                          if (pollingCancelledRef.current) return;
+                          try {
+                            const detailsUrl = `${courierSettings.carryBee.baseUrl.replace(/\/$/, '')}/api/v2/orders/${encodeURIComponent(consignmentId)}/details`;
+                            const resp = await fetch(detailsUrl, {
+                              method: 'GET',
+                              headers: {
+                                'Client-ID': courierSettings.carryBee.clientId,
+                                'Client-Secret': courierSettings.carryBee.clientSecret,
+                                'Client-Context': courierSettings.carryBee.clientContext,
+                                'Content-Type': 'application/json',
+                              },
+                            });
+                            if (!resp.ok) return;
+                            const body = await resp.json();
+                            const transferStatus = body?.data?.transfer_status || body?.transfer_status || null;
+                            if (transferStatus === targetStatus && !pollingCancelledRef.current) {
+                              const pickedHistory = `Marked picked automatically on ${new Date().toLocaleString()}`;
+                              await updateOrder.mutateAsync({ id: order.id, updates: { status: OrderStatus.PICKED, history: { ...order.history, picked: pickedHistory } } });
+                              pollingCancelledRef.current = true;
+                              if (pollingIntervalRef.current) {
+                                clearInterval(pollingIntervalRef.current);
+                                pollingIntervalRef.current = null;
+                              }
+                            }
+                          } catch (err) {
+                            console.error('[CarryBeeModal] Polling error:', err);
+                          }
+                        };
+
+                        // Poll every 15 seconds until condition met
+                        pollingIntervalRef.current = window.setInterval(poll, 15_000) as unknown as number;
+                        // Run immediately once
+                        poll();
+                      }
                     } catch (err) {
-                      console.error('[CarryBeeModal] Failed to update order sent flag:', err);
+                      console.error('[CarryBeeModal] Failed to update order sent flag or consignment id:', err);
                     }
                     alert('Order sent to CarryBee successfully!');
                     onClose();

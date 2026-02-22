@@ -36,6 +36,7 @@ export interface Customer {
   address: string;
   totalOrders: number;
   dueAmount: number;
+  createdBy?: string;
 }
 
 export interface Vendor {
@@ -45,6 +46,7 @@ export interface Vendor {
   address: string;
   totalPurchases: number;
   dueAmount: number;
+  createdBy?: string;
 }
 
 export interface Product {
@@ -54,6 +56,7 @@ export interface Product {
   category: string;
   salePrice: number;
   purchasePrice: number;
+  createdBy?: string;
 }
 
 export interface OrderItem {

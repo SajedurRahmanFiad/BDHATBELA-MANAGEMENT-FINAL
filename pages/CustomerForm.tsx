@@ -7,14 +7,27 @@ import { Button } from '../components';
 import { theme } from '../theme';
 import { useCustomer, useCustomers } from '../src/hooks/useQueries';
 import { useCreateCustomer, useUpdateCustomer } from '../src/hooks/useMutations';
+import { useAuth } from '../src/contexts/AuthProvider';
+import { isTempId } from '../src/utils/optimisticIdMap';
 
 const CustomerForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isLoading: authLoading } = useAuth();
   const isEdit = Boolean(id);
   
   const [form, setForm] = useState({ name: '', phone: '', address: '' });
   const [error, setError] = useState<string | null>(null);
+
+  // Wait for auth to load
+  if (authLoading) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Loading...</h2>
+        <p className="text-gray-500 mb-6">Authenticating session...</p>
+      </div>
+    );
+  }
 
   const { data: customer, isPending: loading, error: fetchError } = useCustomer(isEdit ? id : undefined);
   const { data: customersList = [] } = useCustomers();
@@ -34,7 +47,7 @@ const CustomerForm: React.FC = () => {
     }
 
     // If this is an optimistic/local-only customer (temp id), populate from cached list
-    if (id && id.startsWith('temp-')) {
+    if (id && isTempId(id)) {
       const optimistic = (customersList || []).find(c => c.id === id);
       if (optimistic) {
         setForm({ name: optimistic.name, phone: optimistic.phone, address: optimistic.address });
@@ -114,7 +127,7 @@ const CustomerForm: React.FC = () => {
           <>
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm font-bold text-red-600">{error}</p>
+                <p className="text-sm font-bold text-red-600">{error instanceof Error ? error.message : String(error)}</p>
               </div>
             )}
             <div className="space-y-2">

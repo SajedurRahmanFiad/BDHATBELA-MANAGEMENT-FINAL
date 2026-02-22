@@ -1,11 +1,16 @@
 import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import {
   fetchCustomers,
+  fetchCustomersPage,
   fetchCustomerById,
   fetchOrders,
+  fetchOrdersPage,
   fetchOrderById,
   fetchOrdersByCustomerId,
+  fetchTransactionsPage,
+  fetchProductsPage,
   fetchBills,
+  fetchBillsPage,
   fetchBillById,
   fetchAccounts,
   fetchAccountById,
@@ -15,6 +20,7 @@ import {
   fetchUserById,
   fetchUserByPhone,
   fetchVendors,
+  fetchVendorsPage,
   fetchVendorById,
   fetchProducts,
   fetchProductById,
@@ -30,6 +36,7 @@ import {
   fetchSystemDefaults,
   fetchCourierSettings,
 } from '../services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
 
 // ========== CUSTOMERS ==========
@@ -39,6 +46,19 @@ export function useCustomers(): UseQueryResult<Customer[], Error> {
     queryKey: ['customers'],
     queryFn: fetchCustomers,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useCustomersPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string,
+): UseQueryResult<{ data: Customer[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['customers', page, pageSize, search],
+    queryFn: () => fetchCustomersPage(page, pageSize, search),
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -57,6 +77,20 @@ export function useOrders(): UseQueryResult<Order[], Error> {
   return useQuery({
     queryKey: ['orders'],
     queryFn: fetchOrders,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Paginated orders hook
+export function useOrdersPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+): UseQueryResult<{ data: Order[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['orders', page, pageSize, filters],
+    queryFn: () => fetchOrdersPage(page, pageSize, filters),
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -85,6 +119,19 @@ export function useBills(): UseQueryResult<Bill[], Error> {
   return useQuery({
     queryKey: ['bills'],
     queryFn: fetchBills,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useBillsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { from?: string; to?: string; search?: string; createdByIds?: string[] }
+): UseQueryResult<{ data: Bill[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['bills', page, pageSize, filters],
+    queryFn: () => fetchBillsPage(page, pageSize, filters),
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -127,6 +174,20 @@ export function useTransactions(): UseQueryResult<Transaction[], Error> {
   });
 }
 
+// Paginated transactions hook
+export function useTransactionsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+): UseQueryResult<{ data: Transaction[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['transactions', page, pageSize, filters],
+    queryFn: () => fetchTransactionsPage(page, pageSize, filters),
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useTransaction(id: string | undefined): UseQueryResult<Transaction | null, Error> {
   return useQuery({
     queryKey: ['transaction', id],
@@ -151,7 +212,9 @@ export function useUser(id: string | undefined): UseQueryResult<User | null, Err
     queryKey: ['user', id],
     queryFn: () => fetchUserById(id || ''),
     enabled: !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes - matches other query caches
+    staleTime: 10 * 1000, // 10 seconds - shorter for user details to ensure fresh password
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 
@@ -174,6 +237,19 @@ export function useVendors(): UseQueryResult<Vendor[], Error> {
   });
 }
 
+export function useVendorsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string
+): UseQueryResult<{ data: Vendor[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['vendors', page, pageSize, search],
+    queryFn: () => fetchVendorsPage(page, pageSize, search),
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useVendor(id: string | undefined): UseQueryResult<Vendor | null, Error> {
   return useQuery({
     queryKey: ['vendor', id],
@@ -190,6 +266,21 @@ export function useProducts(category?: string): UseQueryResult<Product[], Error>
     queryKey: ['products', category],
     queryFn: () => fetchProducts(category), // FIX: Wrap to pass category parameter
     staleTime: 5 * 60 * 1000, // FIX: Reduced from 30 to 5 minutes to match orders/customers - ensure fresh product data
+  });
+}
+
+export function useProductsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string,
+  category?: string,
+  createdByIds?: string[]
+): UseQueryResult<{ data: Product[]; count: number }, Error> {
+  return useQuery({
+    queryKey: ['products', page, pageSize, category, search, createdByIds],
+    queryFn: () => fetchProductsPage(page, pageSize, search, category, createdByIds),
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

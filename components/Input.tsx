@@ -51,7 +51,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             </option>
           ))}
         </select>
-        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+        {error && <p className="mt-1 text-xs text-red-500">{error instanceof Error ? error.message : String(error)}</p>}
       </div>
     );
   }
@@ -74,7 +74,7 @@ export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
           className={`${theme.inputs.base} resize-none ${error ? theme.inputs.error : ''} ${className}`}
           {...props}
         />
-        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+        {error && <p className="mt-1 text-xs text-red-500">{error instanceof Error ? error.message : String(error)}</p>}
       </div>
     );
   }

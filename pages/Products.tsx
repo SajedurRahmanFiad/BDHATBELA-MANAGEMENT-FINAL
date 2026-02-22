@@ -1,13 +1,15 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { db } from '../db';
 import { Product, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
+import Pagination from '../src/components/Pagination';
 import { theme } from '../theme';
-import { useProducts } from '../src/hooks/useQueries';
+import { useProductsPage, useSystemDefaults, useUsers } from '../src/hooks/useQueries';
+import { useAuth } from '../src/contexts/AuthProvider';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useDeleteProduct } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import FilterBar, { FilterRange } from '../components/FilterBar';
@@ -18,33 +20,50 @@ const Products: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
-  const { data: products = [], isPending } = useProducts();
+  const { user } = useAuth();
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const [page, setPage] = useState<number>(1);
+  const { data: users = [] } = useUsers();
+
+  const [createdByFilter, setCreatedByFilter] = useState<string>('all');
+
+  const createdByIds = useMemo(() => {
+    if (createdByFilter === 'all') return undefined;
+    if (createdByFilter === 'admins') return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+    if (createdByFilter === 'employees') return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+    return [createdByFilter];
+  }, [createdByFilter, users]);
+
+  const { data: productsPage, isPending } = useProductsPage(page, pageSize, searchQuery, undefined, createdByIds);
+  const products = productsPage?.data ?? [];
+  const total = productsPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteProductMutation = useDeleteProduct();
-  const isAdmin = db.currentUser.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.ADMIN;
   
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
 
-  const filteredProducts = useMemo(() => {
-    let results = products;
+  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, createdByFilter]);
 
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(product => (
-        product.name.toLowerCase().includes(query) ||
-        product.category.toLowerCase().includes(query)
-      ));
-    }
+  // Wrapper function that resets page AND applies filter (atomic operation)
+  const handleCreatedByFilterChange = (filter: string) => {
+    setPage(1);
+    setCreatedByFilter(filter);
+  };
 
-    return results;
-  }, [products, searchQuery]);
+  // Server-side search via paginated hook
+  const filteredProducts = products;
 
   const handleDelete = async (productId: string) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
       await deleteProductMutation.mutateAsync(productId);
-      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['products', page] });
       toast.success('Product deleted successfully');
     } catch (err) {
       console.error('Failed to delete product:', err);
@@ -77,6 +96,27 @@ const Products: React.FC = () => {
         customDates={customDates}
         setCustomDates={setCustomDates}
       />
+
+      {/* Created By Filter Dropdown */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="text-sm font-bold text-gray-700">Created By:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Users</option>
+            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            <optgroup label="Specific Users">
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+              ))}
+            </optgroup>
+          </select>
+        </div>
+      </div>
 
       <Table
         columns={[
@@ -160,6 +200,7 @@ const Products: React.FC = () => {
         loading={isPending}
         emptyMessage="No products found"
       />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
     </div>
   );
 };

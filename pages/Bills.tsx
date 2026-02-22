@@ -1,18 +1,20 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
-import { Bill, BillStatus } from '../types';
+import { Bill, BillStatus, UserRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton } from '../components';
 import { theme } from '../theme';
-import { useBills, useVendors, useUsers } from '../src/hooks/useQueries';
+import { useBillsPage, useVendors, useUsers, useSystemDefaults } from '../src/hooks/useQueries';
+import Pagination from '../src/components/Pagination';
 import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
@@ -20,13 +22,56 @@ const Bills: React.FC = () => {
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
   const user = db.currentUser;
-  const { data: bills = [], isPending: billsLoading } = useBills();
-  const { data: vendors = [] } = useVendors();
-  const { data: users = [] } = useUsers();
-
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const [page, setPage] = useState<number>(1);
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [statusTab, setStatusTab] = useState<BillStatus | 'All'>('All');
+  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
+  
+  const { data: users = [] } = useUsers();
+
+  // Compute createdByIds based on createdByFilter
+  const createdByIds = useMemo(() => {
+    if (createdByFilter === 'all') return undefined;
+    if (createdByFilter === 'admins') {
+      return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+    }
+    if (createdByFilter === 'employees') {
+      return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+    }
+    // Specific user ID
+    return [createdByFilter];
+  }, [createdByFilter, users]);
+
+  const { data: billsPage, isPending: billsLoading } = useBillsPage(page, pageSize, { from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const bills = billsPage?.data ?? [];
+  const total = billsPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const { data: vendors = [] } = useVendors();
+
+  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterRange, customDates.from, customDates.to, createdByFilter]);
+
+  // Wrapper functions that reset page AND apply filter (atomic operation)
+  const handleFilterRangeChange = (range: FilterRange) => {
+    setPage(1);
+    setFilterRange(range);
+  };
+
+  const handleCustomDatesChange = (dates: { from: string; to: string }) => {
+    setPage(1);
+    setCustomDates(dates);
+  };
+
+  const handleCreatedByFilterChange = (filter: string) => {
+    setPage(1);
+    setCreatedByFilter(filter);
+  };
+
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
@@ -77,28 +122,8 @@ const Bills: React.FC = () => {
     return null;
   };
 
-  const filteredBills = useMemo(() => {
-    let results = bills
-      .filter(b => isWithinRange(b.billDate))
-      .filter(b => statusTab === 'All' || b.status === statusTab);
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(bill => {
-        const vendor = vendors.find(v => v.id === bill.vendorId);
-        const creatorName = getCreatorName(bill);
-        return (
-          bill.billNumber.toLowerCase().includes(query) ||
-          vendor?.name.toLowerCase().includes(query) ||
-          bill.status.toLowerCase().includes(query) ||
-          creatorName?.toLowerCase().includes(query)
-        );
-      });
-    }
-
-    return results;
-  }, [bills, filterRange, customDates, statusTab, searchQuery, vendors]);
+  // Server-side filtering applied; keep client-side logic minimal
+  const filteredBills = bills.filter(b => statusTab === 'All' || b.status === statusTab);
 
   const handleDuplicate = async (bill: Bill) => {
     try {
@@ -125,7 +150,7 @@ const Bills: React.FC = () => {
       };
 
       await createMutation.mutateAsync(newBillData as any);
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
     } catch (error) {
       console.error('Failed to duplicate bill:', error);
       toast.error('Failed to duplicate bill');
@@ -136,7 +161,7 @@ const Bills: React.FC = () => {
     if (!confirm('Are you sure you want to delete this bill?')) return;
     try {
       await deleteMutation.mutateAsync(id);
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      queryClient.invalidateQueries({ queryKey: ['bills', page] });
     } catch (error) {
       console.error('Failed to delete bill:', error);
       toast.error('Failed to delete bill');
@@ -162,13 +187,34 @@ const Bills: React.FC = () => {
       <FilterBar 
         title="Bills"
         filterRange={filterRange}
-        setFilterRange={setFilterRange}
+        setFilterRange={handleFilterRangeChange}
         customDates={customDates}
-        setCustomDates={setCustomDates}
+        setCustomDates={handleCustomDatesChange}
         statusTab={statusTab}
         setStatusTab={setStatusTab}
         statusOptions={Object.values(BillStatus)}
       />
+
+      {/* Created By Filter Dropdown */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="text-sm font-bold text-gray-700">Created By:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Users</option>
+            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            <optgroup label="Specific Users">
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+              ))}
+            </optgroup>
+          </select>
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="overflow-x-auto overflow-y-visible">
@@ -185,7 +231,7 @@ const Bills: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {billsLoading ? (
-                <TableLoadingSkeleton columns={6} rows={8} />
+                <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredBills.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No purchase bills found for this period.</td></tr>
               ) : filteredBills.map((bill) => (
@@ -255,6 +301,7 @@ const Bills: React.FC = () => {
           </table>
         </div>
       </div>
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={billsLoading} />
     </div>
   );
 };

@@ -1,43 +1,45 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { Vendor } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
+import Pagination from '../src/components/Pagination';
 import { theme } from '../theme';
-import { useVendors } from '../src/hooks/useQueries';
+import { useVendorsPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 
 const Vendors: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
-  const { data: vendors = [], isPending } = useVendors();
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const [page, setPage] = React.useState<number>(1);
+  const { data: vendorsPage = { data: [], count: 0 }, isPending } = useVendorsPage(page, pageSize, searchQuery);
+  const vendors = vendorsPage.data || [];
+  const total = vendorsPage.count || 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteVendorMutation = useDeleteVendor();
 
-  const filteredVendors = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return vendors;
-    }
-    
-    const query = searchQuery.toLowerCase();
-    return vendors.filter(vendor => 
-      vendor.name.toLowerCase().includes(query) ||
-      vendor.phone.includes(query) ||
-      vendor.address.toLowerCase().includes(query)
-    );
-  }, [vendors, searchQuery]);
+  // Reset page to 1 when search query changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
+  const filteredVendors = vendors;
 
   const handleDelete = async (vendorId: string) => {
     if (!confirm('Are you sure you want to delete this vendor?')) return;
     try {
       await deleteVendorMutation.mutateAsync(vendorId);
-      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.invalidateQueries({ queryKey: ['vendors', page] });
       toast.success('Vendor deleted successfully');
     } catch (err) {
       console.error('Failed to delete vendor:', err);
@@ -136,6 +138,7 @@ const Vendors: React.FC = () => {
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`)}
         emptyMessage="No vendors found"
       />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
     </div>
   );
 };

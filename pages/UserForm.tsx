@@ -25,6 +25,7 @@ const UserForm: React.FC = () => {
   
   // Form state
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [form, setForm] = useState<Partial<User>>({
     name: '',
@@ -180,7 +181,26 @@ const UserForm: React.FC = () => {
             {isAdmin && (
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Password (Admin Only Access)</label>
-                <input type="password" className="w-full px-4 py-3 bg-purple-50 border border-purple-100 rounded-xl focus:ring-2 focus:ring-purple-500" value={form.password} onChange={e => setForm({...form, password: e.target.value})} placeholder={isEdit ? "Leave blank to keep current password" : "Secure system password"} />
+                <div className="relative">
+                  <input 
+                    type={showPassword ? 'text' : 'password'} 
+                    className="w-full px-4 py-3 pr-10 bg-purple-50 border border-purple-100 rounded-xl focus:ring-2 focus:ring-purple-500" 
+                    value={form.password} 
+                    onChange={e => setForm({...form, password: e.target.value})} 
+                    placeholder={isEdit ? "Leave blank to keep current password" : "Secure system password"} 
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-500 hover:text-purple-700"
+                  >
+                    {showPassword ? (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"></path></svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-14-14zM10 4C6.687 4 3.89 5.945 2.58 8.808c-.35.915-.35 2.468 0 3.384.74 1.94 2.08 3.61 3.756 4.7l1.83-1.83A3.992 3.992 0 016 10a4 4 0 016.956-3.533l1.416-1.416C14.225 4.523 12.15 4 10 4zm7.42 3.192c.35.915.35 2.468 0 3.384C15.26 13.055 12.463 15 9 15a6.966 6.966 0 01-3.15-.744l2.119-2.119A3.992 3.992 0 0114 10c0-.901-.281-1.735-.743-2.434l2.163-2.174z" clipRule="evenodd"></path></svg>
+                    )}
+                  </button>
+                </div>
                 <p className="text-[10px] text-purple-400 font-medium">Only administrators can set or change passwords.</p>
               </div>
             )}

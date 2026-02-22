@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,8 +9,10 @@ import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
-import { useOrders, useCustomers, useAccounts, useUsers, useOrderSettings } from '../src/hooks/useQueries';
+import { useAuth } from '../src/contexts/AuthProvider';
+import { useOrdersPage, useCustomers, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
 import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { handlePrintOrder } from '../src/utils/printUtils';
@@ -20,13 +22,17 @@ const Orders: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
-  const user = db.currentUser;
+  const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === UserRole.ADMIN;
   const isEmployee = user?.role === UserRole.EMPLOYEE;
+
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
 
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
+  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
@@ -41,11 +47,56 @@ const Orders: React.FC = () => {
     amount: 0
   });
 
-  const { data: orders = [], isPending: ordersLoading } = useOrders();
+  const [page, setPage] = useState<number>(1);
+  
+  const { data: users = [] } = useUsers();
+
+  // Compute createdByIds based on createdByFilter
+  const createdByIds = useMemo(() => {
+    if (createdByFilter === 'all') return undefined;
+    if (createdByFilter === 'admins') {
+      return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+    }
+    if (createdByFilter === 'employees') {
+      return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+    }
+    // Specific user ID
+    return [createdByFilter];
+  }, [createdByFilter, users]);
+
+  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const orders = ordersPage?.data ?? [];
+  const totalOrdersCount = ordersPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
   const { data: customers = [] } = useCustomers();
   const { data: accounts = [] } = useAccounts();
-  const { data: users = [] } = useUsers();
   const { data: orderSettings } = useOrderSettings();
+
+  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusTab, filterRange, customDates.from, customDates.to, createdByFilter]);
+
+  // Wrapper functions that reset page AND apply filter (atomic operation)
+  const handleStatusTabChange = (newStatus: OrderStatus | 'All') => {
+    setPage(1);
+    setStatusTab(newStatus);
+  };
+
+  const handleFilterRangeChange = (range: FilterRange) => {
+    setPage(1);
+    setFilterRange(range);
+  };
+
+  const handleCustomDatesChange = (dates: { from: string; to: string }) => {
+    setPage(1);
+    setCustomDates(dates);
+  };
+
+  const handleCreatedByFilterChange = (filter: string) => {
+    setPage(1);
+    setCreatedByFilter(filter);
+  };
 
   const createOrderMutation = useCreateOrder();
   const deleteOrderMutation = useDeleteOrder();
@@ -142,7 +193,8 @@ const Orders: React.FC = () => {
     };
     try {
       await createOrderMutation.mutateAsync(newOrder);
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // New orders appear on page 1 (newest-first) - invalidate page 1
+      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
       toast.success('Order duplicated successfully');
     } catch (err) {
       console.error('Failed to duplicate order', err);
@@ -154,7 +206,8 @@ const Orders: React.FC = () => {
     if (!confirm('Are you sure you want to delete this order?')) return;
     try {
       await deleteOrderMutation.mutateAsync(id);
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // Refresh current page after delete
+      queryClient.invalidateQueries({ queryKey: ['orders', page] });
     } catch (err) {
       console.error('Failed to delete order', err);
     }
@@ -266,8 +319,8 @@ const Orders: React.FC = () => {
 
       // Close modal immediately - queries will auto-update via React Query
       setShowPaymentModal(null);
-      // Invalidate to force fresh data (usually cached for 5 min)
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // Refresh current page after payment update
+      queryClient.invalidateQueries({ queryKey: ['orders', page] });
     } catch (err) {
       console.error('Failed to add payment:', err);
       toast.error('Failed to add payment: ' + (err instanceof Error ? err.message : 'Unknown error'));
@@ -289,17 +342,39 @@ const Orders: React.FC = () => {
           New Order
         </Button>
       </div>
+      {/* Pagination controls moved below the table to match other pages */}
 
       <FilterBar 
         title="Orders"
         filterRange={filterRange}
-        setFilterRange={setFilterRange}
+        setFilterRange={handleFilterRangeChange}
         customDates={customDates}
-        setCustomDates={setCustomDates}
+        setCustomDates={handleCustomDatesChange}
         statusTab={statusTab}
-        setStatusTab={setStatusTab}
+        setStatusTab={handleStatusTabChange}
         statusOptions={Object.values(OrderStatus)}
       />
+
+      {/* Created By Filter Dropdown */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="text-sm font-bold text-gray-700">Created By:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Users</option>
+            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            <optgroup label="Specific Users">
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+              ))}
+            </optgroup>
+          </select>
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="overflow-x-auto">
@@ -316,7 +391,7 @@ const Orders: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {ordersLoading ? (
-                <TableLoadingSkeleton columns={6} rows={8} />
+                <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : filteredOrders.map((order) => {
@@ -449,8 +524,30 @@ const Orders: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
 
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            {`Showing ${Math.min((page - 1) * pageSize + 1, totalOrdersCount || 0)} - ${Math.min(page * pageSize, totalOrdersCount || 0)} of ${totalOrdersCount} orders`}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className={`px-3 py-1 rounded-md font-bold ${page <= 1 ? 'bg-gray-100 text-gray-400' : 'bg-white text-gray-700 border'}`}
+            >
+              Prev
+            </button>
+            <div className="px-3 py-1 text-sm">Page {page} of {totalPages}</div>
+            <button
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className={`px-3 py-1 rounded-md font-bold ${page >= totalPages ? 'bg-gray-100 text-gray-400' : 'bg-white text-gray-700 border'}`}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       <CommonPaymentModal
         isOpen={!!showPaymentModal}
         onClose={() => setShowPaymentModal(null)}

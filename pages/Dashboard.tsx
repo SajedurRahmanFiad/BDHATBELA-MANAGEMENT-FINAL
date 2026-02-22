@@ -1,12 +1,12 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { db } from '../db';
 import { UserRole, OrderStatus, Order, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
 import { isWithinDateRange, FilterRange } from '../utils';
+import { useAuth } from '../src/contexts/AuthProvider';
 import { 
   useOrders, useBills, useTransactions, useUsers, useCategories
 } from '../src/hooks/useQueries';
@@ -16,7 +16,7 @@ import {
 } from 'recharts';
 
 const Dashboard: React.FC = () => {
-  const user = db.currentUser;
+  const { user, isLoading: authLoading } = useAuth();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
   useEffect(() => {
@@ -25,6 +25,11 @@ const Dashboard: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   
+  // Wait for auth to load
+  if (authLoading) {
+    return <div className="p-8 text-center text-gray-500">Loading session...</div>;
+  }
+
   // Safety check - should have auth user by this point
   if (!user) {
     return <div className="p-8 text-center text-gray-500">Not Authenticated</div>;

@@ -6,7 +6,7 @@ import { UserRole } from '../types';
 import { ICONS } from '../constants';
 import { theme } from '../theme';
 import { useUser } from '../src/hooks/useQueries';
-import { useDeleteUser } from '../src/hooks/useMutations';
+import { useDeleteUser, useUpdateUser } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 
 const UserDetails: React.FC = () => {
@@ -15,8 +15,23 @@ const UserDetails: React.FC = () => {
   const currentUser = db.currentUser;
   const { data: user, isPending: loading, error } = useUser(id);
   const deleteUserMutation = useDeleteUser();
+  const updateUserMutation = useUpdateUser();
   const toast = useToastNotifications();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPassword, setShowPassword] = useState(true);
+  const [editedPassword, setEditedPassword] = useState('');
+
+  // Initialize editedPassword with user's current password
+  React.useEffect(() => {
+    console.log('[UserDetails] User data loaded:', { id: user?.id, name: user?.name, password: user?.password ? '(exists)' : '(missing)' });
+    if (user && user.password) {
+      console.log('[UserDetails] Setting editedPassword from user.password');
+      setEditedPassword(user.password);
+    } else if (user) {
+      console.log('[UserDetails] WARNING: user loaded but password is missing/empty!');
+      setEditedPassword('');
+    }
+  }, [user?.id, user?.password]);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading user...</div>;
   if (error || !user) return <div className="p-8 text-center text-gray-500">{error?.message || 'User not found.'}</div>;
@@ -35,6 +50,24 @@ const UserDetails: React.FC = () => {
       toast.error('Failed to delete user: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!id || !editedPassword.trim()) {
+      toast.warning('Please enter a password');
+      return;
+    }
+
+    try {
+      await updateUserMutation.mutateAsync({
+        id,
+        updates: { password: editedPassword }
+      });
+      toast.success('Password updated successfully!');
+    } catch (err) {
+      console.error('Failed to update password:', err);
+      toast.error('Failed to update password: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -102,11 +135,48 @@ const UserDetails: React.FC = () => {
             </div>
             <div className="bg-gray-50 p-6 rounded-lg space-y-4">
               <h4 className="font-bold text-gray-900">Account Security</h4>
-              <p className="text-sm text-gray-500">Passwords are managed by system administrators. If you need to reset your password, please contact the IT department.</p>
-              <div className={`flex items-center gap-2 text-emerald-700 text-sm font-bold`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-                Active Status Verified
-              </div>
+              {isAdmin ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Password</p>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={editedPassword}
+                        onChange={(e) => setEditedPassword(e.target.value)}
+                        className="w-full px-4 py-3 pr-10 bg-white border border-purple-300 rounded-lg font-mono text-sm text-gray-700 focus:ring-2 focus:ring-purple-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-600 hover:text-purple-800"
+                      >
+                        {showPassword ? (
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"></path></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-14-14zM10 4C6.687 4 3.89 5.945 2.58 8.808c-.35.915-.35 2.468 0 3.384.74 1.94 2.08 3.61 3.756 4.7l1.83-1.83A3.992 3.992 0 016 10a4 4 0 016.956-3.533l1.416-1.416C14.225 4.523 12.15 4 10 4zm7.42 3.192c.35.915.35 2.468 0 3.384C15.26 13.055 12.463 15 9 15a6.966 6.966 0 01-3.15-.744l2.119-2.119A3.992 3.992 0 0114 10c0-.901-.281-1.735-.743-2.434l2.163-2.174z" clipRule="evenodd"></path></svg>
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleUpdatePassword}
+                      disabled={updateUserMutation.isPending || editedPassword === user.password}
+                      className="mt-3 w-full px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {updateUserMutation.isPending ? 'Updating...' : 'Update Password'}
+                    </button>
+                    <p className="text-[10px] text-purple-600 font-medium mt-2">Admin access only. Edit and save password here.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-500">Passwords are managed by system administrators. If you need to reset your password, please contact the IT department.</p>
+                  <div className={`flex items-center gap-2 text-emerald-700 text-sm font-bold`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Active Status Verified
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

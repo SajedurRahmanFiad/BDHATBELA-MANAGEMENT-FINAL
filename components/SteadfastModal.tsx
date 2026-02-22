@@ -128,7 +128,7 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
                 <p className="font-semibold">Error:</p>
-                <p>{error}</p>
+                <p>{error instanceof Error ? error.message : String(error)}</p>
               </div>
             )}
             <div>

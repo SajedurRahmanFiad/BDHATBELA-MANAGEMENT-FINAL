@@ -2,44 +2,50 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { db } from '../db';
 import { Customer, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton, TableLoadingSkeleton } from '../components';
+import FilterBar, { FilterRange } from '../components/FilterBar';
+import Pagination from '../src/components/Pagination';
 import { theme } from '../theme';
-import { useCustomers } from '../src/hooks/useQueries';
+import { useCustomersPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteCustomer } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
-import { useMemo } from 'react';
+import { useAuth } from '../src/contexts/AuthProvider';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { useMemo, useEffect } from 'react';
+import { isTempId } from '../src/utils/optimisticIdMap';
 
 const Customers: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
-  const { data: customers = [], isPending, error } = useCustomers();
+  const { user } = useAuth();
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const [page, setPage] = React.useState<number>(1);
+  const { data: customersPage, isPending, error } = useCustomersPage(page, pageSize, searchQuery);
+  const customers = customersPage?.data ?? [];
+  const total = customersPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteCustomerMutation = useDeleteCustomer();
-  const isAdmin = db.currentUser.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.ADMIN;
 
-  const filteredCustomers = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return customers;
-    }
-    
-    const query = searchQuery.toLowerCase();
-    return customers.filter(customer => 
-      customer.name.toLowerCase().includes(query) ||
-      customer.phone.includes(query) ||
-      customer.address.toLowerCase().includes(query)
-    );
-  }, [customers, searchQuery]);
+  // Reset page to 1 when search query changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
+  // Server-side search is applied via the paginated hook. Keep client-side memo only for derived formatting.
+  const filteredCustomers = customers;
 
   const handleDelete = async (customerId: string) => {
     if (!confirm('Are you sure you want to delete this customer?')) return;
 
     // If this is an optimistic local-only item (temp id), remove it from the cache
-    if (customerId.startsWith('temp-')) {
+    if (isTempId(customerId)) {
       queryClient.setQueryData(['customers'], (old: any[] | undefined) => {
         if (!old) return old;
         return old.filter(c => c.id !== customerId);
@@ -50,7 +56,7 @@ const Customers: React.FC = () => {
 
     try {
       await deleteCustomerMutation.mutateAsync(customerId);
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers', page] });
       toast.success('Customer deleted successfully');
     } catch (err) {
       console.error('Failed to delete customer:', err);
@@ -74,11 +80,20 @@ const Customers: React.FC = () => {
         </Button>
       </div>
 
+      <FilterBar
+        title="Customers"
+        filterRange={'All Time'}
+        setFilterRange={() => {}}
+        customDates={{ from: '', to: '' }}
+        setCustomDates={() => {}}
+      />
+
+      {/* (No Created By filter for customers) */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-800"><strong>Error loading customers:</strong> {error}</p>
-        </div>
-      )}
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-800"><strong>Error loading customers:</strong> {error instanceof Error ? error.message : String(error)}</p>
+            </div>
+          )}
 
       <Table
         columns={[
@@ -157,6 +172,7 @@ const Customers: React.FC = () => {
         onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
         emptyMessage="No customers found"
       />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
     </div>
   );
 };

@@ -10,16 +10,27 @@ import { useCustomers, useOrder, useProducts, useOrderSettings } from '../src/ho
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useAuth } from '../src/contexts/AuthProvider';
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const user = db.currentUser;
+  const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === UserRole.ADMIN;
   const isEmployee = user?.role === UserRole.EMPLOYEE;
   const isEdit = Boolean(id);
 
-  // Safety check
+  // Wait for auth to load before rendering form
+  if (authLoading) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Loading...</h2>
+        <p className="text-gray-500 mb-6">Authenticating session...</p>
+      </div>
+    );
+  }
+
+  // Safety check - user not logged in
   if (!user) {
     return (
       <div className="p-8 text-center">
@@ -170,7 +181,7 @@ const OrderForm: React.FC = () => {
         orderNumber,
         orderDate,
         customerId,
-        createdBy: user.id,
+        createdBy: '', // Will be auto-set by server
         status: isEdit && existingOrderData ? existingOrderData.status : OrderStatus.ON_HOLD,
         items,
         subtotal,
@@ -432,7 +443,7 @@ const OrderForm: React.FC = () => {
             </div>
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm font-bold text-red-600">{error}</p>
+                <p className="text-sm font-bold text-red-600">{error instanceof Error ? error.message : String(error)}</p>
               </div>
             )}
             <Button 

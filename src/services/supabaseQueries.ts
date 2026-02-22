@@ -3,59 +3,61 @@ import supabase from './supabaseClient';
 import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
 import { db } from '../../db';
 
+export const DEFAULT_PAGE_SIZE = 25;
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 /**
- * Ensures that a valid session exists in the Supabase client before mutations.
- * This prevents "Authentication required" errors from RLS policies.
+ * Ensures that a valid session exists before mutations.
+ * Works with frontend-only auth: checks db.currentUser or localStorage.
  */
-// Lightweight cached session to avoid hitting the network on every mutation.
-// The cache is intentionally short lived (60s) to reduce unnecessary auth calls
-// while still allowing normal session rotation.
 async function ensureAuthenticated() {
-  // Frontend-only auth mode: rely on `db.currentUser` or localStorage snapshot
-  try {
-    if ((db as any).currentUser) {
-      return { user: (db as any).currentUser } as any;
-    }
-
-    // Prefer persisted user id and fetch full profile if needed
-    const storedId = localStorage.getItem('currentUserId');
-    if (storedId) {
-      try {
-        // fetchUserById is defined later in this module; call it to populate db.currentUser
-        const fetched = await fetchUserById(storedId);
-        if (fetched) {
-          db.currentUser = fetched as any;
-          try {
-            localStorage.setItem('userData', JSON.stringify(fetched));
-            localStorage.setItem('userProfile', JSON.stringify(fetched));
-          } catch {}
-          return { user: fetched } as any;
-        }
-      } catch (err) {
-        console.warn('[supabaseQueries] Failed to fetch stored user id profile:', err);
-      }
-    }
-
-    // Backwards compatibility: try legacy full snapshot
-    const saved = localStorage.getItem('userData');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        db.currentUser = parsed as any;
-        return { user: parsed } as any;
-      } catch (e) {
-        // fallthrough to error
-      }
-    }
-
-    throw new Error('No authenticated session available. Please log in.');
-  } catch (err: any) {
-    console.error('[supabaseQueries] ensureAuthenticated failed:', err?.message || err);
-    throw err;
+  // Check in-memory user first (fastest)
+  if ((db as any).currentUser) {
+    return { user: (db as any).currentUser };
   }
+
+  // Fallback: try to restore from localStorage by ID
+  const storedId = localStorage.getItem('currentUserId');
+  if (storedId) {
+    try {
+      const fetched = await fetchUserById(storedId);
+      if (fetched) {
+        db.currentUser = fetched as any;
+        return { user: fetched };
+      }
+    } catch (err) {
+      console.warn('[supabaseQueries] Failed to restore user from ID:', err);
+    }
+  }
+
+  // Last resort: try legacy full snapshot
+  const saved = localStorage.getItem('userData');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      db.currentUser = parsed as any;
+      return { user: parsed };
+    } catch (e) {
+      // fallthrough
+    }
+  }
+
+  throw new Error('No authenticated session available. Please log in.');
+}
+
+/**
+ * Gets the current authenticated user's ID.
+ * Used internally for automatically setting created_by / owner fields.
+ * Do NOT call this before ensureAuthenticated() has passed.
+ */
+function getCurrentUserId(): string {
+  const user = (db as any).currentUser;
+  if (!user || !user.id) {
+    throw new Error('User session not available for mutation');
+  }
+  return user.id;
 }
 
 /**
@@ -99,7 +101,8 @@ async function queryWithTimeout<T>(
     );
   };
 
-  // Try once with timeout, then retry once without timeout if timeout/error occurred.
+  // Single-attempt with timeout. Removing automatic retries reduces duplicate
+  // requests for slow/large queries which were contributing to egress spikes.
   try {
     const result = await Promise.race([
       queryBuilder,
@@ -113,38 +116,15 @@ async function queryWithTimeout<T>(
       const isNetwork = isNetworkError(error);
       if (isNetwork) {
         console.error(`[supabaseQueries] NETWORK ERROR (no retry):`, error?.message || error);
-        // Don't retry network errors - let NetworkProvider handle reconnection
         return [];
       }
-      
-      console.warn(`[supabaseQueries] Query error (first attempt):`, error?.message || error);
-      // Retry once without timeout to give the request a chance to complete on flaky networks
-      try {
-        const retry = await queryBuilder;
-        if (retry?.error) {
-          console.error('[supabaseQueries] Query retry failed:', retry.error.message || retry.error);
-          return [];
-        }
-        return retry?.data ?? [];
-      } catch (retryErr) {
-        console.error('[supabaseQueries] Query retry exception:', retryErr);
-        return [];
-      }
+      console.warn(`[supabaseQueries] Query error:`, error?.message || error);
+      return [];
     }
 
     if (!data) {
-      console.warn('[supabaseQueries] Query returned no data on first attempt, retrying once...');
-      try {
-        const retry = await queryBuilder;
-        if (retry?.error) {
-          console.error('[supabaseQueries] Query retry error:', retry.error.message || retry.error);
-          return [];
-        }
-        return retry?.data ?? [];
-      } catch (retryErr) {
-        console.error('[supabaseQueries] Query retry exception:', retryErr);
-        return [];
-      }
+      console.warn('[supabaseQueries] Query returned no data');
+      return [];
     }
 
     return data;
@@ -152,23 +132,10 @@ async function queryWithTimeout<T>(
     const isNetwork = isNetworkError(err);
     if (isNetwork) {
       console.error(`[supabaseQueries] NETWORK ERROR in catch:`, err?.message || err);
-      // Don't retry network errors - let NetworkProvider handle reconnection
       return [];
     }
-    
-    console.error(`[supabaseQueries] Query exception (outer):`, err);
-    // Final fallback: attempt one more call without timeout
-    try {
-      const retry = await queryBuilder;
-      if (retry?.error) {
-        console.error('[supabaseQueries] Final retry error:', retry.error.message || retry.error);
-        return [];
-      }
-      return retry?.data ?? [];
-    } catch (finalErr) {
-      console.error('[supabaseQueries] Final retry exception:', finalErr);
-      return [];
-    }
+    console.error(`[supabaseQueries] Query exception:`, err);
+    return [];
   }
 }
 
@@ -304,6 +271,7 @@ function mapCustomer(row: any): Customer {
     address: row.address,
     totalOrders: row.total_orders ?? row.totalOrders ?? 0,
     dueAmount: row.due_amount ?? row.dueAmount ?? 0,
+    createdBy: row.created_by ?? row.createdBy,
   };
 }
 
@@ -317,6 +285,60 @@ export async function fetchOrders() {
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapOrder);
+}
+
+// Paginated orders fetcher: returns page of orders and total count
+export async function fetchOrdersPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  // Select explicit columns to avoid transferring large JSON blobs unless needed
+  let query: any = supabase
+    .from('orders')
+    .select(
+      `id, order_number, order_date, customer_id, created_by, status, subtotal, discount, shipping, total, paid_amount, notes, created_at`,
+      { count: 'exact' }
+    );
+
+  // Apply filters BEFORE ordering and range (critical for Supabase pagination)
+  if (filters) {
+    if (filters.status && filters.status !== 'All') {
+      query = query.eq('status', filters.status);
+    }
+    if (filters.from) {
+      query = query.gte('order_date', filters.from);
+    }
+    if (filters.to) {
+      query = query.lte('order_date', filters.to);
+    }
+    if (filters.search) {
+      // Search by order_number
+      const q = filters.search.trim();
+      if (q) query = query.ilike('order_number', `%${q}%`);
+    }
+    if (filters.createdByIds && filters.createdByIds.length > 0) {
+      query = query.in('created_by', filters.createdByIds);
+    }
+  }
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchOrdersPage error:', error);
+      return { data: [], count: 0 } as { data: Order[]; count: number };
+    }
+    return { data: (data || []).map(mapOrder), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchOrdersPage exception:', err);
+    return { data: [], count: 0 } as { data: Order[]; count: number };
+  }
 }
 
 export async function fetchOrderById(id: string) {
@@ -347,6 +369,10 @@ export async function fetchOrdersByCustomerId(customerId: string) {
 export async function createOrder(order: Omit<Order, 'id'>) {
   await ensureAuthenticated();
   const id = crypto.randomUUID();
+  
+  // Auto-set created_by from current authenticated user (prevents temporary/wrong IDs)
+  const createdBy = getCurrentUserId();
+
   const { data, error } = await supabase
     .from('orders')
     .insert([{
@@ -354,7 +380,7 @@ export async function createOrder(order: Omit<Order, 'id'>) {
       order_number: order.orderNumber,
       order_date: order.orderDate,
       customer_id: order.customerId,
-      created_by: order.createdBy,
+      created_by: createdBy,
       status: order.status,
       items: order.items,
       subtotal: order.subtotal,
@@ -483,6 +509,56 @@ export async function fetchAccounts() {
   return mapped.map(mapAccount);
 }
 
+// ========== CUSTOMERS (paginated) ==========
+export async function fetchCustomersPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  let query: any = supabase
+    .from('customers')
+    .select('id, name, phone, address, total_orders, due_amount, created_at', { count: 'exact' });
+
+  // Apply filters BEFORE ordering and range
+  if (search && search.trim()) {
+    const q = search.trim();
+    // search across name, phone, address using or
+    query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,address.ilike.%${q}%`);
+  }
+
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchCustomersPage error:', error);
+      return { data: [], count: 0 };
+    }
+    return { data: (data || []).map(mapCustomer), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchCustomersPage exception:', err);
+    return { data: [], count: 0 };
+  }
+}
+
+// Lightweight customers: minimal columns for dropdowns/selectors
+export async function fetchCustomersMini() {
+  const { data, error } = await supabase
+    .from('customers')
+    .select('id, name, phone')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[supabaseQueries] fetchCustomersMini error:', error);
+    return [] as Array<{ id: string; name: string; phone?: string }>;
+  }
+  return data || [];
+}
+
 export async function fetchAccountById(id: string) {
   const { data, error } = await supabase
     .from('accounts')
@@ -569,6 +645,52 @@ export async function fetchTransactions() {
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapTransaction);
+}
+
+// Paginated transactions fetcher
+export async function fetchTransactionsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  let query: any = supabase
+    .from('transactions')
+    .select(
+      `id, date, type, category, account_id, to_account_id, amount, description, reference_id, contact_id, payment_method, attachment_name, attachment_url, created_by, created_at`,
+      { count: 'exact' }
+    );
+
+  // Apply filters BEFORE ordering and range (critical for Supabase pagination)
+  if (filters) {
+    if (filters.type) query = query.eq('type', filters.type);
+    if (filters.from) query = query.gte('date', filters.from);
+    if (filters.to) query = query.lte('date', filters.to);
+    if (filters.search) {
+      const q = filters.search.trim();
+      if (q) query = query.ilike('description', `%${q}%`);
+    }
+    if (filters.createdByIds && filters.createdByIds.length > 0) {
+      query = query.in('created_by', filters.createdByIds);
+    }
+  }
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchTransactionsPage error:', error);
+      return { data: [], count: 0 } as { data: Transaction[]; count: number };
+    }
+    return { data: (data || []).map(mapTransaction), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchTransactionsPage exception:', err);
+    return { data: [], count: 0 } as { data: Transaction[]; count: number };
+  }
 }
 
 export async function fetchTransactionById(id: string) {
@@ -714,6 +836,60 @@ function mapTransaction(row: any): Transaction {
   };
 }
 
+// ========== PRODUCTS (paginated) ==========
+export async function fetchProductsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string,
+  category?: string,
+  createdByIds?: string[]
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  let query: any = supabase
+    .from('products')
+    .select('id, name, image, category, sale_price, purchase_price, created_at', { count: 'exact' });
+
+  // Apply filters BEFORE ordering and range (critical for Supabase to handle pagination correctly)
+  if (category) query = query.eq('category', category);
+  if (search && search.trim()) {
+    const q = search.trim();
+    query = query.ilike('name', `%${q}%`);
+  }
+  if (createdByIds && createdByIds.length > 0) {
+    query = query.in('created_by', createdByIds);
+  }
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchProductsPage error:', error);
+      return { data: [], count: 0 };
+    }
+    return { data: (data || []).map(mapProduct), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchProductsPage exception:', err);
+    return { data: [], count: 0 };
+  }
+}
+
+// Lightweight products: minimal columns for selectors/dropdowns
+export async function fetchProductsMini() {
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name, sku')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[supabaseQueries] fetchProductsMini error:', error);
+    return [] as Array<{ id: string; name: string; sku?: string }>;
+  }
+  return data || [];
+}
+
 // ========== USERS ==========
 
 export async function fetchUsers() {
@@ -724,6 +900,19 @@ export async function fetchUsers() {
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapUser);
+}
+
+// Lightweight users: return minimal columns for selectors/dropdowns
+export async function fetchUsersMini() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, name')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('[supabaseQueries] fetchUsersMini error:', error);
+    return [] as Array<{ id: string; name: string }>;
+  }
+  return data || [];
 }
 
 export async function fetchUserByPhone(phone: string) {
@@ -751,7 +940,22 @@ export async function fetchUserById(id: string) {
     console.error('[supabaseQueries] fetchUserById error:', error);
     return null;
   }
-  return mapUser(data);
+  
+  console.log('[supabaseQueries] fetchUserById raw data:', { 
+    id: data?.id, 
+    name: data?.name, 
+    password: data?.password ? `(${data.password.substring(0, 20)}...)` : '(NULL/MISSING)',
+    allKeys: Object.keys(data || {})
+  });
+  
+  const mapped = mapUser(data);
+  console.log('[supabaseQueries] fetchUserById mapped user:', {
+    id: mapped.id,
+    name: mapped.name,
+    password: mapped.password ? `(${mapped.password.substring(0, 20)}...)` : '(NULL/MISSING)'
+  });
+  
+  return mapped;
 }
 
 /**
@@ -859,6 +1063,7 @@ export async function updateUser(id: string, updates: Partial<User>) {
     .update({
       ...(updates.name && { name: updates.name }),
       ...(updates.phone && { phone: updates.phone }),
+      ...(updates.password && { password: updates.password }),
       ...(updates.role && { role: updates.role }),
       ...(updates.image && { image: updates.image }),
     })
@@ -904,8 +1109,91 @@ function mapUser(row: any): User {
     phone: row.phone,
     role: row.role,
     image: row.image,
+    password: row.password,
     createdAt: row.created_at,
   };
+}
+
+// ========== VENDORS (paginated) ==========
+export async function fetchVendorsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  search?: string,
+  createdByIds?: string[]
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  let query: any = supabase
+    .from('vendors')
+    .select('id, name, phone, address, created_at, created_by', { count: 'exact' });
+
+  // Apply filters BEFORE ordering and range
+  if (search && search.trim()) {
+    const q = search.trim();
+    query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,address.ilike.%${q}%`);
+  }
+
+  if (createdByIds && createdByIds.length > 0) {
+    query = query.in('created_by', createdByIds);
+  }
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchVendorsPage error:', error);
+      return { data: [], count: 0 };
+    }
+    return { data: (data || []), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchVendorsPage exception:', err);
+    return { data: [], count: 0 };
+  }
+}
+
+// ========== BILLS (paginated) ==========
+export async function fetchBillsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { from?: string; to?: string; search?: string; createdByIds?: string[] }
+) {
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  let query: any = supabase
+    .from('bills')
+    .select('id, bill_number, bill_date, vendor_id, total, paid_amount, status, created_by, created_at', { count: 'exact' });
+
+  // Apply filters BEFORE ordering and range (critical for Supabase pagination)
+  if (filters) {
+    if (filters.from) query = query.gte('bill_date', filters.from);
+    if (filters.to) query = query.lte('bill_date', filters.to);
+    if (filters.search && filters.search.trim()) {
+      const q = filters.search.trim();
+      query = query.ilike('bill_number', `%${q}%`);
+    }
+    if (filters.createdByIds && filters.createdByIds.length > 0) {
+      query = query.in('created_by', filters.createdByIds);
+    }
+  }
+
+  // Apply ordering and range after all filters
+  query = query.order('created_at', { ascending: false }).range(start, end);
+
+  try {
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchBillsPage error:', error);
+      return { data: [], count: 0 };
+    }
+    return { data: (data || []).map(mapBill), count: count ?? 0 };
+  } catch (err) {
+    console.error('[supabaseQueries] fetchBillsPage exception:', err);
+    return { data: [], count: 0 };
+  }
 }
 
 // ========== BILLS ==========
@@ -1130,6 +1418,7 @@ function mapVendor(row: any): Vendor {
     address: row.address,
     totalPurchases: row.total_purchases ?? row.totalPurchases ?? 0,
     dueAmount: row.due_amount ?? row.dueAmount ?? 0,
+    createdBy: row.created_by ?? row.createdBy,
   };
 }
 
@@ -1233,6 +1522,7 @@ function mapProduct(row: any): Product {
     category: row.category,
     salePrice: row.sale_price ?? row.salePrice ?? 0,
     purchasePrice: row.purchase_price ?? row.purchasePrice ?? 0,
+    createdBy: row.created_by ?? row.createdBy,
   };
 }
 

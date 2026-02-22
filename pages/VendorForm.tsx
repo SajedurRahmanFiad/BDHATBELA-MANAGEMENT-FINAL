@@ -90,7 +90,7 @@ const VendorForm: React.FC = () => {
           <>
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm font-bold text-red-600">{error}</p>
+                <p className="text-sm font-bold text-red-600">{error instanceof Error ? error.message : String(error)}</p>
               </div>
             )}
             <div className="space-y-2">

@@ -40,12 +40,23 @@ import {
   updateCourierSettings,
   batchUpdateSettings,
 } from '../services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
+import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
 // ========== CUSTOMERS ==========
 
 export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<Customer>, unknown> {
   const queryClient = useQueryClient();
+  const patchCustomerPages = (newCust: Customer) => {
+    // Update page 1 if cached
+    const page1 = queryClient.getQueryData<any>(['customers', 1]);
+    if (page1 && Array.isArray(page1.data)) {
+      queryClient.setQueryData(['customers', 1], { ...page1, data: [newCust, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['customers', 1] });
+    }
+  };
   return useMutation({
     mutationFn: createCustomer,
     onMutate: async (newCustomer) => {
@@ -55,11 +66,12 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
       // Snapshot previous data
       const previousCustomers = queryClient.getQueryData<Customer[]>(['customers']);
       
-      // Optimistically add to list
+      // Optimistically add to list with stable temp ID
       if (previousCustomers) {
+        const tempId = generateTempId('customer');
         const optimisticCustomer = {
           ...newCustomer,
-          id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+          id: tempId,
         } as Customer;
         queryClient.setQueryData(['customers'], [...previousCustomers, optimisticCustomer]);
       }
@@ -73,14 +85,15 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
       }
     },
     onSuccess: async (data: Customer) => {
-      // Replace optimistic entries with server result and refetch
+      // Replace optimistic entries with server result
       if (data && data.id) {
         queryClient.setQueryData(['customer', data.id], data);
         const prev = queryClient.getQueryData<Customer[]>(['customers']) || [];
-        const cleaned = (prev || []).filter(c => !String(c.id).startsWith('temp-'));
+        const cleaned = (prev || []).filter(c => !isTempId(String(c.id)));
         queryClient.setQueryData(['customers'], [data, ...cleaned]);
       }
-      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      // Patch page-level cache to avoid refetching entire list
+      patchCustomerPages(data);
     },
   });
 }
@@ -122,9 +135,18 @@ export function useUpdateCustomer(): UseMutationResult<Customer, Error, { id: st
       }
     },
     onSuccess: (data) => {
-      // Refetch to validate server state
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      queryClient.invalidateQueries({ queryKey: ['customer', data.id] });
+      // Patch paginated customer pages in-place to avoid full refetch
+      const pages = queryClient.getQueriesData({ queryKey: ['customers'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((c: any) => c.id === data.id ? data : c) });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
+      queryClient.setQueryData(['customer', data.id], data);
     },
   });
 }
@@ -153,9 +175,20 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
         queryClient.setQueryData(['customers'], context.previousCustomers);
       }
     },
-    onSuccess: () => {
-      // Refetch to validate
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted customer from paginated caches
+      const pages = queryClient.getQueriesData({ queryKey: ['customers'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((c: any) => c.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['customers', 1] });
     },
   });
 }
@@ -173,17 +206,18 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       // Get the current orders list
       const previousOrders = queryClient.getQueryData<Order[]>(['orders']) || [];
       
-      // Create optimistic order with temp ID (will be replaced after server response)
+      // Create optimistic order with stable temp ID
+      const tempId = generateTempId('order');
       const optimisticOrder: Order = {
         ...newOrder,
-        id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+        id: tempId,
         paidAmount: newOrder.paidAmount || 0,
       } as Order;
       
       // Optimistically add to the top of the list (newest first)
       queryClient.setQueryData(['orders'], [optimisticOrder, ...previousOrders]);
       
-      return { previousOrders, optimisticOrder };
+      return { previousOrders, optimisticOrder, tempId };
     },
     onError: (err, newOrder, context) => {
       // Rollback to previous data on error
@@ -191,18 +225,25 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         queryClient.setQueryData(['orders'], context.previousOrders);
       }
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables, context) => {
+      // Register the mapping of temp ID → real ID
+      if (context?.tempId) {
+        registerRealId(context.tempId, data.id);
+      }
+
       // Cache the newly created order for immediate access in details view
       queryClient.setQueryData(['order', data.id], data);
-      
-      // Replace optimistic data with real data from server
-      const previousOrders = queryClient.getQueryData<Order[]>(['orders']) || [];
-      const updatedOrders = previousOrders
-        .filter(o => !o.id.startsWith('temp-')) // Remove temp entries
-        .map(o => o); // Keep existing real orders
-      queryClient.setQueryData(['orders'], [data, ...updatedOrders]);
-      
-      // Increment nextNumber in settings after successful order creation
+
+      // Patch page 1 of paginated orders if cached to include the new order
+      const page1 = queryClient.getQueryData<any>(['orders', 1]);
+      if (page1 && Array.isArray(page1.data)) {
+        queryClient.setQueryData(['orders', 1], { ...page1, data: [data, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
+      } else {
+        // Fallback: invalidate page 1 so it will be refetched
+        queryClient.invalidateQueries({ queryKey: ['orders', 1] });
+      }
+
+      // Increment nextNumber in settings after successful order creation (best-effort)
       try {
         const currentSettings = queryClient.getQueryData<{ prefix: string; nextNumber: number }>(['settings', 'order']);
         if (currentSettings && currentSettings.nextNumber) {
@@ -212,9 +253,6 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       } catch (err) {
         console.error('Failed to update order settings:', err);
       }
-      
-      // Refetch in background to validate data
-      await queryClient.refetchQueries({ queryKey: ['orders'] });
     },
   });
 }
@@ -266,7 +304,17 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
       }
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // Update any cached paginated order pages in-place to avoid full refetch
+      const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((o: any) => o.id === data.id ? data : o) });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
       queryClient.invalidateQueries({ queryKey: ['order', data.id] });
     },
   });
@@ -295,8 +343,21 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
         queryClient.setQueryData(['orders'], context.previousOrders);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted order from any cached paginated pages
+      const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((o: any) => o.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      // Fallback: invalidate first page
+      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
     },
   });
 }
@@ -335,16 +396,14 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
     onSuccess: async (data) => {
       // Cache the newly created bill for immediate access in details view
       queryClient.setQueryData(['bill', data.id], data);
-      
-      // Replace optimistic data with real data from server
-      const previousBills = queryClient.getQueryData<Bill[]>(['bills']) || [];
-      const updatedBills = previousBills
-        .filter(b => !b.id.startsWith('temp-')) // Remove temp entries
-        .map(b => b); // Keep existing real bills
-      queryClient.setQueryData(['bills'], [data, ...updatedBills]);
-      
-      // Refetch in background to validate data
-      await queryClient.refetchQueries({ queryKey: ['bills'] });
+
+      // Patch page 1 if it exists
+      const page1 = queryClient.getQueryData<any>(['bills', 1]);
+      if (page1 && Array.isArray(page1.data)) {
+        queryClient.setQueryData(['bills', 1], { ...page1, data: [data, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['bills', 1] });
+      }
     },
   });
 }
@@ -413,8 +472,20 @@ export function useDeleteBill(): UseMutationResult<void, Error, string, unknown>
         queryClient.setQueryData(['bills'], context.previousBills);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted bill from paginated caches
+      const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((b: any) => b.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
     },
   });
 }
@@ -448,7 +519,7 @@ export function useCreateAccount(): UseMutationResult<Account, Error, Partial<Ac
         queryClient.setQueryData(['accounts'], context.previousAccounts);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
@@ -518,7 +589,7 @@ export function useDeleteAccount(): UseMutationResult<void, Error, string, unkno
         queryClient.setQueryData(['accounts'], context.previousAccounts);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
@@ -558,10 +629,21 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
         queryClient.setQueryData(['orders'], context.previousOrders);
       }
     },
-    onSuccess: () => {
-      // Refetch both to ensure consistency
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    onSuccess: (data) => {
+      // Patch paginated transaction pages (add to page 1) when possible
+      const pages = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
+      // Minimal orders invalidation: only first page to keep egress lower
+      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
     },
   });
 }
@@ -589,8 +671,20 @@ export function useDeleteTransaction(): UseMutationResult<void, Error, string, u
         queryClient.setQueryData(['transactions'], context.previousTransactions);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted transaction from paginated caches
+      const pages = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((t: any) => t.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['transactions', 1] });
     },
   });
 }
@@ -730,8 +824,21 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
         queryClient.setQueryData(['vendors'], context.previousVendors);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    onSuccess: (data) => {
+      // Patch paginated vendor pages (add to page 1) if present
+      const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      // Fallback: invalidate first page
+      queryClient.invalidateQueries({ queryKey: ['vendors', 1] });
     },
   });
 }
@@ -771,8 +878,16 @@ export function useUpdateVendor(): UseMutationResult<Vendor, Error, { id: string
       }
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['vendors'] });
-      queryClient.invalidateQueries({ queryKey: ['vendor', data.id] });
+      // Patch any paginated vendor pages in-place
+      const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((v: any) => v.id === data.id ? data : v) });
+          }
+        } catch (e) {}
+      });
+      queryClient.setQueryData(['vendor', data.id], data);
     },
   });
 }
@@ -800,8 +915,20 @@ export function useDeleteVendor(): UseMutationResult<void, Error, string, unknow
         queryClient.setQueryData(['vendors'], context.previousVendors);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted vendor from paginated caches
+      const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((v: any) => v.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['vendors', 1] });
     },
   });
 }
@@ -837,18 +964,26 @@ export function useCreateProduct(): UseMutationResult<Product, Error, Partial<Pr
       }
     },
     onSuccess: async (data) => {
-      // Cache the newly created product for immediate access in details view
+      // Cache the newly created product and patch paginated product pages
       queryClient.setQueryData(['product', data.id], data);
-      
-      // Replace optimistic data with real data from server
-      const previousProducts = queryClient.getQueryData<Product[]>(['products']) || [];
-      const updatedProducts = previousProducts
-        .filter(p => !p.id.startsWith('temp-')) // Remove temp entries
-        .map(p => p); // Keep existing real products
-      queryClient.setQueryData(['products'], [data, ...updatedProducts]);
-      
-      // Refetch in background to validate data
-      await queryClient.refetchQueries({ queryKey: ['products'] });
+
+      // Patch any paginated product pages to include the new product at the top
+      const pages = queryClient.getQueriesData({ queryKey: ['products'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
+
+      // Also update the non-paginated products list if present (cleanup temp entries)
+      const prev = queryClient.getQueryData<Product[]>(['products']) || [];
+      const cleaned = (prev || []).filter(p => !String(p.id).startsWith('temp-'));
+      queryClient.setQueryData(['products'], [data, ...cleaned]);
     },
   });
 }
@@ -888,8 +1023,16 @@ export function useUpdateProduct(): UseMutationResult<Product, Error, { id: stri
       }
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['product', data.id] });
+      // Patch any paginated product pages in-place
+      const pages = queryClient.getQueriesData({ queryKey: ['products'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((p: any) => p.id === data.id ? data : p) });
+          }
+        } catch (e) {}
+      });
+      queryClient.setQueryData(['product', data.id], data);
     },
   });
 }
@@ -917,8 +1060,20 @@ export function useDeleteProduct(): UseMutationResult<void, Error, string, unkno
         queryClient.setQueryData(['products'], context.previousProducts);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
+    onSuccess: (_data, id) => {
+      // Remove deleted product from paginated caches
+      const pages = queryClient.getQueriesData({ queryKey: ['products'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newDataArr = (value as any).data.filter((p: any) => p.id !== id);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: ['products', 1] });
     },
   });
 }

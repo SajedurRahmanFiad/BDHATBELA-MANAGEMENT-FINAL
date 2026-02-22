@@ -1,33 +1,83 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Transaction } from '../types';
+import { Transaction, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, IconButton } from '../components';
 import { theme } from '../theme';
-import { useTransactions, useCustomers, useVendors, useOrders, useBills, useUsers, useCategories } from '../src/hooks/useQueries';
+import { useTransactionsPage, useCustomers, useVendors, useOrders, useBills, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
+import Pagination from '../src/components/Pagination';
 import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>('All');
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
+  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
+  const [page, setPage] = useState<number>(1);
+  
+  const { data: users = [] } = useUsers();
+
+  // Compute createdByIds based on createdByFilter
+  const createdByIds = useMemo(() => {
+    if (createdByFilter === 'all') return undefined;
+    if (createdByFilter === 'admins') {
+      return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+    }
+    if (createdByFilter === 'employees') {
+      return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+    }
+    // Specific user ID
+    return [createdByFilter];
+  }, [createdByFilter, users]);
+
+  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(page, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const transactions = transactionsPage?.data ?? [];
+  const totalTransactions = transactionsPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const { data: customers = [] } = useCustomers();
   const { data: vendors = [] } = useVendors();
   const { data: orders = [] } = useOrders();
   const { data: bills = [] } = useBills();
-  const { data: users = [] } = useUsers();
   const { data: allCategories = [] } = useCategories();
   const deleteTransactionMutation = useDeleteTransaction();
+
+  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, typeTab, filterRange, customDates.from, customDates.to, createdByFilter]);
+
+  // Wrapper functions that reset page AND apply filter (atomic operation)
+  const handleTypeTabChange = (type: 'All' | 'Income' | 'Expense' | 'Transfer') => {
+    setPage(1);
+    setTypeTab(type);
+  };
+
+  const handleFilterRangeChange = (range: FilterRange) => {
+    setPage(1);
+    setFilterRange(range);
+  };
+
+  const handleCustomDatesChange = (dates: { from: string; to: string }) => {
+    setPage(1);
+    setCustomDates(dates);
+  };
+
+  const handleCreatedByFilterChange = (filter: string) => {
+    setPage(1);
+    setCreatedByFilter(filter);
+  };
 
   const handleDelete = async (transactionId: string) => {
     // Prevent deletion of unsaved transactions (temp IDs)
@@ -39,7 +89,7 @@ const Transactions: React.FC = () => {
     if (!confirm('Are you sure you want to delete this transaction?')) return;
     try {
       await deleteTransactionMutation.mutateAsync(transactionId);
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', page] });
       toast.success('Transaction deleted successfully');
     } catch (err) {
       console.error('Failed to delete transaction:', err);
@@ -161,13 +211,34 @@ const Transactions: React.FC = () => {
       <FilterBar 
         title="Transactions"
         filterRange={filterRange}
-        setFilterRange={setFilterRange}
+        setFilterRange={handleFilterRangeChange}
         customDates={customDates}
-        setCustomDates={setCustomDates}
+        setCustomDates={handleCustomDatesChange}
         statusTab={typeTab}
-        setStatusTab={setTypeTab}
+        setStatusTab={handleTypeTabChange}
         statusOptions={['Income', 'Expense', 'Transfer']}
       />
+
+      {/* Created By Filter Dropdown */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="text-sm font-bold text-gray-700">Created By:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Users</option>
+            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            <optgroup label="Specific Users">
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+              ))}
+            </optgroup>
+          </select>
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -183,7 +254,7 @@ const Transactions: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {transactionsLoading ? (
-                <TableLoadingSkeleton columns={7} rows={8} />
+                <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredTransactions.length === 0 ? (
                 <tr><td colSpan={7} className="px-6 py-16 text-center text-gray-400 italic font-medium">No transactions found.</td></tr>
               ) : (
@@ -209,6 +280,7 @@ const Transactions: React.FC = () => {
           </table>
         </div>
       </div>
+        <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={transactionsLoading} />
     </div>
   );
 };

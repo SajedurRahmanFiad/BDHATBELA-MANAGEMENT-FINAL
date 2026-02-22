@@ -297,10 +297,11 @@ export async function fetchOrdersPage(
   const end = start + pageSize - 1;
 
   // Select explicit columns to avoid transferring large JSON blobs unless needed
+  // Include `history` so list views can show courier/status metadata
   let query: any = supabase
     .from('orders')
     .select(
-      `id, order_number, order_date, customer_id, created_by, status, subtotal, discount, shipping, total, paid_amount, notes, created_at`,
+      `id, order_number, order_date, customer_id, created_by, status, subtotal, discount, shipping, total, paid_amount, notes, history, created_at`,
       { count: 'exact' }
     );
 

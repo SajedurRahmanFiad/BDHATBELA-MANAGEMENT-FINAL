@@ -57,8 +57,10 @@ const OrderForm: React.FC = () => {
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [orderNumber, setOrderNumber] = useState('');
   const [items, setItems] = useState<OrderItem[]>([]);
-  const [discount, setDiscount] = useState(0);
-  const [shipping, setShipping] = useState(0);
+  // Keep discount/shipping as strings for the inputs to avoid
+  // controlled-number UX problems; parse when calculating/saving.
+  const [discount, setDiscount] = useState('0');
+  const [shipping, setShipping] = useState('0');
   const [notes, setNotes] = useState('');
   
   const [showProductSearch, setShowProductSearch] = useState(false);
@@ -70,8 +72,13 @@ const OrderForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Initialize form with existing order data when loaded
+  const initializedRef = React.useRef(false);
+
   React.useEffect(() => {
-    if (existingOrderData) {
+    // Only initialize the local form state once from server data. This
+    // prevents background refetches of `existingOrderData` from resetting
+    // user input while editing.
+    if (existingOrderData && !initializedRef.current) {
       if (isEdit && isEmployee) {
         // Employees are allowed to edit any order that is in draft (On Hold).
         if (existingOrderData.status !== OrderStatus.ON_HOLD) {
@@ -81,19 +88,25 @@ const OrderForm: React.FC = () => {
         }
       }
 
-      // For admins (or permitted employees) populate form
+      // For admins (or permitted employees) populate form once
       setCustomerId(existingOrderData.customerId);
       setOrderDate(existingOrderData.orderDate);
       setOrderNumber(existingOrderData.orderNumber);
       setItems(existingOrderData.items);
-      setDiscount(existingOrderData.discount);
-      setShipping(existingOrderData.shipping);
+      setDiscount(String(existingOrderData.discount ?? 0));
+      setShipping(String(existingOrderData.shipping ?? 0));
       setNotes(existingOrderData.notes || '');
+      initializedRef.current = true;
     } else if (!isEdit && orderSettings) {
       // Use Supabase settings for new orders
       setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
     }
   }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
+
+  // Reset the initialization flag when switching to a different order id
+  React.useEffect(() => {
+    initializedRef.current = false;
+  }, [id]);
 
   // If redirected back from creating a new customer, pre-select it (read query param first, then fallback to location.state)
   const location = useLocation();
@@ -124,7 +137,9 @@ const OrderForm: React.FC = () => {
   }, [location]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-  const total = subtotal - discount + shipping;
+  const parsedDiscount = parseFloat(discount) || 0;
+  const parsedShipping = parseFloat(shipping) || 0;
+  const total = subtotal - parsedDiscount + parsedShipping;
 
   const addItem = (productId: string) => {
     const product = products.find(p => p.id === productId);
@@ -172,7 +187,9 @@ const OrderForm: React.FC = () => {
 
     try {
       const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-      const total = subtotal - discount + shipping;
+      const parsedDiscount = parseFloat(discount) || 0;
+      const parsedShipping = parseFloat(shipping) || 0;
+      const total = subtotal - parsedDiscount + parsedShipping;
       const now = new Date();
       const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
       const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
@@ -185,8 +202,8 @@ const OrderForm: React.FC = () => {
         status: isEdit && existingOrderData ? existingOrderData.status : OrderStatus.ON_HOLD,
         items,
         subtotal,
-        discount,
-        shipping,
+        discount: parsedDiscount,
+        shipping: parsedShipping,
         total,
         notes,
         paidAmount: isEdit && existingOrderData ? existingOrderData.paidAmount : 0,
@@ -432,8 +449,20 @@ const OrderForm: React.FC = () => {
                 <input 
                   type="number" 
                   value={discount} 
-                  onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} 
+                  onChange={(e) => setDiscount(e.target.value)} 
                   className="w-20 text-right py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" 
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center text-gray-500 text-[12px] font-bold uppercase tracking-widest">
+              <span>Shipping</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-black">৳</span>
+                <input
+                  type="number"
+                  value={shipping}
+                  onChange={(e) => setShipping(e.target.value)}
+                  className="w-20 text-right py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white"
                 />
               </div>
             </div>

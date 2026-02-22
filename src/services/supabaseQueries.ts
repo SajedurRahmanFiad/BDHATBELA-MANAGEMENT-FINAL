@@ -944,7 +944,7 @@ export async function fetchUserById(id: string) {
   console.log('[supabaseQueries] fetchUserById raw data:', { 
     id: data?.id, 
     name: data?.name, 
-    password: data?.password ? `(${data.password.substring(0, 20)}...)` : '(NULL/MISSING)',
+    password_hash: data?.password_hash ? `(${data.password_hash.substring(0, 20)}...)` : '(NULL/MISSING)',
     allKeys: Object.keys(data || {})
   });
   
@@ -1058,15 +1058,31 @@ export async function createUser(user: Omit<User, 'id'> & { password?: string })
 }
 
 export async function updateUser(id: string, updates: Partial<User>) {
+  // Build update payload. If a plain `password` is provided, hash it
+  // and store it in the `password_hash` column (the DB doesn't have
+  // a `password` column).
+  const payload: any = {
+    ...(updates.name && { name: updates.name }),
+    ...(updates.phone && { phone: updates.phone }),
+    ...(updates.role && { role: updates.role }),
+    ...(updates.image && { image: updates.image }),
+  };
+
+  if (updates.password) {
+    try {
+      const bcrypt = await import('bcryptjs');
+      const saltRounds = 12;
+      const hashed = bcrypt.hashSync(updates.password, saltRounds);
+      payload.password_hash = hashed;
+    } catch (hashErr: any) {
+      console.error('[supabaseQueries] updateUser - password hashing failed:', hashErr?.message);
+      throw hashErr;
+    }
+  }
+
   const { data, error } = await supabase
     .from('users')
-    .update({
-      ...(updates.name && { name: updates.name }),
-      ...(updates.phone && { phone: updates.phone }),
-      ...(updates.password && { password: updates.password }),
-      ...(updates.role && { role: updates.role }),
-      ...(updates.image && { image: updates.image }),
-    })
+    .update(payload)
     .eq('id', id)
     .select()
     .single();
@@ -1109,7 +1125,9 @@ function mapUser(row: any): User {
     phone: row.phone,
     role: row.role,
     image: row.image,
-    password: row.password,
+    // Do not surface raw password hashes as `password` in the
+    // client-facing object. Keep the field absent/undefined.
+    password: undefined,
     createdAt: row.created_at,
   };
 }

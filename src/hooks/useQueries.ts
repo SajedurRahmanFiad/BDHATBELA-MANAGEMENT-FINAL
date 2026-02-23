@@ -1,4 +1,4 @@
-import { useQuery, UseQueryResult } from '@tanstack/react-query';
+import { useQuery, UseQueryResult, UseQueryOptions } from '@tanstack/react-query';
 import {
   fetchCustomers,
   fetchCustomersPage,
@@ -276,12 +276,21 @@ export function useProductsPage(
   category?: string,
   createdByIds?: string[]
 ): UseQueryResult<{ data: Product[]; count: number }, Error> {
-  return useQuery({
-    queryKey: ['products', page, pageSize, category, search, createdByIds],
+  const options: UseQueryOptions<
+    { data: Product[]; count: number },
+    Error,
+    { data: Product[]; count: number },
+    (string | number | boolean | undefined)[]
+  > & { keepPreviousData?: boolean } = {
+    queryKey: ['products', page, pageSize, category, search, ...(createdByIds || [])],
     queryFn: () => fetchProductsPage(page, pageSize, search, category, createdByIds),
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData) => previousData as any,
     staleTime: 5 * 60 * 1000,
-  });
+    keepPreviousData: true,
+    refetchOnWindowFocus: false,
+  };
+
+  return useQuery(options);
 }
 
 export function useProduct(id: string | undefined): UseQueryResult<Product | null, Error> {

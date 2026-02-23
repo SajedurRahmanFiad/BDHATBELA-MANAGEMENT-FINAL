@@ -6,7 +6,9 @@ import { Order, OrderStatus, OrderItem, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useCustomers, useOrder, useProducts, useOrderSettings } from '../src/hooks/useQueries';
+import { useCustomers, useOrder, useOrderSettings } from '../src/hooks/useQueries';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { fetchProductsMini, fetchProductsSearch } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -43,7 +45,50 @@ const OrderForm: React.FC = () => {
 
   // Query data
   const { data: customers = [] } = useCustomers();
-  const { data: products = [] } = useProducts();
+  const queryClient = useQueryClient();
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Lightweight fetch used only when the product search dropdown opens.
+  const { data: productsMini = [], isFetching: productsMiniLoading } = useQuery({
+    queryKey: ['productsMini'],
+    queryFn: fetchProductsMini,
+    staleTime: 5 * 60 * 1000,
+    enabled: false, // we'll trigger by setting `showProductSearch` below
+    refetchOnWindowFocus: false,
+  });
+
+  // When user opens the product search, enable fetching lightweight list if no full cache exists.
+  React.useEffect(() => {
+    if (!showProductSearch) return;
+    const full = queryClient.getQueryData<any[]>(['products', undefined]);
+    if (!full || full.length === 0) {
+      // trigger the lightweight fetch
+      queryClient.fetchQuery({ queryKey: ['productsMini'], queryFn: fetchProductsMini }).catch(() => {});
+    }
+  }, [showProductSearch, queryClient]);
+
+  // Debounced search term to avoid firing on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  // Query server for matching products when user types; otherwise use mini list
+  const { data: productsSearch = [], isFetching: productsSearchLoading } = useQuery({
+    queryKey: ['productsSearch', debouncedSearch],
+    queryFn: () => fetchProductsSearch(debouncedSearch, 100),
+    enabled: showProductSearch && !!debouncedSearch,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Prefer full products cache if present, otherwise use search results when typing, or mini list when empty.
+  const fullProducts = queryClient.getQueryData<any[]>(['products', undefined]);
+  const products = (fullProducts && fullProducts.length > 0)
+    ? fullProducts
+    : (debouncedSearch ? productsSearch : (productsMini || []));
   const { data: existingOrderData } = useOrder(isEdit ? id : undefined);
   const { data: orderSettings } = useOrderSettings();
   
@@ -63,8 +108,6 @@ const OrderForm: React.FC = () => {
   const [shipping, setShipping] = useState('0');
   const [notes, setNotes] = useState('');
   
-  const [showProductSearch, setShowProductSearch] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
   
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [custSearchTerm, setCustSearchTerm] = useState('');

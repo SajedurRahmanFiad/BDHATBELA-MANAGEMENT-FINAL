@@ -22,7 +22,7 @@ const Vendors: React.FC = () => {
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
   const [page, setPage] = React.useState<number>(1);
-  const { data: vendorsPage = { data: [], count: 0 }, isPending } = useVendorsPage(page, pageSize, searchQuery);
+  const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(page, pageSize, searchQuery);
   const vendors = vendorsPage.data || [];
   const total = vendorsPage.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -70,7 +70,7 @@ const Vendors: React.FC = () => {
             label: 'Vendor Name',
             render: (_, vendor) => (
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-full bg-blue-400 text-white flex items-center justify-center font-bold">
                   {vendor.name.charAt(0)}
                 </div>
                 <div>
@@ -134,11 +134,11 @@ const Vendors: React.FC = () => {
           },
         ]}
         data={filteredVendors}
-        loading={isPending}
+        loading={isFetching}
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`)}
         emptyMessage="No vendors found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

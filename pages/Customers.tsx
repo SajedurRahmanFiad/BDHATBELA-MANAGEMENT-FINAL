@@ -26,7 +26,7 @@ const Customers: React.FC = () => {
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
   const [page, setPage] = React.useState<number>(1);
-  const { data: customersPage, isPending, error } = useCustomersPage(page, pageSize, searchQuery);
+  const { data: customersPage, isFetching, error } = useCustomersPage(page, pageSize, searchQuery);
   const customers = customersPage?.data ?? [];
   const total = customersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -102,7 +102,7 @@ const Customers: React.FC = () => {
             label: 'Customer Name',
             render: (_, customer) => (
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full bg-green-100 ${theme.colors.primary[600]} flex items-center justify-center font-bold text-white`}>
+                <div className={`w-10 h-10 rounded-full bg-blue-400 flex items-center justify-center font-bold text-white`}>
                   {customer.name.charAt(0)}
                 </div>
                 <div>
@@ -168,11 +168,11 @@ const Customers: React.FC = () => {
           },
         ]}
         data={filteredCustomers}
-        loading={isPending}
+        loading={isFetching}
         onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
         emptyMessage="No customers found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

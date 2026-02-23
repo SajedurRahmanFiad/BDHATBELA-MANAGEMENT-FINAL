@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Vendor } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -17,6 +18,8 @@ const VendorForm: React.FC = () => {
   const [form, setForm] = useState({ name: '', phone: '', address: '' });
   const [error, setError] = useState<string | null>(null);
 
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const { data: vendor, isPending: loading, error: fetchError } = useVendor(isEdit ? id : undefined);
   const createMutation = useCreateVendor();
   const updateMutation = useUpdateVendor();
@@ -28,8 +31,15 @@ const VendorForm: React.FC = () => {
         phone: vendor.phone, 
         address: vendor.address 
       });
+      return;
     }
-  }, [vendor]);
+
+    // If navigated here from a form, and an optimistic vendor exists in cache, populate
+    const state: any = (location && (location as any).state) || {};
+    if (state.fromBillForm && state.preFill && state.preFill.name) {
+      setForm({ name: state.preFill.name, phone: state.preFill.phone || '', address: state.preFill.address || '' });
+    }
+  }, [vendor, location]);
 
   const handleSave = async () => {
     if (authLoading) {
@@ -61,15 +71,29 @@ const VendorForm: React.FC = () => {
           totalPurchases: 0,
           dueAmount: 0,
         };
-        // Trigger mutation and navigate immediately (don't wait for background tasks)
-        createMutation.mutateAsync(newVendor).then(
-          () => {
-            navigate('/vendors');
-          },
-          (err) => {
-            setError(err instanceof Error ? err.message : 'Failed to create vendor');
+
+        try {
+          const created = await createMutation.mutateAsync(newVendor);
+
+          // Update vendors cache to include newly created vendor
+          try {
+            // Ensure all vendors caches are refreshed so paginated lists and lookups include the new vendor
+            queryClient.invalidateQueries({ queryKey: ['vendors'] });
+          } catch (e) {
+            // ignore cache update errors
           }
-        );
+
+          const state: any = (location && (location as any).state) || {};
+          if (state.fromBillForm && state.redirectPath) {
+            const url = `${state.redirectPath}${state.redirectPath.includes('?') ? '&' : '?'}selectedVendorId=${created.id}`;
+            navigate(url);
+          } else {
+            navigate('/vendors');
+          }
+        } catch (err: any) {
+          console.error('Create vendor failed:', err);
+          setError(err instanceof Error ? err.message : 'Failed to create vendor');
+        }
       }
     } catch (err) {
       console.error(`Failed to ${isEdit ? 'update' : 'create'} vendor:`, err);
@@ -94,27 +118,27 @@ const VendorForm: React.FC = () => {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Vendor/Business Name</label>
+              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Full Name</label>
               <input 
                 type="text" 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-blue-500 focus:bg-white rounded-lg font-bold transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.name}
                 onChange={e => setForm({...form, name: e.target.value})}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Contact Person / Phone</label>
+              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Phone Number</label>
               <input 
                 type="text" 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-blue-500 focus:bg-white rounded-lg font-bold transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.phone}
                 onChange={e => setForm({...form, phone: e.target.value})}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Office Address</label>
+              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Address</label>
               <textarea 
-                className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-blue-500 focus:bg-white rounded-lg font-medium h-32 transition-all outline-none"
+                className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-lg font-medium h-32 transition-all outline-none"
                 value={form.address}
                 onChange={e => setForm({...form, address: e.target.value})}
               />

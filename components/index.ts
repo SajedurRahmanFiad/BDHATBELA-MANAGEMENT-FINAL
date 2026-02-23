@@ -5,7 +5,7 @@
  */
 
 export { Button, IconButton } from './Button';
-export type { default as ButtonProps } from './Button';
+export type { ButtonProps } from './Button';
 
 export { Badge } from './Badge';
 

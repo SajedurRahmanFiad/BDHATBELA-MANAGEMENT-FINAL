@@ -397,13 +397,20 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
       // Cache the newly created bill for immediate access in details view
       queryClient.setQueryData(['bill', data.id], data);
 
-      // Patch page 1 if it exists
-      const page1 = queryClient.getQueryData<any>(['bills', 1]);
-      if (page1 && Array.isArray(page1.data)) {
-        queryClient.setQueryData(['bills', 1], { ...page1, data: [data, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['bills', 1] });
-      }
+      // Patch any cached paginated bills pages (add to page 1) when possible
+      const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
+      // Minimal fallback: invalidate first page key without filters to keep traffic low
+      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
     },
   });
 }
@@ -443,7 +450,17 @@ export function useUpdateBill(): UseMutationResult<Bill, Error, { id: string; up
       }
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      // Update any cached paginated bills pages in-place to avoid full refetch
+      const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((b: any) => b.id === data.id ? data : b) });
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
       queryClient.invalidateQueries({ queryKey: ['bill', data.id] });
     },
   });
@@ -825,6 +842,21 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
       }
     },
     onSuccess: (data) => {
+      // Ensure root vendors cache is updated: replace any optimistic entries and dedupe
+      try {
+        const previous = queryClient.getQueryData<Vendor[]>(['vendors']);
+        if (previous) {
+          const cleaned = (previous || []).filter(v => !(v.id && String(v.id).startsWith('temp-')));
+          if (!cleaned.some(v => v.id === data.id)) {
+            queryClient.setQueryData(['vendors'], [data, ...cleaned]);
+          } else {
+            queryClient.setQueryData(['vendors'], cleaned.map(v => v.id === data.id ? data : v));
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
       // Patch paginated vendor pages (add to page 1) if present
       const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
       pages.forEach(([key, value]) => {

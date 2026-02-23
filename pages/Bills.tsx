@@ -45,7 +45,7 @@ const Bills: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: billsPage, isPending: billsLoading } = useBillsPage(page, pageSize, { from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const { data: billsPage, isFetching: billsLoading } = useBillsPage(page, pageSize, { from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
   const bills = billsPage?.data ?? [];
   const total = billsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

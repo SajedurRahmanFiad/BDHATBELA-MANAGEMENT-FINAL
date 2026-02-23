@@ -302,7 +302,7 @@ export async function fetchOrdersPage(
     .from('orders')
     .select(
       `id, order_number, order_date, customer_id, created_by, status, subtotal, discount, shipping, total, paid_amount, notes, history, created_at`,
-      { count: 'exact' }
+      { count: 'estimated' }
     );
 
   // Apply filters BEFORE ordering and range (critical for Supabase pagination)
@@ -521,7 +521,7 @@ export async function fetchCustomersPage(
 
   let query: any = supabase
     .from('customers')
-    .select('id, name, phone, address, total_orders, due_amount, created_at', { count: 'exact' });
+    .select('id, name, phone, address, total_orders, due_amount, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range
   if (search && search.trim()) {
@@ -661,7 +661,7 @@ export async function fetchTransactionsPage(
     .from('transactions')
     .select(
       `id, date, type, category, account_id, to_account_id, amount, description, reference_id, contact_id, payment_method, attachment_name, attachment_url, created_by, created_at`,
-      { count: 'exact' }
+      { count: 'estimated' }
     );
 
   // Apply filters BEFORE ordering and range (critical for Supabase pagination)
@@ -850,7 +850,7 @@ export async function fetchProductsPage(
 
   let query: any = supabase
     .from('products')
-    .select('id, name, image, category, sale_price, purchase_price, created_at', { count: 'exact' });
+    .select('id, name, image, category, sale_price, purchase_price, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range (critical for Supabase to handle pagination correctly)
   if (category) query = query.eq('category', category);
@@ -880,15 +880,49 @@ export async function fetchProductsPage(
 
 // Lightweight products: minimal columns for selectors/dropdowns
 export async function fetchProductsMini() {
-  const { data, error } = await supabase
-    .from('products')
-    .select('id, name, sku')
-    .order('created_at', { ascending: false });
-  if (error) {
-    console.error('[supabaseQueries] fetchProductsMini error:', error);
-    return [] as Array<{ id: string; name: string; sku?: string }>;
+  // Return lightweight product rows including image and prices to support dropdowns.
+  try {
+    // Select minimal columns and reduce limit to keep payload small for dropdowns
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, sale_price, purchase_price')
+      .order('created_at', { ascending: false })
+      .limit(100); // smaller limit for faster responses
+
+    if (error) {
+      console.error('[supabaseQueries] fetchProductsMini error:', error);
+      return [] as Product[];
+    }
+
+    return (data || []).map(mapProduct);
+  } catch (err) {
+    console.error('[supabaseQueries] fetchProductsMini exception:', err);
+    return [] as Product[];
   }
-  return data || [];
+}
+
+// Server-side product search for dropdowns (limits results)
+export async function fetchProductsSearch(q: string, limit: number = 50) {
+  try {
+    if (!q || !q.trim()) return [] as Product[];
+    // Server-side search: avoid selecting images to keep results lightweight
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, sale_price, purchase_price')
+      .ilike('name', `%${q.trim()}%`)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('[supabaseQueries] fetchProductsSearch error:', error);
+      return [] as Product[];
+    }
+
+    return (data || []).map(mapProduct);
+  } catch (err) {
+    console.error('[supabaseQueries] fetchProductsSearch exception:', err);
+    return [] as Product[];
+  }
 }
 
 // ========== USERS ==========
@@ -1145,7 +1179,7 @@ export async function fetchVendorsPage(
 
   let query: any = supabase
     .from('vendors')
-    .select('id, name, phone, address, created_at, created_by', { count: 'exact' });
+    .select('id, name, phone, address, total_purchases, due_amount, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range
   if (search && search.trim()) {
@@ -1153,9 +1187,8 @@ export async function fetchVendorsPage(
     query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,address.ilike.%${q}%`);
   }
 
-  if (createdByIds && createdByIds.length > 0) {
-    query = query.in('created_by', createdByIds);
-  }
+  // Note: `vendors` table may not have a `created_by` column in some schemas.
+  // Avoid filtering by `created_by` here to prevent SQL errors (column missing).
 
   // Apply ordering and range after all filters
   query = query.order('created_at', { ascending: false }).range(start, end);
@@ -1166,7 +1199,9 @@ export async function fetchVendorsPage(
       console.error('[supabaseQueries] fetchVendorsPage error:', error);
       return { data: [], count: 0 };
     }
-    return { data: (data || []), count: count ?? 0 };
+    // Map rows to Vendor shape (normalize column names)
+    const mapped = (data || []).map(mapVendor);
+    return { data: mapped, count: count ?? 0 };
   } catch (err) {
     console.error('[supabaseQueries] fetchVendorsPage exception:', err);
     return { data: [], count: 0 };
@@ -1184,7 +1219,7 @@ export async function fetchBillsPage(
 
   let query: any = supabase
     .from('bills')
-    .select('id, bill_number, bill_date, vendor_id, total, paid_amount, status, created_by, created_at', { count: 'exact' });
+    .select('id, bill_number, bill_date, vendor_id, total, paid_amount, status, created_by, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range (critical for Supabase pagination)
   if (filters) {

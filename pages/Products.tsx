@@ -35,7 +35,7 @@ const Products: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: productsPage, isPending } = useProductsPage(page, pageSize, searchQuery, undefined, createdByIds);
+  const { data: productsPage, isFetching } = useProductsPage(page, pageSize, searchQuery, undefined, createdByIds);
   const products = productsPage?.data ?? [];
   const total = productsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -197,10 +197,10 @@ const Products: React.FC = () => {
           }] : []),
         ]}
         data={filteredProducts}
-        loading={isPending}
+        loading={isFetching}
         emptyMessage="No products found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isPending} />
+      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

@@ -6,9 +6,9 @@ import { Bill, BillStatus, OrderItem, Vendor, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useVendors, useBill } from '../src/hooks/useQueries';
+import { useBill } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 
@@ -30,7 +30,6 @@ const BillForm: React.FC = () => {
   }
 
   // Query data
-  const { data: vendors = [] } = useVendors();
   const queryClient = useQueryClient();
   const { data: existingBillData, isPending: billLoading, error: billError } = useBill(id);
   const [showProductSearch, setShowProductSearch] = useState(false);
@@ -48,7 +47,7 @@ const BillForm: React.FC = () => {
   // When user opens the product search, enable fetching lightweight list if no full cache exists.
   React.useEffect(() => {
     if (!showProductSearch) return;
-    const full = queryClient.getQueryData<any[]>(['products', undefined]);
+    const full = queryClient.getQueryData<any[]>(['products']);
     if (!full || full.length === 0) {
       queryClient.fetchQuery({ queryKey: ['productsMini'], queryFn: fetchProductsMini }).catch(() => {});
     }
@@ -71,7 +70,7 @@ const BillForm: React.FC = () => {
   });
 
   // Prefer full products cache if present, otherwise use search results when typing, or mini list when empty.
-  const fullProducts = queryClient.getQueryData<any[]>(['products', undefined]);
+  const fullProducts = queryClient.getQueryData<any[]>(['products']);
   const products = (fullProducts && fullProducts.length > 0)
     ? fullProducts
     : (debouncedSearch ? productsSearch : (productsMini || []));
@@ -93,6 +92,29 @@ const BillForm: React.FC = () => {
 
   const [showVendorSearch, setShowVendorSearch] = useState(false);
   const [vendorSearchTerm, setVendorSearchTerm] = useState('');
+  const [debouncedVendorSearch, setDebouncedVendorSearch] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedVendorSearch(vendorSearchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [vendorSearchTerm]);
+
+  // Vendors: lazy-load first page when dropdown opens; server-side search when typing
+  const vendorPageSize = 20;
+  const { data: vendorsPage, isFetching: vendorsPageLoading } = useQuery({
+    queryKey: ['vendors', 1, vendorPageSize, ''],
+    queryFn: () => fetchVendorsPage(1, vendorPageSize, ''),
+    enabled: showVendorSearch && !debouncedVendorSearch,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: vendorsSearchResults, isFetching: vendorsSearchLoading } = useQuery({
+    queryKey: ['vendors', 'search', debouncedVendorSearch],
+    queryFn: () => fetchVendorsPage(1, vendorPageSize, debouncedVendorSearch),
+    enabled: showVendorSearch && !!debouncedVendorSearch,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +231,8 @@ const BillForm: React.FC = () => {
     }
   };
 
-  const selectedVendor = vendors.find(v => v.id === vendorId);
+  const visibleVendors = (debouncedVendorSearch ? (vendorsSearchResults?.data || []) : (vendorsPage?.data || []));
+  const selectedVendor = visibleVendors.find((v: any) => v.id === vendorId) || undefined;
 
   // If redirected back with a selectedVendorId in the URL, apply it and clean the URL
   const location = useLocation();
@@ -231,7 +254,7 @@ const BillForm: React.FC = () => {
     } catch (e) {
       // ignore malformed URL
     }
-  }, [location.search, vendors, navigate, location.pathname]);
+  }, [location.search, visibleVendors, navigate, location.pathname]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -272,9 +295,7 @@ const BillForm: React.FC = () => {
                     <input autoFocus type="text" placeholder="Search business..." className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" value={vendorSearchTerm} onChange={(e) => setVendorSearchTerm(e.target.value)} />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                    {vendors
-                      .filter(v => v.name.toLowerCase().includes(vendorSearchTerm.toLowerCase()) || v.phone.includes(vendorSearchTerm))
-                      .map(v => (
+                    {(visibleVendors || []).map((v: any) => (
                       <button key={v.id} onClick={() => { setVendorId(v.id); setShowVendorSearch(false); setVendorSearchTerm(''); }} className="w-full px-4 py-2.5 text-left hover:bg-[#e6f0ff] rounded-lg group transition-colors">
                         <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.secondary[700]}">{v.name}</p>
                         <p className="text-[10px] text-gray-400 group-hover:${theme.colors.secondary[600]}/60">{v.phone}</p>

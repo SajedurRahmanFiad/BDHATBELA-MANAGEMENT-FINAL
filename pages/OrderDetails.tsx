@@ -7,7 +7,7 @@ import { OrderStatus, Order, UserRole, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
-import { useOrder, useCustomers, useUsers, useProducts, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useOrder, useCustomer, useUsers, useProducts, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
@@ -23,7 +23,7 @@ const OrderDetails: React.FC = () => {
   
   // Query data
   const { data: order, isPending: orderLoading, error: orderError } = useOrder(id || '');
-  const { data: customers = [] } = useCustomers();
+  const { data: customer } = useCustomer(order ? order.customerId : undefined);
   const { data: users = [] } = useUsers();
   const { data: products = [] } = useProducts();
   const { data: accounts = [] } = useAccounts();
@@ -48,7 +48,7 @@ const OrderDetails: React.FC = () => {
   const [isActionOpen, setIsActionOpen] = useState(false);
   
   // Get customer and created by user from query results
-  const customer = order ? customers.find(c => c.id === order.customerId) : undefined;
+  // `customer` is obtained via `useCustomer` above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
   const isEmployee = user.role === UserRole.EMPLOYEE;
   const isOwner = order ? order.createdBy === user.id : false;
@@ -240,10 +240,10 @@ const OrderDetails: React.FC = () => {
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
-          {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('Steadfast') && (
+          {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('Steadfast') && (
             <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
           )}
-          {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('CarryBee') && (
+          {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('CarryBee') && (
             <img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
           )}
         </div>

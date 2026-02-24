@@ -75,13 +75,7 @@ const VendorForm: React.FC = () => {
         try {
           const created = await createMutation.mutateAsync(newVendor);
 
-          // Update vendors cache to include newly created vendor
-          try {
-            // Ensure all vendors caches are refreshed so paginated lists and lookups include the new vendor
-            queryClient.invalidateQueries({ queryKey: ['vendors'] });
-          } catch (e) {
-            // ignore cache update errors
-          }
+          // Cache updated deterministically by mutation hook
 
           const state: any = (location && (location as any).state) || {};
           if (state.fromBillForm && state.redirectPath) {

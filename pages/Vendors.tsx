@@ -39,7 +39,7 @@ const Vendors: React.FC = () => {
     if (!confirm('Are you sure you want to delete this vendor?')) return;
     try {
       await deleteVendorMutation.mutateAsync(vendorId);
-      queryClient.invalidateQueries({ queryKey: ['vendors', page] });
+      // Cache updated deterministically by mutation hook
       toast.success('Vendor deleted successfully');
     } catch (err) {
       console.error('Failed to delete vendor:', err);

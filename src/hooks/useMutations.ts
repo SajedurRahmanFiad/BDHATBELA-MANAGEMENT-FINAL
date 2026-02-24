@@ -54,7 +54,7 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
     if (page1 && Array.isArray(page1.data)) {
       queryClient.setQueryData(['customers', 1], { ...page1, data: [newCust, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
     } else {
-      queryClient.invalidateQueries({ queryKey: ['customers', 1] });
+      // no-op fallback: do not invalidate entire page; creation is handled deterministically elsewhere
     }
   };
   return useMutation({
@@ -74,8 +74,15 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
           id: tempId,
         } as Customer;
         queryClient.setQueryData(['customers'], [...previousCustomers, optimisticCustomer]);
+
+        // Also patch paginated page 1 if present so components reading ['customers', 1] update immediately
+        const custPage1 = queryClient.getQueryData<any>(['customers', 1]);
+        if (custPage1 && Array.isArray(custPage1.data)) {
+          queryClient.setQueryData(['customers', 1], { ...custPage1, data: [optimisticCustomer, ...custPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (custPage1.count || 0) + 1 });
+        }
+
+        return { previousCustomers, tempId, optimisticCustomer };
       }
-      
       return { previousCustomers };
     },
     onError: (err, newCustomer, context) => {
@@ -84,16 +91,51 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
         queryClient.setQueryData(['customers'], context.previousCustomers);
       }
     },
-    onSuccess: async (data: Customer) => {
-      // Replace optimistic entries with server result
-      if (data && data.id) {
-        queryClient.setQueryData(['customer', data.id], data);
+    onSuccess: async (data: Customer, _variables, context) => {
+      // Register tempId mapping if present
+      try {
+        if (context?.tempId) registerRealId(context.tempId, data.id);
+      } catch (e) {}
+
+      // Update detail cache
+      queryClient.setQueryData(['customer', data.id], data);
+
+      // Replace optimistic entries in non-paginated list
+      try {
         const prev = queryClient.getQueryData<Customer[]>(['customers']) || [];
         const cleaned = (prev || []).filter(c => !isTempId(String(c.id)));
-        queryClient.setQueryData(['customers'], [data, ...cleaned]);
-      }
-      // Patch page-level cache to avoid refetching entire list
-      patchCustomerPages(data);
+        if (!cleaned.some(c => c.id === data.id)) {
+          queryClient.setQueryData(['customers'], [data, ...cleaned]);
+        } else {
+          queryClient.setQueryData(['customers'], cleaned.map(c => c.id === data.id ? data : c));
+        }
+      } catch (e) {}
+
+      // Deterministically patch cached first pages for customers respecting filters (no invalidation)
+      const pages = queryClient.getQueriesData({ queryKey: ['customers'] });
+      pages.forEach(([key, value]) => {
+        try {
+          const k = key as any[];
+          if (k[1] !== 1) return;
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            const filters = k[2] as any | undefined;
+            const matches = (() => {
+              if (!filters) return true;
+              if (filters.search) {
+                const q = String(filters.search).trim().toLowerCase();
+                if (q) {
+                  const v = String(data.name || '') + ' ' + String(data.phone || '') + ' ' + String(data.address || '');
+                  if (!v.toLowerCase().includes(q)) return false;
+                }
+              }
+              return true;
+            })();
+            if (matches) {
+              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+            }
+          }
+        } catch (e) {}
+      });
     },
   });
 }
@@ -176,19 +218,40 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted customer from paginated caches
+      // Remove deleted customer from paginated caches and try to maintain page size by pulling from next cached page
       const pages = queryClient.getQueriesData({ queryKey: ['customers'] });
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
-        try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((c: any) => c.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
-          }
-        } catch (e) {
-          // ignore
-        }
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['customers'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
       });
-      queryClient.invalidateQueries({ queryKey: ['customers', 1] });
+
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((c: any) => c.id !== id);
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              filtered.push(shiftItem);
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }
@@ -216,6 +279,12 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       
       // Optimistically add to the top of the list (newest first)
       queryClient.setQueryData(['orders'], [optimisticOrder, ...previousOrders]);
+
+      // Also patch paginated page 1 if cached so components using ['orders', 1] show the optimistic order immediately
+      const ordersPage1 = queryClient.getQueryData<any>(['orders', 1]);
+      if (ordersPage1 && Array.isArray(ordersPage1.data)) {
+        queryClient.setQueryData(['orders', 1], { ...ordersPage1, data: [optimisticOrder, ...ordersPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (ordersPage1.count || 0) + 1 });
+      }
       
       return { previousOrders, optimisticOrder, tempId };
     },
@@ -234,25 +303,54 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       // Cache the newly created order for immediate access in details view
       queryClient.setQueryData(['order', data.id], data);
 
-      // Patch page 1 of paginated orders if cached to include the new order
-      const page1 = queryClient.getQueryData<any>(['orders', 1]);
-      if (page1 && Array.isArray(page1.data)) {
-        queryClient.setQueryData(['orders', 1], { ...page1, data: [data, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
-      } else {
-        // Fallback: invalidate page 1 so it will be refetched
-        queryClient.invalidateQueries({ queryKey: ['orders', 1] });
-      }
+      // Patch cached first pages for orders deterministically (no blind invalidation)
+      const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      let patchedAny = false;
+      pages.forEach(([key, value]) => {
+        try {
+          const k = key as any[];
+          // Only modify first page entries (page index === 1)
+          if (k[1] !== 1) return;
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            // If filters are present in the key (e.g., k[2]) verify the created row matches
+            const filters = k[2] as any | undefined;
+            const matchesFilters = (() => {
+              if (!filters) return true;
+              // Basic checks mirroring fetchOrdersPage: status, from, to, search, createdByIds
+              if (filters.status && filters.status !== 'All' && data.status !== filters.status) return false;
+              if (filters.from && data.orderDate < filters.from) return false;
+              if (filters.to && data.orderDate > filters.to) return false;
+              if (filters.search) {
+                const q = String(filters.search).trim().toLowerCase();
+                if (q && !String(data.orderNumber || '').toLowerCase().includes(q)) return false;
+              }
+              if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
+                if (!filters.createdByIds.includes(data.createdBy)) return false;
+              }
+              return true;
+            })();
 
-      // Increment nextNumber in settings after successful order creation (best-effort)
+            if (matchesFilters) {
+              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+              patchedAny = true;
+            }
+          }
+        } catch (e) {
+          // ignore per-page patch errors
+        }
+      });
+
+      // Best-effort: increment nextNumber in settings locally (no forced refetch)
       try {
         const currentSettings = queryClient.getQueryData<{ prefix: string; nextNumber: number }>(['settings', 'order']);
         if (currentSettings && currentSettings.nextNumber) {
-          await updateOrderSettings({ nextNumber: currentSettings.nextNumber + 1 });
-          queryClient.invalidateQueries({ queryKey: ['settings', 'order'] });
+          queryClient.setQueryData(['settings', 'order'], { ...currentSettings, nextNumber: currentSettings.nextNumber + 1 });
         }
       } catch (err) {
-        console.error('Failed to update order settings:', err);
+        console.error('Failed to locally update order settings:', err);
       }
+
+      // No global refetches or invalidations: we've deterministically updated cached first pages where possible.
     },
   });
 }
@@ -315,7 +413,11 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
           // ignore per-page patch errors
         }
       });
-      queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+
+      // Update detail cache deterministically
+      queryClient.setQueryData(['order', data.id], data);
+
+      // No blind refetches: pages and detail were updated in-place.
     },
   });
 }
@@ -344,20 +446,57 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted order from any cached paginated pages
+      // Remove deleted order from any cached paginated pages and try to maintain page size by pulling from next cached page
       const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      // Build a map of pages by page number + filters key so we can pull from next page
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['orders'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        const mapKey = JSON.stringify([pageNum, filters]);
+        pageMap.set(mapKey, { key: k, value });
+      });
+
+      // Iterate pages in ascending page number order to remove and pull
+      const keys = Array.from(pageMap.keys()).sort((a, b) => {
+        const pa = JSON.parse(a)[0] as number;
+        const pb = JSON.parse(b)[0] as number;
+        return pa - pb;
+      });
+
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
         try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((o: any) => o.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
+          if (value && value.data && Array.isArray(value.data)) {
+            // Remove the deleted id
+            const filtered = value.data.filter((o: any) => o.id !== id);
+            // If we have a next page cached, and filtered length < page size, try to pull first from next
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              // remove from next
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              // append to current page to maintain page size
+              filtered.push(shiftItem);
+              // write back next page
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+
+            // write current page
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
           }
         } catch (e) {
-          // ignore
+          // ignore per-page patch errors
         }
-      });
-      // Fallback: invalidate first page
-      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
+      }
     },
   });
 }
@@ -384,6 +523,12 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
       
       // Optimistically add to the top of the list (newest first)
       queryClient.setQueryData(['bills'], [optimisticBill, ...previousBills]);
+
+      // Also patch paginated page 1 if cached so components using ['bills', 1] show it instantly
+      const billsPage1 = queryClient.getQueryData<any>(['bills', 1]);
+      if (billsPage1 && Array.isArray(billsPage1.data)) {
+        queryClient.setQueryData(['bills', 1], { ...billsPage1, data: [optimisticBill, ...billsPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (billsPage1.count || 0) + 1 });
+      }
       
       return { previousBills, optimisticBill };
     },
@@ -393,24 +538,34 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
         queryClient.setQueryData(['bills'], context.previousBills);
       }
     },
-    onSuccess: async (data) => {
-      // Cache the newly created bill for immediate access in details view
+    onSuccess: async (data, _variables, context) => {
+      // Register temp id mapping and cache the newly created bill for immediate access in details view
+      try {
+        if ((context as any)?.optimisticBill?.id) {
+          registerRealId((context as any).optimisticBill.id, data.id);
+        }
+      } catch (e) {}
       queryClient.setQueryData(['bill', data.id], data);
 
-      // Patch any cached paginated bills pages (add to page 1) when possible
+      // Clean optimistic temp entries from non-paginated bills list
+      try {
+        const prev = queryClient.getQueryData<Bill[]>(['bills']) || [];
+        const cleaned = (prev || []).filter(b => !String(b.id).startsWith('temp-'));
+        if (!cleaned.some(b => b.id === data.id)) queryClient.setQueryData(['bills'], [data, ...cleaned]);
+        else queryClient.setQueryData(['bills'], cleaned.map(b => b.id === data.id ? data : b));
+      } catch (e) {}
+
+      // Deterministically patch cached first pages for bills (no invalidation)
       const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
       pages.forEach(([key, value]) => {
         try {
+          const k = key as any[];
+          if (k[1] !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
           }
-        } catch (e) {
-          // ignore per-page patch errors
-        }
+        } catch (e) {}
       });
-      // Minimal fallback: invalidate first page key without filters to keep traffic low
-      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
     },
   });
 }
@@ -490,19 +645,40 @@ export function useDeleteBill(): UseMutationResult<void, Error, string, unknown>
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted bill from paginated caches
+      // Remove deleted bill from paginated caches and try to maintain page size by pulling from next cached page
       const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
-        try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((b: any) => b.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
-          }
-        } catch (e) {
-          // ignore
-        }
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['bills'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
       });
-      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
+
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((b: any) => b.id !== id);
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              filtered.push(shiftItem);
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }
@@ -634,6 +810,12 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
           id: `temp-${Date.now()}`,
         } as Transaction;
         queryClient.setQueryData(['transactions'], [...previousTransactions, optimisticTransaction]);
+
+        // Also patch paginated page 1 for transactions so lists update immediately
+        const txPage1 = queryClient.getQueryData<any>(['transactions', 1]);
+        if (txPage1 && Array.isArray(txPage1.data)) {
+          queryClient.setQueryData(['transactions', 1], { ...txPage1, data: [optimisticTransaction, ...txPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (txPage1.count || 0) + 1 });
+        }
       }
       
       return { previousTransactions, previousOrders };
@@ -659,8 +841,7 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
           // ignore per-page patch errors
         }
       });
-      // Minimal orders invalidation: only first page to keep egress lower
-      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
+      // No blind invalidation: transactions paginated pages were patched deterministically above.
     },
   });
 }
@@ -689,19 +870,37 @@ export function useDeleteTransaction(): UseMutationResult<void, Error, string, u
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted transaction from paginated caches
+      // Remove deleted transaction from paginated caches and maintain page sizes
       const pages = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
-        try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((t: any) => t.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
-          }
-        } catch (e) {
-          // ignore
-        }
+        const k = key as any[];
+        const pageNum = k[1];
+        const filters = k[2];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
       });
-      queryClient.invalidateQueries({ queryKey: ['transactions', 1] });
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((t: any) => t.id !== id);
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              filtered.push(shiftItem);
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }
@@ -735,8 +934,29 @@ export function useCreateUser(): UseMutationResult<User, Error, Partial<User>, u
         queryClient.setQueryData(['users'], context.previousUsers);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
+    onSuccess: (data) => {
+      // If backend returned user row, cache detail and patch first pages deterministically
+      try {
+        if (data?.id) queryClient.setQueryData(['user', data.id], data);
+      } catch (e) {}
+      // Clean optimistic temp entries from non-paginated users list
+      try {
+        const prev = queryClient.getQueryData<User[]>(['users']) || [];
+        const cleaned = (prev || []).filter(u => !String(u.id).startsWith('temp-'));
+        if (!cleaned.some(u => u.id === data.id)) queryClient.setQueryData(['users'], [data, ...cleaned]);
+        else queryClient.setQueryData(['users'], cleaned.map(u => u.id === data.id ? data : u));
+      } catch (e) {}
+
+      const pages = queryClient.getQueriesData({ queryKey: ['users'] });
+      pages.forEach(([key, value]) => {
+        try {
+          const k = key as any[];
+          if (k[1] !== 1) return;
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+          }
+        } catch (e) {}
+      });
     },
   });
 }
@@ -777,8 +997,16 @@ export function useUpdateUser(): UseMutationResult<User, Error, { id: string; up
       }
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      queryClient.invalidateQueries({ queryKey: ['user', data.id] });
+      // Patch paginated user pages in-place and update detail cache
+      const pages = queryClient.getQueriesData({ queryKey: ['users'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((u: any) => u.id === data.id ? data : u) });
+          }
+        } catch (e) {}
+      });
+      queryClient.setQueryData(['user', data.id], data);
     },
   });
 }
@@ -806,8 +1034,30 @@ export function useDeleteUser(): UseMutationResult<void, Error, string, unknown>
         queryClient.setQueryData(['users'], context.previousUsers);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
+    onSuccess: (_data, id) => {
+      // Remove user from paginated caches similar to other deletes
+      const pages = queryClient.getQueriesData({ queryKey: ['users'] });
+      const pageMap = new Map<string, any>();
+      pages.forEach(([key, value]) => {
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['users'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+      });
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((u: any) => u.id !== id);
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }
@@ -832,6 +1082,12 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
           id: `temp-${Date.now()}`,
         } as Vendor;
         queryClient.setQueryData(['vendors'], [...previousVendors, optimisticVendor]);
+
+        // Also patch paginated page 1 cache if present so vendor lists update immediately
+        const vendorsPage1 = queryClient.getQueryData<any>(['vendors', 1]);
+        if (vendorsPage1 && Array.isArray(vendorsPage1.data)) {
+          queryClient.setQueryData(['vendors', 1], { ...vendorsPage1, data: [optimisticVendor, ...vendorsPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (vendorsPage1.count || 0) + 1 });
+        }
       }
       
       return { previousVendors };
@@ -857,20 +1113,17 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
         // ignore
       }
 
-      // Patch paginated vendor pages (add to page 1) if present
+      // Deterministically patch paginated vendor first pages (no invalidation)
       const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
       pages.forEach(([key, value]) => {
         try {
+          const k = key as any[];
+          if (k[1] !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
           }
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
       });
-      // Fallback: invalidate first page
-      queryClient.invalidateQueries({ queryKey: ['vendors', 1] });
     },
   });
 }
@@ -948,19 +1201,39 @@ export function useDeleteVendor(): UseMutationResult<void, Error, string, unknow
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted vendor from paginated caches
+      // Remove deleted vendor from paginated caches and maintain page sizes
       const pages = queryClient.getQueriesData({ queryKey: ['vendors'] });
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
-        try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((v: any) => v.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
-          }
-        } catch (e) {
-          // ignore
-        }
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['vendors'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
       });
-      queryClient.invalidateQueries({ queryKey: ['vendors', 1] });
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((v: any) => v.id !== id);
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              filtered.push(shiftItem);
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }
@@ -1093,19 +1366,39 @@ export function useDeleteProduct(): UseMutationResult<void, Error, string, unkno
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted product from paginated caches
+      // Remove deleted product from paginated caches and maintain page sizes
       const pages = queryClient.getQueriesData({ queryKey: ['products'] });
+      const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
-        try {
-          if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newDataArr = (value as any).data.filter((p: any) => p.id !== id);
-            queryClient.setQueryData(key as any, { ...(value as any), data: newDataArr, count: Math.max(0, (value as any).count ? (value as any).count - 1 : 0) });
-          }
-        } catch (e) {
-          // ignore
-        }
+        const k = key as any[];
+        const pageNum = k[1];
+        // Skip non-paginated queries (e.g., ['products'] without page number)
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        const filters = k[k.length - 1];
+        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
       });
-      queryClient.invalidateQueries({ queryKey: ['products', 1] });
+      const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
+      for (const mapKey of keys) {
+        const entry = pageMap.get(mapKey);
+        if (!entry) continue;
+        const { key: k, value } = entry;
+        try {
+          if (value && value.data && Array.isArray(value.data)) {
+            const filtered = value.data.filter((p: any) => p.id !== id);
+            const pageNum = k[1] as number;
+            const filters = k[k.length - 1];
+            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const nextEntry = pageMap.get(nextKey);
+            if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
+              const shiftItem = nextEntry.value.data[0];
+              nextEntry.value.data = nextEntry.value.data.slice(1);
+              filtered.push(shiftItem);
+              queryClient.setQueryData(nextEntry.key as any, { ...(nextEntry.value), data: nextEntry.value.data, count: Math.max(0, (nextEntry.value.count || 1) - 1) });
+            }
+            queryClient.setQueryData(k as any, { ...(value), data: filtered, count: Math.max(0, (value.count || 1) - 1) });
+          }
+        } catch (e) {}
+      }
     },
   });
 }

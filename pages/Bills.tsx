@@ -60,6 +60,10 @@ const Bills: React.FC = () => {
   const handleFilterRangeChange = (range: FilterRange) => {
     setPage(1);
     setFilterRange(range);
+    // Clear customDates when switching away from 'Custom' to prevent stale date values
+    if (range !== 'Custom') {
+      setCustomDates({ from: '', to: '' });
+    }
   };
 
   const handleCustomDatesChange = (dates: { from: string; to: string }) => {
@@ -150,7 +154,7 @@ const Bills: React.FC = () => {
       };
 
       await createMutation.mutateAsync(newBillData as any);
-      queryClient.invalidateQueries({ queryKey: ['bills', 1] });
+      // Cache updated deterministically by mutation hook
     } catch (error) {
       console.error('Failed to duplicate bill:', error);
       toast.error('Failed to duplicate bill');
@@ -161,7 +165,8 @@ const Bills: React.FC = () => {
     if (!confirm('Are you sure you want to delete this bill?')) return;
     try {
       await deleteMutation.mutateAsync(id);
-      queryClient.invalidateQueries({ queryKey: ['bills', page] });
+      toast.success('Bill deleted successfully');
+      // Cache updated deterministically by mutation hook
     } catch (error) {
       console.error('Failed to delete bill:', error);
       toast.error('Failed to delete bill');

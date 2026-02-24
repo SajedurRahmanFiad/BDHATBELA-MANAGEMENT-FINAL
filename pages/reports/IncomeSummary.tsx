@@ -6,15 +6,18 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { theme } from '../../theme';
-import { useTransactions, useCustomers, useCategories, useOrders } from '../../src/hooks/useQueries';
+import { useTransactions, useCategories, useOrders } from '../../src/hooks/useQueries';
+import { fetchCustomerById } from '../../src/services/supabaseQueries';
+import { useQueryClient } from '@tanstack/react-query';
 import { OrderStatus } from '../../types';
 
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: transactions = [] } = useTransactions();
-  const { data: customers = [] } = useCustomers();
   const { data: orders = [] } = useOrders();
   const { data: allCategories = [] } = useCategories();
+  const [topCustomers, setTopCustomers] = React.useState<any[]>([]);
   
   // Create category map for ID -> name lookup
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
@@ -40,11 +43,23 @@ const IncomeSummary: React.FC = () => {
     customerRevenue[order.customerId] = (customerRevenue[order.customerId] || 0) + order.total;
   });
 
-  const topCustomers = customers
-    .map(c => ({ ...c, revenue: customerRevenue[c.id] || 0 }))
-    .filter(c => c.revenue > 0)
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 3);
+  React.useEffect(() => {
+    // Find top customer IDs by revenue
+    const entries = Object.entries(customerRevenue).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const ids = entries.map(e => e[0]);
+    if (ids.length === 0) {
+      setTopCustomers([]);
+      return;
+    }
+
+    // Fetch only the top customer rows
+    Promise.all(ids.map(id => queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }))).then(results => {
+      const mapped = results.map((r, i) => ({ ...(r || {}), revenue: customerRevenue[ids[i]] || 0 }));
+      setTopCustomers(mapped.filter(c => c && c.revenue > 0));
+    }).catch(() => {
+      setTopCustomers([]);
+    });
+  }, [orders, transactions]);
 
   return (
     <div className="space-y-6">

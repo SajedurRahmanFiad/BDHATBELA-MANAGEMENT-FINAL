@@ -63,7 +63,7 @@ const Products: React.FC = () => {
     if (!confirm('Are you sure you want to delete this product?')) return;
     try {
       await deleteProductMutation.mutateAsync(productId);
-      queryClient.invalidateQueries({ queryKey: ['products', page] });
+      // Cache updated deterministically by mutation hook
       toast.success('Product deleted successfully');
     } catch (err) {
       console.error('Failed to delete product:', err);
@@ -87,35 +87,6 @@ const Products: React.FC = () => {
             Add Product
           </Button>
         )}
-      </div>
-
-      <FilterBar
-        title="Products"
-        filterRange={filterRange}
-        setFilterRange={setFilterRange}
-        customDates={customDates}
-        setCustomDates={setCustomDates}
-      />
-
-      {/* Created By Filter Dropdown */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="flex items-center gap-4 flex-wrap">
-          <label className="text-sm font-bold text-gray-700">Created By:</label>
-          <select
-            value={createdByFilter}
-            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Users</option>
-            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
-            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
-            <optgroup label="Specific Users">
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
-              ))}
-            </optgroup>
-          </select>
-        </div>
       </div>
 
       <Table

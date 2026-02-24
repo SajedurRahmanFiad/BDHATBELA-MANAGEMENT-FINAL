@@ -151,7 +151,7 @@ export function useAccounts(): UseQueryResult<Account[], Error> {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: fetchAccounts,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 15 * 60 * 1000, // 15 minutes for master accounts cache (prefetched on auth)
   });
 }
 
@@ -160,7 +160,7 @@ export function useAccount(id: string | undefined): UseQueryResult<Account | nul
     queryKey: ['account', id],
     queryFn: () => fetchAccountById(id || ''),
     enabled: !!id,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 15 * 60 * 1000,
   });
 }
 
@@ -263,9 +263,12 @@ export function useVendor(id: string | undefined): UseQueryResult<Vendor | null,
 
 export function useProducts(category?: string): UseQueryResult<Product[], Error> {
   return useQuery({
-    queryKey: ['products', category],
-    queryFn: () => fetchProducts(category), // FIX: Wrap to pass category parameter
-    staleTime: 5 * 60 * 1000, // FIX: Reduced from 30 to 5 minutes to match orders/customers - ensure fresh product data
+    // Canonical key for non-paginated products list. Category is passed
+    // to the fetcher but kept out of the root cache key to avoid
+    // duplicate cache entries like ['products'] vs ['products', undefined].
+    queryKey: ['products'],
+    queryFn: () => fetchProducts(category),
+    staleTime: 15 * 60 * 1000, // 15 minutes for master product cache (prefetched on auth)
   });
 }
 
@@ -285,7 +288,7 @@ export function useProductsPage(
     queryKey: ['products', page, pageSize, category, search, ...(createdByIds || [])],
     queryFn: () => fetchProductsPage(page, pageSize, search, category, createdByIds),
     placeholderData: (previousData) => previousData as any,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 15 * 60 * 1000,
     keepPreviousData: true,
     refetchOnWindowFocus: false,
   };
@@ -298,7 +301,7 @@ export function useProduct(id: string | undefined): UseQueryResult<Product | nul
     queryKey: ['product', id],
     queryFn: () => fetchProductById(id || ''),
     enabled: !!id,
-    staleTime: 5 * 60 * 1000, // FIX: Reduced from 30 to 5 minutes to match other entities
+    staleTime: 15 * 60 * 1000, // Keep single-product cache consistent with products master cache
   });
 }
 

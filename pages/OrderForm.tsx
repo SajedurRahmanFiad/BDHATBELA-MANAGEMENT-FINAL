@@ -6,9 +6,9 @@ import { Order, OrderStatus, OrderItem, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useCustomers, useOrder, useOrderSettings } from '../src/hooks/useQueries';
+import { useOrder, useOrderSettings } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -44,7 +44,6 @@ const OrderForm: React.FC = () => {
   }
 
   // Query data
-  const { data: customers = [] } = useCustomers();
   const queryClient = useQueryClient();
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,7 +60,7 @@ const OrderForm: React.FC = () => {
   // When user opens the product search, enable fetching lightweight list if no full cache exists.
   React.useEffect(() => {
     if (!showProductSearch) return;
-    const full = queryClient.getQueryData<any[]>(['products', undefined]);
+    const full = queryClient.getQueryData<any[]>(['products']);
     if (!full || full.length === 0) {
       // trigger the lightweight fetch
       queryClient.fetchQuery({ queryKey: ['productsMini'], queryFn: fetchProductsMini }).catch(() => {});
@@ -85,7 +84,7 @@ const OrderForm: React.FC = () => {
   });
 
   // Prefer full products cache if present, otherwise use search results when typing, or mini list when empty.
-  const fullProducts = queryClient.getQueryData<any[]>(['products', undefined]);
+  const fullProducts = queryClient.getQueryData<any[]>(['products']);
   const products = (fullProducts && fullProducts.length > 0)
     ? fullProducts
     : (debouncedSearch ? productsSearch : (productsMini || []));
@@ -111,8 +110,31 @@ const OrderForm: React.FC = () => {
   
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [custSearchTerm, setCustSearchTerm] = useState('');
+  const [debouncedCustSearch, setDebouncedCustSearch] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedCustSearch(custSearchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [custSearchTerm]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Customers: lazy-load the first page when dropdown opens; perform server-side search when typing.
+  const custPageSize = 20;
+  const { data: customersPage, isFetching: customersPageLoading } = useQuery({
+    queryKey: ['customers', 1, custPageSize, ''],
+    queryFn: () => fetchCustomersPage(1, custPageSize, ''),
+    enabled: showCustomerSearch && !debouncedCustSearch,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: customersSearchResults, isFetching: customersSearchLoading } = useQuery({
+    queryKey: ['customers', 'search', debouncedCustSearch],
+    queryFn: () => fetchCustomersPage(1, custPageSize, debouncedCustSearch),
+    enabled: showCustomerSearch && !!debouncedCustSearch,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   // Initialize form with existing order data when loaded
   const initializedRef = React.useRef(false);
@@ -283,7 +305,8 @@ const OrderForm: React.FC = () => {
     }
   };
 
-  const selectedCustomer = customers.find(c => c.id === customerId);
+  const allVisibleCustomers = (debouncedCustSearch ? (customersSearchResults?.data || []) : (customersPage?.data || []));
+  const selectedCustomer = allVisibleCustomers.find((c: any) => c.id === customerId) || undefined;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -331,9 +354,7 @@ const OrderForm: React.FC = () => {
                     />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                    {customers
-                      .filter(c => c.name.toLowerCase().includes(custSearchTerm.toLowerCase()) || c.phone.includes(custSearchTerm))
-                      .map(c => (
+                    {(allVisibleCustomers || []).map((c: any) => (
                       <button 
                         key={c.id} 
                         onClick={() => { setCustomerId(c.id); setShowCustomerSearch(false); setCustSearchTerm(''); }} 

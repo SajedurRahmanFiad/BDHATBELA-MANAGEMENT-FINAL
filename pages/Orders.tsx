@@ -10,7 +10,8 @@ import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { useOrdersPage, useCustomers, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
+import { useOrdersPage, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
+import { fetchCustomerById } from '../src/services/supabaseQueries';
 import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -68,7 +69,12 @@ const Orders: React.FC = () => {
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
-  const { data: customers = [] } = useCustomers();
+  // Prefetch only customer rows referenced by visible orders (avoid loading full customers table)
+  React.useEffect(() => {
+    if (!orders || orders.length === 0) return;
+    const ids = Array.from(new Set(orders.map(o => o.customerId).filter(Boolean) as string[]));
+    ids.forEach(id => queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }).catch(() => {}));
+  }, [orders, queryClient]);
   const { data: accounts = [] } = useAccounts();
   const { data: orderSettings } = useOrderSettings();
 
@@ -86,6 +92,10 @@ const Orders: React.FC = () => {
   const handleFilterRangeChange = (range: FilterRange) => {
     setPage(1);
     setFilterRange(range);
+    // Clear customDates when switching away from 'Custom' to prevent stale date values
+    if (range !== 'Custom') {
+      setCustomDates({ from: '', to: '' });
+    }
   };
 
   const handleCustomDatesChange = (dates: { from: string; to: string }) => {
@@ -156,7 +166,7 @@ const Orders: React.FC = () => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       results = results.filter(order => {
-        const customer = customers.find(c => c.id === order.customerId);
+        const customer = queryClient.getQueryData<any>(['customer', order.customerId]);
         const creatorName = getCreatorName(order);
         return (
           order.orderNumber.toLowerCase().includes(query) ||
@@ -168,7 +178,7 @@ const Orders: React.FC = () => {
     }
 
     return results;
-  }, [orders, filterRange, customDates, statusTab, searchQuery, customers]);
+  }, [orders, filterRange, customDates, statusTab, searchQuery]);
 
   const handleDuplicate = async (order: Order) => {
     if (!orderSettings) {
@@ -193,8 +203,7 @@ const Orders: React.FC = () => {
     };
     try {
       await createOrderMutation.mutateAsync(newOrder);
-      // New orders appear on page 1 (newest-first) - invalidate page 1
-      queryClient.invalidateQueries({ queryKey: ['orders', 1] });
+      // New orders appear on page 1 (newest-first) - cache is updated deterministically by the mutation hook
       toast.success('Order duplicated successfully');
     } catch (err) {
       console.error('Failed to duplicate order', err);
@@ -206,10 +215,11 @@ const Orders: React.FC = () => {
     if (!confirm('Are you sure you want to delete this order?')) return;
     try {
       await deleteOrderMutation.mutateAsync(id);
-      // Refresh current page after delete
-      queryClient.invalidateQueries({ queryKey: ['orders', page] });
+      toast.success('Order deleted successfully');
+      // Current page cache is updated deterministically by the mutation hook
     } catch (err) {
       console.error('Failed to delete order', err);
+      toast.error('Failed to delete order: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -397,6 +407,10 @@ const Orders: React.FC = () => {
               ) : filteredOrders.map((order) => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
                 const isOwner = order.createdBy === user?.id;
+                const cust = queryClient.getQueryData<any>(['customer', order.customerId]);
+                const custState = queryClient.getQueryState(['customer', order.customerId]);
+                const custLoading = ordersLoading || ((custState as any)?.status === 'loading') || ((custState as any)?.isFetching > 0);
+                const custName = custLoading ? 'Loading...' : (cust?.name ?? 'Unknown');
                 return (
                   <tr 
                     key={order.id} 
@@ -410,16 +424,16 @@ const Orders: React.FC = () => {
                       <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{new Date(order.orderDate).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                     </td>
                     <td className="px-6 py-5">
-                      <span className="text-sm font-bold text-gray-700">{customers.find(c => c.id === order.customerId)?.name || 'Unknown'}</span>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{customers.find(c => c.id === order.customerId)?.phone}</p>
+                      <span className="text-sm font-bold text-gray-700">{custName}</span>
+                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{cust?.phone || ''}</p>
                     </td>
                     <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(order.status)}`}>{order.status}</span>
-                      {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('Steadfast') && (
+                      {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('Steadfast') && (
                         <img src="/uploads/steadfast.png" alt="Steadfast" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
-                      {order.status !== OrderStatus.COMPLETED && order.history?.courier?.includes('CarryBee') && (
+                      {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('CarryBee') && (
                         <img src="/uploads/carrybee.png" alt="CarryBee" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
                     </td>
@@ -564,13 +578,13 @@ const Orders: React.FC = () => {
         isOpen={!!showSteadfast} 
         onClose={() => setShowSteadfast(null)}
         order={showSteadfast ? orders.find(o => o.id === showSteadfast) : null}
-        customer={showSteadfast ? customers.find(c => c.id === orders.find(o => o.id === showSteadfast)?.customerId) : null}
+        customer={showSteadfast ? queryClient.getQueryData(['customer', orders.find(o => o.id === showSteadfast)?.customerId]) : null}
       />
       <CarryBeeModal 
         isOpen={!!showCarryBee} 
         onClose={() => setShowCarryBee(null)}
         order={showCarryBee ? orders.find(o => o.id === showCarryBee) : null}
-        customer={showCarryBee ? customers.find(c => c.id === orders.find(o => o.id === showCarryBee)?.customerId) : null}
+        customer={showCarryBee ? queryClient.getQueryData(['customer', orders.find(o => o.id === showCarryBee)?.customerId]) : null}
       />
     </div>
   );

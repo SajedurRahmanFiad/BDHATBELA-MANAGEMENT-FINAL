@@ -163,7 +163,7 @@ export async function fetchCustomerById(id: string) {
     .from('customers')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
   
   if (error) {
     console.error('[supabaseQueries] fetchCustomerById error:', error);
@@ -744,32 +744,18 @@ export async function createTransaction(transaction: Omit<Transaction, 'id'>) {
     insertData.attachment_url = transaction.attachmentUrl;
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('transactions')
-    .insert([insertData]);
+    .insert([insertData])
+    .select()
+    .single();
   
   if (error) {
     console.error('[supabaseQueries] createTransaction error:', error);
     throw error;
   }
   
-  // Return the transaction object we inserted (avoid SELECT to prevent UUID column issues)
-  return {
-    id,
-    date: transaction.date,
-    type: transaction.type as 'Income' | 'Expense' | 'Transfer',
-    category: transaction.category,
-    accountId: transaction.accountId,
-    toAccountId: transaction.toAccountId,
-    amount: transaction.amount,
-    description: transaction.description,
-    referenceId: transaction.referenceId,
-    contactId: transaction.contactId,
-    paymentMethod: transaction.paymentMethod,
-    attachmentName: transaction.attachmentName,
-    attachmentUrl: transaction.attachmentUrl,
-    createdBy: transaction.createdBy,
-  } as Transaction;
+  return mapTransaction(data);
 }
 
 export async function updateTransaction(id: string, updates: Partial<Transaction>) {
@@ -1398,7 +1384,7 @@ export async function fetchVendorById(id: string) {
     .from('vendors')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
   
   if (error) {
     console.error('[supabaseQueries] fetchVendorById error:', error);

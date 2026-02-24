@@ -56,7 +56,6 @@ const Customers: React.FC = () => {
 
     try {
       await deleteCustomerMutation.mutateAsync(customerId);
-      queryClient.invalidateQueries({ queryKey: ['customers', page] });
       toast.success('Customer deleted successfully');
     } catch (err) {
       console.error('Failed to delete customer:', err);
@@ -79,14 +78,6 @@ const Customers: React.FC = () => {
           New Customer
         </Button>
       </div>
-
-      <FilterBar
-        title="Customers"
-        filterRange={'All Time'}
-        setFilterRange={() => {}}
-        customDates={{ from: '', to: '' }}
-        setCustomDates={() => {}}
-      />
 
       {/* (No Created By filter for customers) */}
       {error && (

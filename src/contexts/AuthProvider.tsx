@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser, fetchUserById } from '../services/supabaseQueries';
+import { loginUser, fetchUserById, fetchProducts, fetchAccounts } from '../services/supabaseQueries';
+import { useQueryClient } from '@tanstack/react-query';
 import { db, saveDb } from '../../db';
 
 type AuthContextType = {
@@ -15,6 +16,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const POLL_MS = 2500; // interval to poll for user details when only id stored
+  const queryClient = useQueryClient();
 
   console.log('[AuthProvider] Mounting - initializing context provider');
 
@@ -69,6 +71,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             db.currentUser = fetched as any;
             saveDb();
             console.log('[Auth] Session restored:', fetched.name);
+            // Prefetch small-to-medium master datasets (products, accounts)
+            // so UI can render instantly after auth without fetching heavy tables.
+            try {
+              queryClient.prefetchQuery(['products'], () => fetchProducts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
+              queryClient.prefetchQuery(['accounts'], () => fetchAccounts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
+            } catch (e) {
+              // ignore prefetch errors
+            }
           } else {
             // Profile fetch failed after retries - clear session
             console.warn('[Auth] Could not restore profile, clearing session');
@@ -122,6 +132,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.dispatchEvent(new Event('authChange'));
 
       console.log('[Auth] User logged in:', dbUser.name);
+      // Prefetch master datasets for fast UI
+      try {
+        queryClient.prefetchQuery(['products'], () => fetchProducts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
+        queryClient.prefetchQuery(['accounts'], () => fetchAccounts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
+      } catch (e) {
+        // ignore
+      }
       return { data: { user: dbUser }, error: null };
     } catch (err: any) {
       console.error('[Auth] signIn exception:', err?.message || err);

@@ -7,7 +7,8 @@ import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, IconButton } from '../components';
 import { theme } from '../theme';
-import { useTransactionsPage, useCustomers, useVendors, useOrders, useBills, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
+import { useTransactionsPage, useOrders, useBills, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
+import { fetchCustomerById, fetchVendorById } from '../src/services/supabaseQueries';
 import Pagination from '../src/components/Pagination';
 import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -46,8 +47,20 @@ const Transactions: React.FC = () => {
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
-  const { data: customers = [] } = useCustomers();
-  const { data: vendors = [] } = useVendors();
+  // Instead of loading entire customers/vendors tables, only fetch rows referenced by the current page.
+  React.useEffect(() => {
+    if (!transactions || transactions.length === 0) return;
+
+    // Collect contact IDs referenced in this page of transactions
+    const contactIds = Array.from(new Set(transactions.map(t => t.contactId).filter(Boolean) as string[]));
+
+    // Prefetch only required customer/vendor rows
+    contactIds.forEach((id) => {
+      // Try customer first, then vendor - both fetchers are cheap when cached
+      queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }).catch(() => {});
+      queryClient.fetchQuery({ queryKey: ['vendor', id], queryFn: () => fetchVendorById(id) }).catch(() => {});
+    });
+  }, [transactions, queryClient]);
   const { data: orders = [] } = useOrders();
   const { data: bills = [] } = useBills();
   const { data: allCategories = [] } = useCategories();
@@ -67,6 +80,10 @@ const Transactions: React.FC = () => {
   const handleFilterRangeChange = (range: FilterRange) => {
     setPage(1);
     setFilterRange(range);
+    // Clear customDates when switching away from 'Custom' to prevent stale date values
+    if (range !== 'Custom') {
+      setCustomDates({ from: '', to: '' });
+    }
   };
 
   const handleCustomDatesChange = (dates: { from: string; to: string }) => {
@@ -89,7 +106,7 @@ const Transactions: React.FC = () => {
     if (!confirm('Are you sure you want to delete this transaction?')) return;
     try {
       await deleteTransactionMutation.mutateAsync(transactionId);
-      queryClient.invalidateQueries({ queryKey: ['transactions', page] });
+      // Cache updated deterministically by mutation hook
       toast.success('Transaction deleted successfully');
     } catch (err) {
       console.error('Failed to delete transaction:', err);
@@ -138,9 +155,10 @@ const Transactions: React.FC = () => {
   };
 
   const getContactName = (contactId: string) => {
-    const customer = customers.find(c => c.id === contactId);
+    if (!contactId) return null;
+    const customer = queryClient.getQueryData<any>(['customer', contactId]);
     if (customer) return { name: customer.name, type: 'Customer' };
-    const vendor = vendors.find(v => v.id === contactId);
+    const vendor = queryClient.getQueryData<any>(['vendor', contactId]);
     if (vendor) return { name: vendor.name, type: 'Vendor' };
     return null;
   };
@@ -170,7 +188,7 @@ const Transactions: React.FC = () => {
     }
 
     return results;
-  }, [transactions, filterRange, customDates, typeTab, searchQuery, customers, vendors, allCategories, users]);
+  }, [transactions, filterRange, customDates, typeTab, searchQuery, allCategories, users]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     try {

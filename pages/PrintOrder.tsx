@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { db } from '../db';
 import { formatCurrency } from '../constants';
 import { triggerPrintDialog } from '../src/utils/printUtils';
-import { useOrder, useCustomers, useUsers, useProducts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useOrder, useCustomer, useUsers, useProducts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
 import { theme } from '../theme';
 
 interface InvoiceContentProps {
@@ -175,14 +175,14 @@ const InvoiceContent: React.FC<InvoiceContentProps> = ({
 const PrintOrder: React.FC = () => {
   const { id } = useParams();
   const { data: order, isPending: orderLoading } = useOrder(id || '');
-  const { data: customers = [] } = useCustomers();
+  const { data: customer } = useCustomer(order ? order.customerId : undefined);
   const { data: users = [] } = useUsers();
   const { data: products = [] } = useProducts();
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   const printTriggeredRef = useRef(false);
 
-  const customer = order ? customers.find(c => c.id === order.customerId) : undefined;
+  // `customer` provided by useCustomer above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
 
   // Trigger print dialog when order data is loaded (only once)

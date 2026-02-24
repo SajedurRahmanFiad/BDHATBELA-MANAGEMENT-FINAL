@@ -6,12 +6,10 @@ import { formatCurrency, ICONS } from '../../constants';
 import { Button } from '../../components';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { theme } from '../../theme';
-import { useOrders, useBills, useTransactions } from '../../src/hooks/useQueries';
+import { useTransactions } from '../../src/hooks/useQueries';
 
 const IncomeVsExpense: React.FC = () => {
   const navigate = useNavigate();
-  const { data: orders = [] } = useOrders();
-  const { data: bills = [] } = useBills();
   const { data: transactions = [] } = useTransactions();
 
   // Aggregate real data by month
@@ -25,37 +23,18 @@ const IncomeVsExpense: React.FC = () => {
       aggregatedData[m] = { income: 0, expense: 0 };
     });
 
-    // Add income from Orders
-    orders.forEach(order => {
-      const orderDate = new Date(order.orderDate);
-      if (orderDate.getFullYear() === currentYear) {
-        const monthIndex = orderDate.getMonth();
-        const monthName = months[monthIndex];
-        aggregatedData[monthName].income += order.total;
+    // Aggregate income and expense exclusively from transactions
+    transactions.forEach(txn => {
+      const txnDate = new Date(txn.date);
+      if (txnDate.getFullYear() !== currentYear) return;
+      const monthIndex = txnDate.getMonth();
+      const monthName = months[monthIndex];
+      if (txn.type === 'Income') {
+        aggregatedData[monthName].income += txn.amount;
+      } else if (txn.type === 'Expense') {
+        aggregatedData[monthName].expense += txn.amount;
       }
     });
-
-    // Add expense from Bills
-    bills.forEach(bill => {
-      const billDate = new Date(bill.billDate);
-      if (billDate.getFullYear() === currentYear) {
-        const monthIndex = billDate.getMonth();
-        const monthName = months[monthIndex];
-        aggregatedData[monthName].expense += bill.total;
-      }
-    });
-
-    // Add other expenses from Transactions
-    transactions
-      .filter(t => t.type === 'Expense' && t.category !== 'expense_purchases')
-      .forEach(transaction => {
-        const txnDate = new Date(transaction.date);
-        if (txnDate.getFullYear() === currentYear) {
-          const monthIndex = txnDate.getMonth();
-          const monthName = months[monthIndex];
-          aggregatedData[monthName].expense += transaction.amount;
-        }
-      });
 
     // Convert to chart format
     return months.map(name => ({
@@ -64,7 +43,7 @@ const IncomeVsExpense: React.FC = () => {
       expense: aggregatedData[name].expense,
       profit: aggregatedData[name].income - aggregatedData[name].expense
     }));
-  }, [orders, bills, transactions]);
+  }, [transactions]);
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

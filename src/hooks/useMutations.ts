@@ -4,6 +4,7 @@ import {
   updateCustomer,
   deleteCustomer,
   createOrder,
+  createOrderWithRetry,
   updateOrder,
   deleteOrder,
   createBill,
@@ -261,7 +262,7 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
 export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'id'>, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: createOrder,
+    mutationFn: (order) => createOrderWithRetry(order),
     onMutate: async (newOrder) => {
       // Cancel outgoing queries to prevent race conditions
       await queryClient.cancelQueries({ queryKey: ['orders'] });
@@ -340,7 +341,25 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         }
       });
 
-      // Do not mutate server-side order settings locally — allocation is now atomic server-side.
+      // Best-effort: increment nextNumber in settings locally for optimistic UI
+      // If the created order had a higher number, use that; otherwise just increment current
+      try {
+        const currentSettings = queryClient.getQueryData<{ prefix: string; nextNumber: number }>(['settings', 'order']);
+        if (currentSettings) {
+          // Extract numeric part from created order number and use next value
+          const match = (data.orderNumber || '').match(/(\d+)$/);
+          if (match) {
+            const createdNum = parseInt(match[1], 10);
+            const nextNum = Math.max(createdNum + 1, currentSettings.nextNumber);
+            queryClient.setQueryData(['settings', 'order'], { ...currentSettings, nextNumber: nextNum });
+          } else {
+            // Fallback: just increment
+            queryClient.setQueryData(['settings', 'order'], { ...currentSettings, nextNumber: currentSettings.nextNumber + 1 });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to locally update order settings:', err);
+      }
 
       // No global refetches or invalidations: we've deterministically updated cached first pages where possible.
     },

@@ -164,10 +164,8 @@ const OrderForm: React.FC = () => {
       setNotes(existingOrderData.notes || '');
       initializedRef.current = true;
     } else if (!isEdit && orderSettings) {
-      // For new orders, do not pre-assign the final order number here —
-      // the server now assigns it atomically. Keep the field empty and
-      // show a placeholder indicating it will be assigned on save.
-      setOrderNumber('');
+      // Pre-fill with next order number from settings
+      setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
     }
   }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
 
@@ -237,7 +235,7 @@ const OrderForm: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!customerId || items.length === 0 || (isEdit && !orderNumber)) {
+    if (!customerId || items.length === 0 || !orderNumber) {
       const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is not set. Please wait for it to load.';
       setError(msg);
       toast.error(msg);
@@ -275,7 +273,8 @@ const OrderForm: React.FC = () => {
         finalCustomerId = realId;
       }
 
-      const baseOrderData: any = {
+      const orderData: any = {
+        orderNumber,
         orderDate,
         customerId: finalCustomerId,
         createdBy: '', // Will be auto-set by server
@@ -291,8 +290,6 @@ const OrderForm: React.FC = () => {
           created: `${user.name} created this order on ${dateStr}, at ${timeStr}`
         },
       };
-      // Only include orderNumber when editing — for new orders let the DB assign it.
-      const orderData = isEdit ? { ...baseOrderData, orderNumber } : baseOrderData;
 
       if (isEdit) {
         await updateMutation.mutateAsync({ id: id!, updates: orderData });
@@ -403,7 +400,7 @@ const OrderForm: React.FC = () => {
               type="text" 
               readOnly 
               value={orderNumber} 
-              placeholder={!orderSettings ? 'Loading...' : (isEdit ? 'Order number' : 'Assigned on save')} 
+              placeholder={!orderSettings ? 'Loading...' : 'Order number'} 
               className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
             />
           </div>

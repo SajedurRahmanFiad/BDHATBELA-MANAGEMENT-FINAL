@@ -374,9 +374,10 @@ export async function createOrder(order: Omit<Order, 'id'>) {
   // Auto-set created_by from current authenticated user (prevents temporary/wrong IDs)
   const createdBy = getCurrentUserId();
 
-  // If caller provided an explicit orderNumber include it, otherwise omit so DB default (sequence) applies.
+  // Always include orderNumber provided by client
   const insertBody: any = {
     id,
+    order_number: order.orderNumber,
     order_date: order.orderDate,
     customer_id: order.customerId,
     created_by: createdBy,
@@ -389,7 +390,6 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     paid_amount: order.paidAmount,
     history: order.history,
   };
-  if (order.orderNumber) insertBody.order_number = order.orderNumber;
 
   const { data, error } = await supabase
     .from('orders')
@@ -402,6 +402,96 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     throw error;
   }
   return mapOrder(data);
+}
+
+/**
+ * Helper: Get the next available order number by querying the highest existing number + 1.
+ * Uses the prefix from order_settings and the max numeric value from orders table.
+ */
+async function getNextOrderNumberFromDB(): Promise<string> {
+  try {
+    // Fetch current settings to get prefix
+    const settings = await fetchOrderSettings();
+    const prefix = settings.prefix || '';
+
+    // Query for the highest order_number in the database
+    const { data, error } = await supabase
+      .from('orders')
+      .select('order_number')
+      .order('order_number', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.warn('[supabaseQueries] Failed to fetch max order number:', error);
+      // Fallback: use nextNumber from settings
+      return `${prefix}${settings.nextNumber}`;
+    }
+
+    if (!data || data.length === 0) {
+      // No orders exist, use nextNumber from settings
+      return `${prefix}${settings.nextNumber}`;
+    }
+
+    // Extract numeric part from last order and increment
+    const lastOrderNumber = data[0].order_number;
+    const match = lastOrderNumber?.match(/(\d+)$/);
+    if (match) {
+      const nextNum = parseInt(match[1], 10) + 1;
+      return `${prefix}${nextNum}`;
+    }
+
+    // Fallback if regex doesn't match
+    return `${prefix}${settings.nextNumber}`;
+  } catch (err) {
+    console.error('[supabaseQueries] getNextOrderNumberFromDB error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Wrapper that retries createOrder on duplicate-key errors by querying the DB for the next available number.
+ * Useful when multiple clients create orders simultaneously with the same computed orderNumber.
+ * Includes small backoff between retries for smoother concurrent behavior.
+ */
+export async function createOrderWithRetry(
+  order: Omit<Order, 'id'>,
+  maxRetries: number = 3
+): Promise<Order> {
+  let lastError: any = null;
+  let currentOrder = { ...order };
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await createOrder(currentOrder);
+    } catch (err: any) {
+      lastError = err;
+      // Check if error is a duplicate-key violation (Postgres error code 23505)
+      const isDuplicateKey = err?.code === '23505' || 
+                              (err?.message && err.message.includes('duplicate key'));
+      
+      if (!isDuplicateKey || attempt === maxRetries - 1) {
+        // Not a duplicate error, or last attempt: throw
+        throw err;
+      }
+
+      // On duplicate, query DB for the actual max order number and use that for next attempt
+      try {
+        const nextOrderNumber = await getNextOrderNumberFromDB();
+        currentOrder.orderNumber = nextOrderNumber;
+        console.warn(`[supabaseQueries] Duplicate order number (attempt ${attempt + 1}), retrying with ${currentOrder.orderNumber}`);
+      } catch (retryErr) {
+        console.error('[supabaseQueries] Failed to compute next order number on retry:', retryErr);
+        throw retryErr;
+      }
+
+      // Add small backoff: 50ms * (attempt + 1) to reduce thundering herd
+      if (attempt < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 export async function updateOrder(id: string, updates: Partial<Order>) {

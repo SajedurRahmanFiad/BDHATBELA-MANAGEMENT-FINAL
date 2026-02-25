@@ -4,7 +4,6 @@ import {
   updateCustomer,
   deleteCustomer,
   createOrder,
-  createOrderWithRetry,
   updateOrder,
   deleteOrder,
   createBill,
@@ -262,7 +261,7 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
 export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'id'>, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (order) => createOrderWithRetry(order),
+    mutationFn: (order) => createOrder(order),
     onMutate: async (newOrder) => {
       // Cancel outgoing queries to prevent race conditions
       await queryClient.cancelQueries({ queryKey: ['orders'] });

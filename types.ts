@@ -1,8 +1,11 @@
 
 export enum UserRole {
   ADMIN = 'Admin',
-  EMPLOYEE = 'Employee'
+  EMPLOYEE = 'Employee',
+  EMPLOYEE1 = 'Employee1'
 }
+
+export const isEmployeeRole = (r?: UserRole) => r === UserRole.EMPLOYEE || r === UserRole.EMPLOYEE1;
 
 export enum OrderStatus {
   ON_HOLD = 'On Hold',

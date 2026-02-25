@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
-import { Product, UserRole } from '../types';
+import { Product, UserRole, isEmployeeRole } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
 import { useProduct, useCategories } from '../src/hooks/useQueries';
@@ -26,7 +26,7 @@ const ProductForm: React.FC = () => {
   }
 
   // Restrict employees from editing products
-  if (isEdit && user.role === UserRole.EMPLOYEE) {
+  if (isEdit && isEmployeeRole(user.role)) {
     return (
       <div className="p-8 text-center">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>

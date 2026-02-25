@@ -4,7 +4,7 @@ import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
-import { Order, OrderStatus, UserRole, Transaction } from '../types';
+import { Order, OrderStatus, UserRole, Transaction, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
@@ -25,7 +25,7 @@ const Orders: React.FC = () => {
   const { searchQuery } = useSearch();
   const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === UserRole.ADMIN;
-  const isEmployee = user?.role === UserRole.EMPLOYEE;
+  const isEmployee = isEmployeeRole(user?.role);
 
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
@@ -59,7 +59,7 @@ const Orders: React.FC = () => {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
     }
     if (createdByFilter === 'employees') {
-      return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+      return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     // Specific user ID
     return [createdByFilter];
@@ -376,7 +376,7 @@ const Orders: React.FC = () => {
           >
             <option value="all">All Users</option>
             {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
-            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
             <optgroup label="Specific Users">
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>

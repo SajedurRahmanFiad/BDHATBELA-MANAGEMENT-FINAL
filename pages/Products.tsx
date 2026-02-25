@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Product, UserRole } from '../types';
+import { Product, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import Pagination from '../src/components/Pagination';
@@ -31,7 +31,7 @@ const Products: React.FC = () => {
   const createdByIds = useMemo(() => {
     if (createdByFilter === 'all') return undefined;
     if (createdByFilter === 'admins') return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
-    if (createdByFilter === 'employees') return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+    if (createdByFilter === 'employees') return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     return [createdByFilter];
   }, [createdByFilter, users]);
 

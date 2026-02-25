@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
 import { db } from '../db';
-import { UserRole } from '../types';
+import { UserRole, isEmployeeRole } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
@@ -251,7 +251,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <div className="fixed inset-0 z-40" onClick={() => setIsPlusOpen(false)}></div>
                   <div className={`absolute right-0 mt-3 w-56 ${theme.colors.bg.primary} border ${theme.colors.border.primary} rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in slide-in-from-top-2 duration-200 origin-top-right`}>
                     <div className={`px-4 py-2 text-[10px] font-bold ${theme.colors.text.tertiary} uppercase tracking-widest border-b ${theme.colors.border.primary} mb-1`}>Quick Actions</div>
-                      {user.role === UserRole.EMPLOYEE ? (
+                      {isEmployeeRole(user.role) ? (
                         [
                           { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
                           { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers }

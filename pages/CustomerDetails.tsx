@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Order, OrderStatus, UserRole } from '../types';
+import { Order, OrderStatus, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { Button } from '../components';
@@ -91,7 +91,7 @@ const CustomerDetails: React.FC = () => {
   };
 
   // CONDITIONAL RENDERING - moved to JSX level, all hooks called before
-  if (userRole === UserRole.EMPLOYEE) {
+  if (isEmployeeRole(userRole)) {
     return (
       <div className="p-8 text-center">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>

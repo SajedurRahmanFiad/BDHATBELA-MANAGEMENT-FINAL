@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
-import { Order, OrderStatus, OrderItem, UserRole } from '../types';
+import { Order, OrderStatus, OrderItem, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -20,7 +20,7 @@ const OrderForm: React.FC = () => {
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === UserRole.ADMIN;
-  const isEmployee = user?.role === UserRole.EMPLOYEE;
+  const isEmployee = isEmployeeRole(user?.role);
   const isEdit = Boolean(id);
 
   // Wait for auth to load before rendering form
@@ -399,8 +399,7 @@ const OrderForm: React.FC = () => {
             <input 
               type="text" 
               readOnly 
-              value={orderNumber} 
-              placeholder={!orderSettings ? 'Loading...' : 'Order number'} 
+              placeholder={!orderSettings ? 'Loading...' : (isEdit ? 'Order number' : 'Assigned on save')} 
               className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
             />
           </div>

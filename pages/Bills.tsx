@@ -4,7 +4,7 @@ import PortalMenu from '../components/PortalMenu';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
-import { Bill, BillStatus, UserRole } from '../types';
+import { Bill, BillStatus, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton } from '../components';
@@ -39,7 +39,7 @@ const Bills: React.FC = () => {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
     }
     if (createdByFilter === 'employees') {
-      return users.filter(u => u.role === UserRole.EMPLOYEE).map(u => u.id);
+      return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     // Specific user ID
     return [createdByFilter];
@@ -211,7 +211,7 @@ const Bills: React.FC = () => {
           >
             <option value="all">All Users</option>
             {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
-            {users.some(u => u.role === UserRole.EMPLOYEE) && <option value="employees">All Employees</option>}
+            {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
             <optgroup label="Specific Users">
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>

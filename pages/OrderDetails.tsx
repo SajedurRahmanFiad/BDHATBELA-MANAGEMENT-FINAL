@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
-import { OrderStatus, Order, UserRole, Transaction } from '../types';
+import { OrderStatus, Order, UserRole, Transaction, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
@@ -50,7 +50,7 @@ const OrderDetails: React.FC = () => {
   // Get customer and created by user from query results
   // `customer` is obtained via `useCustomer` above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
-  const isEmployee = user.role === UserRole.EMPLOYEE;
+  const isEmployee = isEmployeeRole(user.role);
   const isOwner = order ? order.createdBy === user.id : false;
   
   const loading = orderLoading;
@@ -412,7 +412,7 @@ const OrderDetails: React.FC = () => {
           </div>
 
           {/* Process Section */}
-          {order.history?.processing || !isEmployee ? (
+          {order.history?.processing || (isAdmin || user.role === UserRole.EMPLOYEE1) ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
@@ -426,7 +426,7 @@ const OrderDetails: React.FC = () => {
                     {order.history.processing}
                   </p>
                 ) : (
-                  !isEmployee && (
+                  (isAdmin || user.role === UserRole.EMPLOYEE1) && (
                     <button 
                       disabled={order.status !== OrderStatus.ON_HOLD}
                       onClick={markProcessing}

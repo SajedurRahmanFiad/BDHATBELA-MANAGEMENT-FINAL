@@ -317,9 +317,28 @@ export async function fetchOrdersPage(
       query = query.lte('order_date', filters.to);
     }
     if (filters.search) {
-      // Search by order_number
       const q = filters.search.trim();
-      if (q) query = query.ilike('order_number', `%${q}%`);
+      if (!q) {
+        // ignore empty
+      } else if (/\d/.test(q)) {
+        // If the search contains digits, treat it as a phone search: lookup customers by phone and filter by customer_id
+        try {
+          const { data: custs, error: custErr } = await supabase.from('customers').select('id').ilike('phone', `%${q}%`);
+          if (!custErr && custs && custs.length > 0) {
+            const ids = custs.map((c: any) => c.id);
+            query = query.in('customer_id', ids);
+          } else {
+            // Fallback to order_number search if no matching customers
+            query = query.ilike('order_number', `%${q}%`);
+          }
+        } catch (e) {
+          // On error, fallback to order_number search
+          query = query.ilike('order_number', `%${q}%`);
+        }
+      } else {
+        // Default: search by order_number
+        query = query.ilike('order_number', `%${q}%`);
+      }
     }
     if (filters.createdByIds && filters.createdByIds.length > 0) {
       query = query.in('created_by', filters.createdByIds);
@@ -369,130 +388,38 @@ export async function fetchOrdersByCustomerId(customerId: string) {
 
 export async function createOrder(order: Omit<Order, 'id'>) {
   await ensureAuthenticated();
-  const id = crypto.randomUUID();
-  
-  // Auto-set created_by from current authenticated user (prevents temporary/wrong IDs)
+  // Use server RPC to atomically allocate order_number (based on order_settings.prefix and max existing number)
   const createdBy = getCurrentUserId();
-
-  // Always include orderNumber provided by client
-  const insertBody: any = {
-    id,
-    order_number: order.orderNumber,
-    order_date: order.orderDate,
-    customer_id: order.customerId,
-    created_by: createdBy,
-    status: order.status,
-    items: order.items,
-    subtotal: order.subtotal,
-    discount: order.discount,
-    shipping: order.shipping,
-    total: order.total,
-    paid_amount: order.paidAmount,
-    history: order.history,
+  const rpcParams: any = {
+    p_order_date: order.orderDate,
+    p_customer_id: order.customerId,
+    p_created_by: createdBy,
+    p_status: order.status,
+    p_items: order.items as any,
+    p_subtotal: order.subtotal,
+    p_discount: order.discount,
+    p_shipping: order.shipping,
+    p_total: order.total,
+    p_paid_amount: order.paidAmount,
+    p_notes: order.notes,
+    p_history: order.history,
   };
 
-  const { data, error } = await supabase
-    .from('orders')
-    .insert([insertBody])
-    .select()
-    .single();
-  
+  const { data, error } = await supabase.rpc('create_order_atomic', rpcParams);
   if (error) {
-    console.error('[supabaseQueries] createOrder error:', error);
+    console.error('[supabaseQueries] createOrder (rpc) error:', error);
     throw error;
   }
-  return mapOrder(data);
+  // Supabase rpc returns an array of rows when returning SETOF
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapOrder(row);
 }
 
 /**
  * Helper: Get the next available order number by querying the highest existing number + 1.
  * Uses the prefix from order_settings and the max numeric value from orders table.
  */
-async function getNextOrderNumberFromDB(): Promise<string> {
-  try {
-    // Fetch current settings to get prefix
-    const settings = await fetchOrderSettings();
-    const prefix = settings.prefix || '';
-
-    // Query for the highest order_number in the database
-    const { data, error } = await supabase
-      .from('orders')
-      .select('order_number')
-      .order('order_number', { ascending: false })
-      .limit(1);
-
-    if (error) {
-      console.warn('[supabaseQueries] Failed to fetch max order number:', error);
-      // Fallback: use nextNumber from settings
-      return `${prefix}${settings.nextNumber}`;
-    }
-
-    if (!data || data.length === 0) {
-      // No orders exist, use nextNumber from settings
-      return `${prefix}${settings.nextNumber}`;
-    }
-
-    // Extract numeric part from last order and increment
-    const lastOrderNumber = data[0].order_number;
-    const match = lastOrderNumber?.match(/(\d+)$/);
-    if (match) {
-      const nextNum = parseInt(match[1], 10) + 1;
-      return `${prefix}${nextNum}`;
-    }
-
-    // Fallback if regex doesn't match
-    return `${prefix}${settings.nextNumber}`;
-  } catch (err) {
-    console.error('[supabaseQueries] getNextOrderNumberFromDB error:', err);
-    throw err;
-  }
-}
-
-/**
- * Wrapper that retries createOrder on duplicate-key errors by querying the DB for the next available number.
- * Useful when multiple clients create orders simultaneously with the same computed orderNumber.
- * Includes small backoff between retries for smoother concurrent behavior.
- */
-export async function createOrderWithRetry(
-  order: Omit<Order, 'id'>,
-  maxRetries: number = 3
-): Promise<Order> {
-  let lastError: any = null;
-  let currentOrder = { ...order };
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await createOrder(currentOrder);
-    } catch (err: any) {
-      lastError = err;
-      // Check if error is a duplicate-key violation (Postgres error code 23505)
-      const isDuplicateKey = err?.code === '23505' || 
-                              (err?.message && err.message.includes('duplicate key'));
-      
-      if (!isDuplicateKey || attempt === maxRetries - 1) {
-        // Not a duplicate error, or last attempt: throw
-        throw err;
-      }
-
-      // On duplicate, query DB for the actual max order number and use that for next attempt
-      try {
-        const nextOrderNumber = await getNextOrderNumberFromDB();
-        currentOrder.orderNumber = nextOrderNumber;
-        console.warn(`[supabaseQueries] Duplicate order number (attempt ${attempt + 1}), retrying with ${currentOrder.orderNumber}`);
-      } catch (retryErr) {
-        console.error('[supabaseQueries] Failed to compute next order number on retry:', retryErr);
-        throw retryErr;
-      }
-
-      // Add small backoff: 50ms * (attempt + 1) to reduce thundering herd
-      if (attempt < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
-      }
-    }
-  }
-
-  throw lastError;
-}
+// Note: previous client-side retry helpers removed — allocation is now atomic via RPC `create_order_atomic`.
 
 export async function updateOrder(id: string, updates: Partial<Order>) {
   await ensureAuthenticated();
@@ -1306,7 +1233,22 @@ export async function fetchBillsPage(
     if (filters.to) query = query.lte('bill_date', filters.to);
     if (filters.search && filters.search.trim()) {
       const q = filters.search.trim();
-      query = query.ilike('bill_number', `%${q}%`);
+      if (/\d/.test(q)) {
+        // Treat as phone search for vendor phone
+        try {
+          const { data: vendors, error: vendErr } = await supabase.from('vendors').select('id').ilike('phone', `%${q}%`);
+          if (!vendErr && vendors && vendors.length > 0) {
+            const ids = vendors.map((v: any) => v.id);
+            query = query.in('vendor_id', ids);
+          } else {
+            query = query.ilike('bill_number', `%${q}%`);
+          }
+        } catch (e) {
+          query = query.ilike('bill_number', `%${q}%`);
+        }
+      } else {
+        query = query.ilike('bill_number', `%${q}%`);
+      }
     }
     if (filters.createdByIds && filters.createdByIds.length > 0) {
       query = query.in('created_by', filters.createdByIds);

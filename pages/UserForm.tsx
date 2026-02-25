@@ -210,6 +210,7 @@ const UserForm: React.FC = () => {
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">System Role</label>
                 <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})}>
                   <option value={UserRole.EMPLOYEE}>Employee</option>
+                  <option value={UserRole.EMPLOYEE1}>Employee1</option>
                   <option value={UserRole.ADMIN}>Administrator</option>
                 </select>
               </div>

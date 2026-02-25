@@ -340,15 +340,7 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         }
       });
 
-      // Best-effort: increment nextNumber in settings locally (no forced refetch)
-      try {
-        const currentSettings = queryClient.getQueryData<{ prefix: string; nextNumber: number }>(['settings', 'order']);
-        if (currentSettings && currentSettings.nextNumber) {
-          queryClient.setQueryData(['settings', 'order'], { ...currentSettings, nextNumber: currentSettings.nextNumber + 1 });
-        }
-      } catch (err) {
-        console.error('Failed to locally update order settings:', err);
-      }
+      // Do not mutate server-side order settings locally — allocation is now atomic server-side.
 
       // No global refetches or invalidations: we've deterministically updated cached first pages where possible.
     },

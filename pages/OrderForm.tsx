@@ -11,6 +11,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
+import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 
@@ -51,7 +52,7 @@ const OrderForm: React.FC = () => {
   // Lightweight fetch used only when the product search dropdown opens.
   const { data: productsMini = [], isFetching: productsMiniLoading } = useQuery({
     queryKey: ['productsMini'],
-    queryFn: fetchProductsMini,
+    queryFn: () => fetchProductsMini(),
     staleTime: 5 * 60 * 1000,
     enabled: false, // we'll trigger by setting `showProductSearch` below
     refetchOnWindowFocus: false,
@@ -63,7 +64,7 @@ const OrderForm: React.FC = () => {
     const full = queryClient.getQueryData<any[]>(['products']);
     if (!full || full.length === 0) {
       // trigger the lightweight fetch
-      queryClient.fetchQuery({ queryKey: ['productsMini'], queryFn: fetchProductsMini }).catch(() => {});
+      queryClient.fetchQuery({ queryKey: ['productsMini'], queryFn: () => fetchProductsMini() }).catch(() => {});
     }
   }, [showProductSearch, queryClient]);
 
@@ -163,8 +164,10 @@ const OrderForm: React.FC = () => {
       setNotes(existingOrderData.notes || '');
       initializedRef.current = true;
     } else if (!isEdit && orderSettings) {
-      // Use Supabase settings for new orders
-      setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
+      // For new orders, do not pre-assign the final order number here —
+      // the server now assigns it atomically. Keep the field empty and
+      // show a placeholder indicating it will be assigned on save.
+      setOrderNumber('');
     }
   }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
 
@@ -234,7 +237,7 @@ const OrderForm: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!customerId || items.length === 0 || !orderNumber) {
+    if (!customerId || items.length === 0 || (isEdit && !orderNumber)) {
       const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is not set. Please wait for it to load.';
       setError(msg);
       toast.error(msg);
@@ -259,10 +262,22 @@ const OrderForm: React.FC = () => {
       const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
       const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
 
-      const orderData = {
-        orderNumber,
+      // Resolve temporary customer id (if any) to a real id before saving.
+      let finalCustomerId = customerId;
+      if (isTempId(finalCustomerId)) {
+        const realId = await waitForRealId(finalCustomerId, 7000);
+        if (!realId) {
+          const msg = 'Customer is still being saved. Please wait a moment and try again.';
+          setError(msg);
+          toast.error(msg);
+          return;
+        }
+        finalCustomerId = realId;
+      }
+
+      const baseOrderData: any = {
         orderDate,
-        customerId,
+        customerId: finalCustomerId,
         createdBy: '', // Will be auto-set by server
         status: isEdit && existingOrderData ? existingOrderData.status : OrderStatus.ON_HOLD,
         items,
@@ -276,31 +291,24 @@ const OrderForm: React.FC = () => {
           created: `${user.name} created this order on ${dateStr}, at ${timeStr}`
         },
       };
+      // Only include orderNumber when editing — for new orders let the DB assign it.
+      const orderData = isEdit ? { ...baseOrderData, orderNumber } : baseOrderData;
 
       if (isEdit) {
         await updateMutation.mutateAsync({ id: id!, updates: orderData });
         toast.success('Order updated successfully');
         navigate('/orders');
       } else {
-        createMutation.mutateAsync(orderData as any).then(
-          (createdOrder) => {
-            setSaving(false);
-            toast.success('Order created successfully');
-            navigate(`/orders/${createdOrder.id}`);
-          },
-          (err) => {
-            setSaving(false);
-            const errorMsg = err instanceof Error ? err.message : 'Failed to save order';
-            setError(errorMsg);
-            toast.error(errorMsg);
-          }
-        );
+        const createdOrder = await createMutation.mutateAsync(orderData as any);
+        toast.success('Order created successfully');
+        navigate(`/orders/${createdOrder.id}`);
       }
     } catch (err) {
       console.error('Failed to save order:', err);
       const errorMsg = err instanceof Error ? err.message : 'Failed to save order';
       setError(errorMsg);
       toast.error(errorMsg);
+    } finally {
       setSaving(false);
     }
   };
@@ -395,7 +403,7 @@ const OrderForm: React.FC = () => {
               type="text" 
               readOnly 
               value={orderNumber} 
-              placeholder={!orderSettings ? 'Loading...' : 'Order number'} 
+              placeholder={!orderSettings ? 'Loading...' : (isEdit ? 'Order number' : 'Assigned on save')} 
               className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
             />
           </div>

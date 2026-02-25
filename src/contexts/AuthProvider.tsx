@@ -74,8 +74,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Prefetch small-to-medium master datasets (products, accounts)
             // so UI can render instantly after auth without fetching heavy tables.
             try {
-              queryClient.prefetchQuery(['products'], () => fetchProducts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
-              queryClient.prefetchQuery(['accounts'], () => fetchAccounts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
+              queryClient.prefetchQuery({ queryKey: ['products'], queryFn: () => fetchProducts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+              queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
             } catch (e) {
               // ignore prefetch errors
             }
@@ -133,12 +133,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('[Auth] User logged in:', dbUser.name);
       // Prefetch master datasets for fast UI
-      try {
-        queryClient.prefetchQuery(['products'], () => fetchProducts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
-        queryClient.prefetchQuery(['accounts'], () => fetchAccounts(), { staleTime: 15 * 60 * 1000 }).catch(() => {});
-      } catch (e) {
-        // ignore
-      }
+        try {
+          queryClient.prefetchQuery({ queryKey: ['products'], queryFn: () => fetchProducts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+          queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+        } catch (e) {
+          // ignore
+        }
       return { data: { user: dbUser }, error: null };
     } catch (err: any) {
       console.error('[Auth] signIn exception:', err?.message || err);

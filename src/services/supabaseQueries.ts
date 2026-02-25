@@ -374,23 +374,26 @@ export async function createOrder(order: Omit<Order, 'id'>) {
   // Auto-set created_by from current authenticated user (prevents temporary/wrong IDs)
   const createdBy = getCurrentUserId();
 
+  // If caller provided an explicit orderNumber include it, otherwise omit so DB default (sequence) applies.
+  const insertBody: any = {
+    id,
+    order_date: order.orderDate,
+    customer_id: order.customerId,
+    created_by: createdBy,
+    status: order.status,
+    items: order.items,
+    subtotal: order.subtotal,
+    discount: order.discount,
+    shipping: order.shipping,
+    total: order.total,
+    paid_amount: order.paidAmount,
+    history: order.history,
+  };
+  if (order.orderNumber) insertBody.order_number = order.orderNumber;
+
   const { data, error } = await supabase
     .from('orders')
-    .insert([{
-      id,
-      order_number: order.orderNumber,
-      order_date: order.orderDate,
-      customer_id: order.customerId,
-      created_by: createdBy,
-      status: order.status,
-      items: order.items,
-      subtotal: order.subtotal,
-      discount: order.discount,
-      shipping: order.shipping,
-      total: order.total,
-      paid_amount: order.paidAmount,
-      history: order.history,
-    }])
+    .insert([insertBody])
     .select()
     .single();
   

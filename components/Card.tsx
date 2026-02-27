@@ -99,13 +99,15 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant 
   }
   
   return (
-    <div className={`p-6 flex items-center gap-4 ${cardBgColor} rounded-xl shadow-lg border border-gray-100 ${borderStyle}`}>
-      <div className={`${iconBgColor} p-4 rounded-lg flex items-center justify-center`}>
+    // reduced padding for compact widgets
+    <div className={`p-4 flex items-center gap-3 ${cardBgColor} rounded-xl shadow-lg border border-gray-100 ${borderStyle}`}>
+      <div className={`${iconBgColor} p-3 rounded-lg flex items-center justify-center`}>
         <div className={textColor}>{icon}</div>
       </div>
       <div className="flex-1">
-        <p className={`text-xs font-bold uppercase tracking-widest ${textColor === 'text-white' ? 'text-white/70' : 'text-gray-400'}`}>{title}</p>
-        <h3 className={`text-2xl font-black mt-1 ${textColor}`}>{value}</h3>
+        {/* slightly smaller title text */}
+        <p className={`text-[10px] font-bold uppercase tracking-widest ${textColor === 'text-white' ? 'text-white/70' : 'text-gray-400'}`}>{title}</p>
+        <h3 className={`text-xl font-black mt-1 ${textColor}`}>{value}</h3>
       </div>
     </div>
   );

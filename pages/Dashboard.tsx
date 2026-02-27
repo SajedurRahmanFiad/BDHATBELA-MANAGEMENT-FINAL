@@ -81,10 +81,16 @@ const Dashboard: React.FC = () => {
     processing: filteredOrders.filter(o => o.status === OrderStatus.PROCESSING).length,
     picked: filteredOrders.filter(o => o.status === OrderStatus.PICKED).length,
     completed: filteredOrders.filter(o => o.status === OrderStatus.COMPLETED).length,
+    cancelled: filteredOrders.filter(o => o.status === OrderStatus.CANCELLED).length,
   };
 
   const totalReceivables = filteredOrders.reduce((sum, o) => sum + (o.total - o.paidAmount), 0);
   const totalPayables = filteredBills.reduce((sum, b) => sum + (b.total - b.paidAmount), 0);
+
+  // additional metrics
+  const averageOrderValue = orderCounts.completed > 0
+    ? totalSales / orderCounts.completed
+    : 0;
 
   // --- EMPLOYEE CALCULATIONS ---
   // For employees the top FilterBar should not affect stat cards — use unfiltered `orders` for stats
@@ -188,16 +194,22 @@ const Dashboard: React.FC = () => {
           setCustomDates={setCustomDates}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* first row: financial metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <StatCard title="Total Sales" value={formatCurrency(totalSales)} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
           <StatCard title="Total Purchases" value={formatCurrency(totalPurchases)} icon={ICONS.Briefcase} bgColor="bg-purple-600" textColor="text-white" iconBgColor="bg-purple-700" />
           <StatCard title="Other Expenses" value={formatCurrency(otherExpenses)} icon={ICONS.Delete} bgColor="bg-amber-500" textColor="text-white" iconBgColor="bg-amber-600" />
           <StatCard title="Total Profit" value={formatCurrency(totalProfit)} icon={ICONS.Reports} isProfitCard={true} profitValue={totalProfit} />
-          
+          <StatCard title="Avg Order Value" value={formatCurrency(averageOrderValue)} icon={ICONS.Banking} bgColor="bg-green-600" textColor="text-white" iconBgColor="bg-green-700" />
+        </div>
+
+        {/* second row: order status breakdown including cancelled */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mt-6">
           <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" />
           <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" />
           <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" />
           <StatCard title="Completed Orders" value={orderCounts.completed} icon={ICONS.PlusCircle} bgColor="bg-teal-600" textColor="text-white" iconBgColor="bg-teal-700" />
+          <StatCard title="Cancelled Orders" value={orderCounts.cancelled} icon={ICONS.AlertCircle} bgColor="bg-red-500" textColor="text-white" iconBgColor="bg-red-600" />
         </div>
 
         <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm">

@@ -84,6 +84,7 @@ export interface Order {
   shipping: number;
   total: number;
   notes?: string;
+  carrybeeConsignmentId?: string;
   history: {
     created: string;
     courier?: string;

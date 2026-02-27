@@ -331,7 +331,7 @@ export async function fetchOrdersPage(
     .select(
       `id, order_number, order_date, status, total, created_at, 
        customer_id, customer_name, customer_phone, customer_address, 
-       created_by, creator_name`,
+       created_by, creator_name, carrybee_consignment_id`,
       { count: 'estimated' }
     );
 
@@ -500,6 +500,7 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     notes: data.notes,
     history: data.history,
     created_at: data.created_at,
+    carrybee_consignment_id: data.carrybee_consignment_id,
   };
 
   return mapOrder(mappedData);
@@ -513,6 +514,8 @@ export async function createOrder(order: Omit<Order, 'id'>) {
 
 export async function updateOrder(id: string, updates: Partial<Order>) {
   await ensureAuthenticated();
+  const carrybeeConsignmentId =
+    (updates as any).carrybeeConsignmentId ?? (updates as any).carrybee_consignment_id;
   const { data, error } = await supabase
     .from('orders')
     .update({
@@ -528,6 +531,7 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.total !== undefined && { total: updates.total }),
       ...(updates.paidAmount !== undefined && { paid_amount: updates.paidAmount }),
       ...(updates.history && { history: updates.history }),
+      ...(carrybeeConsignmentId && { carrybee_consignment_id: carrybeeConsignmentId }),
     })
     .eq('id', id)
     .select('id');
@@ -614,6 +618,7 @@ function mapOrder(row: any): Order {
     // 'amount' alias may be returned by some queries; fall back to total
     total: row.total ?? row.amount ?? 0,
     notes: row.notes,
+    carrybeeConsignmentId: row.carrybee_consignment_id ?? row.carrybeeConsignmentId,
     history: row.history ?? {},
     paidAmount: row.paid_amount ?? row.paidAmount ?? 0,
     // Relational fields from joined customer_creator view
@@ -1048,13 +1053,28 @@ export async function fetchProductsSearch(q: string, limit: number = 50) {
 // ========== USERS ==========
 
 export async function fetchUsers() {
-  const mapped = await queryWithTimeout<User>(
-    supabase
-      .from('users')
-      .select('*')
-      .order('created_at', { ascending: false })
-  );
-  return mapped.map(mapUser);
+  // Prefer ordering by created_at when available, but gracefully fallback
+  // for schemas that don't have created_at on users.
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    // If created_at doesn't exist, retry without that ordering
+    if (String(error.message || '').includes('created_at') || error.code === '42703') {
+      const retry = await supabase.from('users').select('*').order('name', { ascending: true });
+      if (retry.error) {
+        console.error('[supabaseQueries] fetchUsers retry error:', retry.error);
+        return [] as User[];
+      }
+      return (retry.data || []).map(mapUser);
+    }
+    console.error('[supabaseQueries] fetchUsers error:', error);
+    return [] as User[];
+  }
+
+  return (data || []).map(mapUser);
 }
 
 // Lightweight users: return minimal columns for selectors/dropdowns
@@ -1063,10 +1083,20 @@ export async function fetchUsersMini() {
     .from('users')
     .select('id, name')
     .order('created_at', { ascending: false });
+
   if (error) {
+    if (String(error.message || '').includes('created_at') || error.code === '42703') {
+      const retry = await supabase.from('users').select('id, name').order('name', { ascending: true });
+      if (retry.error) {
+        console.error('[supabaseQueries] fetchUsersMini retry error:', retry.error);
+        return [] as Array<{ id: string; name: string }>;
+      }
+      return retry.data || [];
+    }
     console.error('[supabaseQueries] fetchUsersMini error:', error);
     return [] as Array<{ id: string; name: string }>;
   }
+
   return data || [];
 }
 

@@ -5,6 +5,7 @@ import { db, saveDb } from '../../db';
 
 type AuthContextType = {
   user: any | null;
+  profile?: any | null;
   isLoading: boolean;
   signIn: (phoneOrEmail: string, password: string) => Promise<{ error?: any; data?: any }>;
   signOut: () => Promise<void>;
@@ -163,7 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   console.log('[AuthProvider] Rendering with state:', { userName: user?.name, isLoading });
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile: user, isLoading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
@@ -172,7 +173,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    throw new Error('useAuth must be used within AuthProvider');
+    console.warn('[Auth] useAuth called without AuthProvider, falling back to db.currentUser');
+    return {
+      user: db.currentUser ?? null,
+      profile: db.currentUser ?? null,
+      isLoading: false,
+      signIn: async () => ({ error: { message: 'AuthProvider missing' } }),
+      signOut: async () => {},
+    };
   }
   return ctx;
 }

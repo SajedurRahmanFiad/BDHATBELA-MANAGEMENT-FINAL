@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import supabase from '../services/supabaseClient';
+import { syncCarryBeeTransferStatuses } from '../services/supabaseQueries';
+import { useAuth } from './AuthProvider';
 
 interface RealtimeContextType {
   isConnected: boolean;
@@ -18,6 +20,8 @@ const RealtimeContext = createContext<RealtimeContextType | undefined>(undefined
 export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = React.useState(false);
+  const { user } = useAuth();
+  const syncingRef = React.useRef(false);
 
   useEffect(() => {
     console.log('[Realtime] Initializing subscriptions for orders, bills, transactions...');
@@ -215,6 +219,38 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setIsConnected(false);
     };
   }, [queryClient]);
+
+  // Periodically sync CarryBee transfer statuses and auto-mark picked orders.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let cancelled = false;
+    const INTERVAL_MS = 30_000;
+
+    const runSync = async () => {
+      if (cancelled || syncingRef.current) return;
+      syncingRef.current = true;
+      try {
+        const result = await syncCarryBeeTransferStatuses();
+        if (!cancelled && result.updated > 0) {
+          queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+        }
+      } catch (err) {
+        console.error('[Realtime] CarryBee sync failed:', err);
+      } finally {
+        syncingRef.current = false;
+      }
+    };
+
+    // Run once immediately, then keep polling.
+    runSync();
+    const timer = window.setInterval(runSync, INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user?.id, queryClient]);
 
   return (
     <RealtimeContext.Provider value={{ isConnected }}>

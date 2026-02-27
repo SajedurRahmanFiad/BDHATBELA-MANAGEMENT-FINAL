@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import supabase from './supabaseClient';
-import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
+import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus } from '../../types';
 import { db } from '../../db';
 
 export const DEFAULT_PAGE_SIZE = 25;
@@ -330,6 +330,7 @@ export async function fetchOrdersPage(
     .from('orders_with_customer_creator')
     .select(
       `id, order_number, order_date, status, total, created_at, 
+       history,
        customer_id, customer_name, customer_phone, customer_address, 
        created_by, creator_name, carrybee_consignment_id`,
       { count: 'estimated' }
@@ -2900,6 +2901,110 @@ export async function submitCarryBeeOrder(params: {
   }
 }
 
+export async function fetchCarryBeeOrderDetails(params: {
+  baseUrl: string;
+  clientId: string;
+  clientSecret: string;
+  clientContext: string;
+  consignmentId: string;
+}): Promise<{ data?: any; error?: string }> {
+  try {
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/carrybee-order-details`;
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      return { error: `HTTP ${response.status}` };
+    }
+
+    const body = await response.json();
+    if (body?.error) {
+      return { error: body.error };
+    }
+
+    return { data: body?.data };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Poll CarryBee order details for all active orders that have a consignment id.
+ * If transfer_status is exactly "At the sorting hub", mark the order as Picked.
+ */
+export async function syncCarryBeeTransferStatuses(): Promise<{ checked: number; updated: number }> {
+  let checked = 0;
+  let updated = 0;
+
+  try {
+    const courier = await fetchCourierSettings();
+    const baseUrl = courier?.carryBee?.baseUrl?.trim();
+    const clientId = courier?.carryBee?.clientId?.trim();
+    const clientSecret = courier?.carryBee?.clientSecret?.trim();
+    const clientContext = courier?.carryBee?.clientContext?.trim();
+
+    if (!baseUrl || !clientId || !clientSecret || !clientContext) {
+      return { checked, updated };
+    }
+
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('id, status, history, carrybee_consignment_id')
+      .not('carrybee_consignment_id', 'is', null)
+      .neq('carrybee_consignment_id', '')
+      .in('status', [OrderStatus.ON_HOLD, OrderStatus.PROCESSING]);
+
+    if (error) {
+      console.error('[supabaseQueries] syncCarryBeeTransferStatuses query error:', error);
+      return { checked, updated };
+    }
+
+    const orders = rows || [];
+    for (const row of orders) {
+      const consignmentId = row.carrybee_consignment_id as string;
+      if (!consignmentId) continue;
+      checked++;
+
+      try {
+        const details = await fetchCarryBeeOrderDetails({
+          baseUrl,
+          clientId,
+          clientSecret,
+          clientContext,
+          consignmentId,
+        });
+        if (details.error) continue;
+        const transferStatus = details?.data?.data?.transfer_status || details?.data?.transfer_status || '';
+
+        if (transferStatus === 'At the sorting hub') {
+          const nextHistory = {
+            ...(row.history || {}),
+            picked: `Marked picked automatically from CarryBee transfer status on ${new Date().toLocaleString()}`,
+          };
+
+          await updateOrder(row.id, {
+            status: OrderStatus.PICKED,
+            history: nextHistory as any,
+          } as Partial<Order>);
+          updated++;
+        }
+      } catch (err) {
+        console.error('[supabaseQueries] syncCarryBeeTransferStatuses detail error:', err);
+      }
+    }
+  } catch (err) {
+    console.error('[supabaseQueries] syncCarryBeeTransferStatuses exception:', err);
+  }
+
+  return { checked, updated };
+}
+
 export async function submitSteadfastOrder(params: {
   baseUrl: string;
   apiKey: string;
@@ -3129,5 +3234,6 @@ export default {
   updateSystemDefaults,
   fetchCourierSettings,
   updateCourierSettings,
+  syncCarryBeeTransferStatuses,
   batchUpdateSettings,
 };

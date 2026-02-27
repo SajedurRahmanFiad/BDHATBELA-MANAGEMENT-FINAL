@@ -390,6 +390,10 @@ const Orders: React.FC = () => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
                 const isOwner = order.createdBy === user?.id;
                 const custName = order.customerName ?? 'Unknown';
+                const courierHistory = String(order.history?.courier || '').toLowerCase();
+                const sentToSteadfast = courierHistory.includes('steadfast');
+                const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
+                const sentToAnyCourier = sentToSteadfast || sentToCarryBee;
                 return (
                   <tr 
                     key={order.id} 
@@ -409,10 +413,10 @@ const Orders: React.FC = () => {
                     <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(order.status)}`}>{order.status}</span>
-                      {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('Steadfast') && (
+                      {sentToSteadfast && (
                         <img src="/uploads/steadfast.png" alt="Steadfast" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
-                      {order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.history?.courier?.includes('CarryBee') && (
+                      {sentToCarryBee && (
                         <img src="/uploads/carrybee.png" alt="CarryBee" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
                     </td>
@@ -461,7 +465,7 @@ const Orders: React.FC = () => {
                               <div className="border-t my-1"></div>
                               <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
                               <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier && (
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="border-t my-1"></div>
                                   <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
@@ -495,7 +499,7 @@ const Orders: React.FC = () => {
                               )}
                               <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
                               <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier && (
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                   <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>

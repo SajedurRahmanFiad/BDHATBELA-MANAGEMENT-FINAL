@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
 import type { Order, Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
@@ -14,6 +15,7 @@ interface SteadfastModalProps {
 }
 
 export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose, order, customer }) => {
+  const queryClient = useQueryClient();
   const { data: courierSettings } = useCourierSettings();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,9 +103,15 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
       console.log('[SteadfastModal] Order submitted successfully to Steadfast');
       try {
         const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+        console.log('[SteadfastModal] Setting courier history:', historyText);
         await updateOrder.mutateAsync({ id: order.id, updates: { history: { ...order.history, courier: historyText } } });
+        
+        // Invalidate and refetch orders queries to ensure fresh data
+        await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
+        await queryClient.refetchQueries({ queryKey: ['order', order.id] });
+        console.log('[SteadfastModal] Courier status updated and UI refreshed');
       } catch (err) {
-        console.error('[SteadfastModal] Failed to update order sent flag:', err);
+        console.error('[SteadfastModal] Failed to update order:', err);
       }
       onClose();
     } catch (err) {

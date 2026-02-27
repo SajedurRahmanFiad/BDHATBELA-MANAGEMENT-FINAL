@@ -59,6 +59,7 @@ export function useCustomersPage(
     queryFn: () => fetchCustomersPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
 }
 
@@ -92,6 +93,7 @@ export function useOrdersPage(
     queryFn: () => fetchOrdersPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
 }
 
@@ -133,6 +135,7 @@ export function useBillsPage(
     queryFn: () => fetchBillsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
 }
 
@@ -185,6 +188,7 @@ export function useTransactionsPage(
     queryFn: () => fetchTransactionsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
 }
 
@@ -204,6 +208,7 @@ export function useUsers(): UseQueryResult<User[], Error> {
     queryKey: ['users'],
     queryFn: fetchUsers,
     staleTime: 5 * 60 * 1000, // 5 minutes - matches bills/orders cache, creator names stay fresh without refetch on every mutation
+    refetchOnMount: true,
   });
 }
 
@@ -247,6 +252,7 @@ export function useVendorsPage(
     queryFn: () => fetchVendorsPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
 }
 
@@ -291,6 +297,7 @@ export function useProductsPage(
     staleTime: 15 * 60 * 1000,
     keepPreviousData: true,
     refetchOnWindowFocus: false,
+    refetchOnMount: true,
   };
 
   return useQuery(options);

@@ -44,6 +44,73 @@ import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
 import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
+// Helper: parse react-query page keys which follow the pattern ['resource', page, pageSize, filters?]
+function parsePageKey(k: any[]): { page: number; pageSize: number; filters: any } {
+  let page = 1;
+  let pageSize = DEFAULT_PAGE_SIZE;
+  let filters: any = undefined;
+
+  for (let i = 1; i < k.length; i++) {
+    const v = k[i];
+    if (typeof v === 'number' && Number.isInteger(v)) {
+      if (page === 1) {
+        page = v;
+      } else if (pageSize === DEFAULT_PAGE_SIZE) {
+        pageSize = v;
+      }
+    } else {
+      filters = v;
+      break;
+    }
+  }
+  return { page, pageSize, filters };
+}
+
+// Helper: determine whether a row belongs to a paginated filter set for known resources
+function matchesFiltersForResource(resource: string, row: any, filters: any): boolean {
+  if (!filters) return true;
+  try {
+    // Generic checks: status, from/to dates, createdBy/created_by
+    if (filters.status && filters.status !== 'All') {
+      if ((row.status || row.status === '') && row.status !== filters.status) return false;
+    }
+    const createdAt = row.createdAt || row.created_at || row.date || null;
+    if (filters.from && createdAt) {
+      const fromD = new Date(filters.from);
+      if (new Date(createdAt) < fromD) return false;
+    }
+    if (filters.to && createdAt) {
+      const toD = new Date(filters.to);
+      if (new Date(createdAt) > toD) return false;
+    }
+
+    // Resource-specific heuristics
+    if (resource === 'bills') {
+      if (filters.vendorId && (row.vendorId || row.vendor_id) && (row.vendorId || row.vendor_id) !== filters.vendorId) return false;
+    }
+    if (resource === 'transactions') {
+      if (filters.accountId && (row.accountId || row.account_id) && (row.accountId || row.account_id) !== filters.accountId) return false;
+      if (filters.contactId && (row.contactId || row.contact_id) && (row.contactId || row.contact_id) !== filters.contactId) return false;
+      if (filters.type && (row.type || row.type === '') && row.type !== filters.type) return false;
+    }
+    if (resource === 'orders') {
+      if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
+        const cb = row.createdBy || row.created_by;
+        if (!filters.createdByIds.includes(cb)) return false;
+      }
+    }
+
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Helper: invalidate all cached pages for a resource (including paginated keys)
+function invalidateResourceQueries(queryClient: ReturnType<typeof useQueryClient>, resource: string) {
+  queryClient.invalidateQueries({ queryKey: [resource], exact: false });
+}
+
 // ========== CUSTOMERS ==========
 
 export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<Customer>, unknown> {
@@ -52,7 +119,8 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
     // Update page 1 if cached
     const page1 = queryClient.getQueryData<any>(['customers', 1]);
     if (page1 && Array.isArray(page1.data)) {
-      queryClient.setQueryData(['customers', 1], { ...page1, data: [newCust, ...page1.data].slice(0, DEFAULT_PAGE_SIZE), count: (page1.count || 0) + 1 });
+      const { pageSize: sz } = parsePageKey(['customers', 1]);
+      queryClient.setQueryData(['customers', 1], { ...page1, data: [newCust, ...page1.data].slice(0, sz), count: (page1.count || 0) + 1 });
     } else {
       // no-op fallback: do not invalidate entire page; creation is handled deterministically elsewhere
     }
@@ -78,7 +146,8 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
         // Also patch paginated page 1 if present so components reading ['customers', 1] update immediately
         const custPage1 = queryClient.getQueryData<any>(['customers', 1]);
         if (custPage1 && Array.isArray(custPage1.data)) {
-          queryClient.setQueryData(['customers', 1], { ...custPage1, data: [optimisticCustomer, ...custPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (custPage1.count || 0) + 1 });
+          const { pageSize: sz } = parsePageKey(['customers', 1]);
+          queryClient.setQueryData(['customers', 1], { ...custPage1, data: [optimisticCustomer, ...custPage1.data].slice(0, sz), count: (custPage1.count || 0) + 1 });
         }
 
         return { previousCustomers, tempId, optimisticCustomer };
@@ -116,9 +185,9 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
       pages.forEach(([key, value]) => {
         try {
           const k = key as any[];
-          if (k[1] !== 1) return;
+          const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const filters = k[2] as any | undefined;
             const matches = (() => {
               if (!filters) return true;
               if (filters.search) {
@@ -131,11 +200,14 @@ export function useCreateCustomer(): UseMutationResult<Customer, Error, Partial<
               return true;
             })();
             if (matches) {
-              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz || DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
             }
           }
         } catch (e) {}
       });
+
+      // Ensure paginated tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'customers');
     },
   });
 }
@@ -223,24 +295,23 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['customers'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+        // Skip non-paginated queries
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
 
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             const filtered = value.data.filter((c: any) => c.id !== id);
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const pageNum = (parsePageKey(k)).page as number;
+            const filters = (parsePageKey(k)).filters;
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -252,6 +323,9 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
           }
         } catch (e) {}
       }
+
+      // Ensure paginated customer tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'customers');
     },
   });
 }
@@ -265,6 +339,7 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
     onMutate: async (newOrder) => {
       // Cancel outgoing queries to prevent race conditions
       await queryClient.cancelQueries({ queryKey: ['orders'] });
+      await queryClient.cancelQueries({ queryKey: ['orders-search'] });
       
       // Get the current orders list
       const previousOrders = queryClient.getQueryData<Order[]>(['orders']) || [];
@@ -283,7 +358,8 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       // Also patch paginated page 1 if cached so components using ['orders', 1] show the optimistic order immediately
       const ordersPage1 = queryClient.getQueryData<any>(['orders', 1]);
       if (ordersPage1 && Array.isArray(ordersPage1.data)) {
-        queryClient.setQueryData(['orders', 1], { ...ordersPage1, data: [optimisticOrder, ...ordersPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (ordersPage1.count || 0) + 1 });
+        const { pageSize: sz } = parsePageKey(['orders', 1]);
+        queryClient.setQueryData(['orders', 1], { ...ordersPage1, data: [optimisticOrder, ...ordersPage1.data].slice(0, sz), count: (ordersPage1.count || 0) + 1 });
       }
       
       return { previousOrders, optimisticOrder, tempId };
@@ -303,27 +379,20 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
       // Cache the newly created order for immediate access in details view
       queryClient.setQueryData(['order', data.id], data);
 
-      // Patch cached first pages for orders deterministically (no blind invalidation)
-      const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
-      let patchedAny = false;
-      pages.forEach(([key, value]) => {
+      // Patch cached BROWSING pages (no search term in key)
+      const browsingPages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      browsingPages.forEach(([key, value]) => {
         try {
           const k = key as any[];
-          // Only modify first page entries (page index === 1)
-          if (k[1] !== 1) return;
+          const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+          // Only modify first page entries
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            // If filters are present in the key (e.g., k[2]) verify the created row matches
-            const filters = k[2] as any | undefined;
             const matchesFilters = (() => {
               if (!filters) return true;
-              // Basic checks mirroring fetchOrdersPage: status, from, to, search, createdByIds
               if (filters.status && filters.status !== 'All' && data.status !== filters.status) return false;
-              if (filters.from && data.orderDate < filters.from) return false;
-              if (filters.to && data.orderDate > filters.to) return false;
-              if (filters.search) {
-                const q = String(filters.search).trim().toLowerCase();
-                if (q && !String(data.orderNumber || '').toLowerCase().includes(q)) return false;
-              }
+              if (filters.from && data.createdAt && data.createdAt < filters.from) return false;
+              if (filters.to && data.createdAt && data.createdAt > filters.to) return false;
               if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
                 if (!filters.createdByIds.includes(data.createdBy)) return false;
               }
@@ -331,8 +400,7 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
             })();
 
             if (matchesFilters) {
-              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
-              patchedAny = true;
+              queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz || DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
             }
           }
         } catch (e) {
@@ -340,8 +408,14 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         }
       });
 
+      // Invalidate ALL search pages since the new order might match any search term
+      // We don't deterministically patch search results because the order might not match the search filter
+      queryClient.invalidateQueries({
+        queryKey: ['orders-search'],
+        exact: false,
+      });
+
       // Best-effort: increment nextNumber in settings locally for optimistic UI
-      // If the created order had a higher number, use that; otherwise just increment current
       try {
         const currentSettings = queryClient.getQueryData<{ prefix: string; nextNumber: number }>(['settings', 'order']);
         if (currentSettings) {
@@ -360,7 +434,8 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
         console.error('Failed to locally update order settings:', err);
       }
 
-      // No global refetches or invalidations: we've deterministically updated cached first pages where possible.
+      // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'orders');
     },
   });
 }
@@ -372,6 +447,7 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
     onMutate: async ({ id, updates }) => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: ['orders'] });
+      await queryClient.cancelQueries({ queryKey: ['orders-search'] });
       await queryClient.cancelQueries({ queryKey: ['order', id] });
       await queryClient.cancelQueries({ queryKey: ['ordersByCustomerId'] });
       
@@ -412,9 +488,9 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
       }
     },
     onSuccess: (data) => {
-      // Update any cached paginated order pages in-place to avoid full refetch
-      const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
-      pages.forEach(([key, value]) => {
+      // Update any cached BROWSING paginated order pages in-place to avoid full refetch
+      const browsingPages = queryClient.getQueriesData({ queryKey: ['orders'] });
+      browsingPages.forEach(([key, value]) => {
         try {
           if (value && (value as any).data && Array.isArray((value as any).data)) {
             queryClient.setQueryData(key as any, { ...(value as any), data: (value as any).data.map((o: any) => o.id === data.id ? data : o) });
@@ -424,10 +500,14 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
         }
       });
 
+      // Invalidate ALL search pages since the updated order might have matched/unmatched search filters
+      queryClient.invalidateQueries({
+        queryKey: ['orders-search'],
+        exact: false,
+      });
+
       // Update detail cache deterministically
       queryClient.setQueryData(['order', data.id], data);
-
-      // No blind refetches: pages and detail were updated in-place.
     },
   });
 }
@@ -439,6 +519,7 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
     onMutate: async (id) => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: ['orders'] });
+      await queryClient.cancelQueries({ queryKey: ['orders-search'] });
       
       // Snapshot previous data
       const previousOrders = queryClient.getQueryData<Order[]>(['orders']);
@@ -456,18 +537,17 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
       }
     },
     onSuccess: (_data, id) => {
-      // Remove deleted order from any cached paginated pages and try to maintain page size by pulling from next cached page
+      // Remove deleted order from any cached BROWSING paginated pages and try to maintain page size by pulling from next cached page
       const pages = queryClient.getQueriesData({ queryKey: ['orders'] });
-      // Build a map of pages by page number + filters key so we can pull from next page
+      // Build a map of pages by page number + pageSize + filters so we can pull from next page
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['orders'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+        // Skip non-paginated queries
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        const mapKey = JSON.stringify([pageNum, filters]);
-        pageMap.set(mapKey, { key: k, value });
+        const mapKey = JSON.stringify([pageNum, sz, filters]);
+        pageMap.set(mapKey, { key: k, value, pageSize: sz });
       });
 
       // Iterate pages in ascending page number order to remove and pull
@@ -480,15 +560,15 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             // Remove the deleted id
             const filtered = value.data.filter((o: any) => o.id !== id);
             // If we have a next page cached, and filtered length < page size, try to pull first from next
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const pageNum = (parsePageKey(k)).page as number;
+            const filters = (parsePageKey(k)).filters;
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -507,6 +587,15 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
           // ignore per-page patch errors
         }
       }
+
+      // Invalidate ALL search pages since the deleted order might have been in any search result
+      queryClient.invalidateQueries({
+        queryKey: ['orders-search'],
+        exact: false,
+      });
+
+      // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'orders');
     },
   });
 }
@@ -537,7 +626,8 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
       // Also patch paginated page 1 if cached so components using ['bills', 1] show it instantly
       const billsPage1 = queryClient.getQueryData<any>(['bills', 1]);
       if (billsPage1 && Array.isArray(billsPage1.data)) {
-        queryClient.setQueryData(['bills', 1], { ...billsPage1, data: [optimisticBill, ...billsPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (billsPage1.count || 0) + 1 });
+        const { pageSize: sz } = parsePageKey(['bills', 1]);
+        queryClient.setQueryData(['bills', 1], { ...billsPage1, data: [optimisticBill, ...billsPage1.data].slice(0, sz), count: (billsPage1.count || 0) + 1 });
       }
       
       return { previousBills, optimisticBill };
@@ -570,12 +660,18 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
       pages.forEach(([key, value]) => {
         try {
           const k = key as any[];
-          if (k[1] !== 1) return;
+          const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+            const matches = matchesFiltersForResource('bills', data, filters);
+            if (!matches) return;
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz || DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
           }
         } catch (e) {}
       });
+
+      // Ensure paginated bill tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'bills');
     },
   });
 }
@@ -660,24 +756,23 @@ export function useDeleteBill(): UseMutationResult<void, Error, string, unknown>
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['bills'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+        // Skip non-paginated queries
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
 
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             const filtered = value.data.filter((b: any) => b.id !== id);
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const pageNum = (parsePageKey(k)).page as number;
+            const filters = (parsePageKey(k)).filters;
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -689,6 +784,9 @@ export function useDeleteBill(): UseMutationResult<void, Error, string, unknown>
           }
         } catch (e) {}
       }
+
+      // Ensure paginated bill tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'bills');
     },
   });
 }
@@ -824,7 +922,8 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
         // Also patch paginated page 1 for transactions so lists update immediately
         const txPage1 = queryClient.getQueryData<any>(['transactions', 1]);
         if (txPage1 && Array.isArray(txPage1.data)) {
-          queryClient.setQueryData(['transactions', 1], { ...txPage1, data: [optimisticTransaction, ...txPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (txPage1.count || 0) + 1 });
+          const { pageSize: sz } = parsePageKey(['transactions', 1]);
+          queryClient.setQueryData(['transactions', 1], { ...txPage1, data: [optimisticTransaction, ...txPage1.data].slice(0, sz), count: (txPage1.count || 0) + 1 });
         }
       }
       
@@ -839,19 +938,25 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
       }
     },
     onSuccess: (data) => {
-      // Patch paginated transaction pages (add to page 1) when possible
+      // Patch paginated transaction pages (add to page 1) when possible, only if the row matches page filters
       const pages = queryClient.getQueriesData({ queryKey: ['transactions'] });
       pages.forEach(([key, value]) => {
         try {
+          const k = key as any[];
+          const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            const matches = matchesFiltersForResource('transactions', data, filters);
+            if (!matches) return;
+            const newData = [data, ...((value as any).data)].slice(0, sz);
             queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
           }
         } catch (e) {
           // ignore per-page patch errors
         }
       });
-      // No blind invalidation: transactions paginated pages were patched deterministically above.
+      // Ensure paginated transaction tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'transactions');
     },
   });
 }
@@ -885,21 +990,20 @@ export function useDeleteTransaction(): UseMutationResult<void, Error, string, u
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        const filters = k[2];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+        if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             const filtered = value.data.filter((t: any) => t.id !== id);
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const { page: pageNum, filters } = parsePageKey(k);
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -911,6 +1015,9 @@ export function useDeleteTransaction(): UseMutationResult<void, Error, string, u
           }
         } catch (e) {}
       }
+
+      // Ensure paginated transaction tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'transactions');
     },
   });
 }
@@ -961,12 +1068,16 @@ export function useCreateUser(): UseMutationResult<User, Error, Partial<User>, u
       pages.forEach(([key, value]) => {
         try {
           const k = key as any[];
-          if (k[1] !== 1) return;
+          const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz || DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
           }
         } catch (e) {}
       });
+
+      // Ensure paginated user tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'users');
     },
   });
 }
@@ -1050,11 +1161,10 @@ export function useDeleteUser(): UseMutationResult<void, Error, string, unknown>
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['users'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
+        // Skip non-paginated queries
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
@@ -1068,6 +1178,9 @@ export function useDeleteUser(): UseMutationResult<void, Error, string, unknown>
           }
         } catch (e) {}
       }
+
+      // Ensure paginated user tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'users');
     },
   });
 }
@@ -1096,7 +1209,8 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
         // Also patch paginated page 1 cache if present so vendor lists update immediately
         const vendorsPage1 = queryClient.getQueryData<any>(['vendors', 1]);
         if (vendorsPage1 && Array.isArray(vendorsPage1.data)) {
-          queryClient.setQueryData(['vendors', 1], { ...vendorsPage1, data: [optimisticVendor, ...vendorsPage1.data].slice(0, DEFAULT_PAGE_SIZE), count: (vendorsPage1.count || 0) + 1 });
+          const { pageSize: sz } = parsePageKey(['vendors', 1]);
+          queryClient.setQueryData(['vendors', 1], { ...vendorsPage1, data: [optimisticVendor, ...vendorsPage1.data].slice(0, sz), count: (vendorsPage1.count || 0) + 1 });
         }
       }
       
@@ -1128,12 +1242,16 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
       pages.forEach(([key, value]) => {
         try {
           const k = key as any[];
-          if (k[1] !== 1) return;
+          const { page: pageNum, pageSize: sz } = parsePageKey(k);
+          if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });
+            queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz), count: (value as any).count ? (value as any).count + 1 : 1 });
           }
         } catch (e) {}
       });
+
+      // Ensure paginated vendor tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'vendors');
     },
   });
 }
@@ -1216,23 +1334,20 @@ export function useDeleteVendor(): UseMutationResult<void, Error, string, unknow
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['vendors'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             const filtered = value.data.filter((v: any) => v.id !== id);
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const { page: pageNum, filters } = parsePageKey(k);
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -1244,6 +1359,9 @@ export function useDeleteVendor(): UseMutationResult<void, Error, string, unknow
           }
         } catch (e) {}
       }
+
+      // Ensure paginated vendor tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'vendors');
     },
   });
 }
@@ -1287,7 +1405,8 @@ export function useCreateProduct(): UseMutationResult<Product, Error, Partial<Pr
       pages.forEach(([key, value]) => {
         try {
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const newData = [data, ...((value as any).data)].slice(0, DEFAULT_PAGE_SIZE);
+            const { pageSize: sz } = parsePageKey(key as any);
+            const newData = [data, ...((value as any).data)].slice(0, sz);
             queryClient.setQueryData(key as any, { ...(value as any), data: newData, count: (value as any).count ? (value as any).count + 1 : 1 });
           }
         } catch (e) {
@@ -1299,6 +1418,9 @@ export function useCreateProduct(): UseMutationResult<Product, Error, Partial<Pr
       const prev = queryClient.getQueryData<Product[]>(['products']) || [];
       const cleaned = (prev || []).filter(p => !String(p.id).startsWith('temp-'));
       queryClient.setQueryData(['products'], [data, ...cleaned]);
+
+      // Ensure paginated product tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'products');
     },
   });
 }
@@ -1381,23 +1503,20 @@ export function useDeleteProduct(): UseMutationResult<void, Error, string, unkno
       const pageMap = new Map<string, any>();
       pages.forEach(([key, value]) => {
         const k = key as any[];
-        const pageNum = k[1];
-        // Skip non-paginated queries (e.g., ['products'] without page number)
+        const { page: pageNum, pageSize: sz, filters } = parsePageKey(k);
         if (typeof pageNum !== 'number' || !Number.isInteger(pageNum)) return;
-        const filters = k[k.length - 1];
-        pageMap.set(JSON.stringify([pageNum, filters]), { key: k, value });
+        pageMap.set(JSON.stringify([pageNum, sz, filters]), { key: k, value, pageSize: sz });
       });
       const keys = Array.from(pageMap.keys()).sort((a, b) => JSON.parse(a)[0] - JSON.parse(b)[0]);
       for (const mapKey of keys) {
         const entry = pageMap.get(mapKey);
         if (!entry) continue;
-        const { key: k, value } = entry;
+        const { key: k, value, pageSize: sz } = entry;
         try {
           if (value && value.data && Array.isArray(value.data)) {
             const filtered = value.data.filter((p: any) => p.id !== id);
-            const pageNum = k[1] as number;
-            const filters = k[k.length - 1];
-            const nextKey = JSON.stringify([pageNum + 1, filters]);
+            const { page: pageNum, filters } = parsePageKey(k);
+            const nextKey = JSON.stringify([pageNum + 1, sz, filters]);
             const nextEntry = pageMap.get(nextKey);
             if (nextEntry && nextEntry.value && Array.isArray(nextEntry.value.data) && nextEntry.value.data.length > 0) {
               const shiftItem = nextEntry.value.data[0];
@@ -1409,6 +1528,9 @@ export function useDeleteProduct(): UseMutationResult<void, Error, string, unkno
           }
         } catch (e) {}
       }
+
+      // Ensure paginated product tables refetch if key shapes didn't match optimistic patch
+      invalidateResourceQueries(queryClient, 'products');
     },
   });
 }

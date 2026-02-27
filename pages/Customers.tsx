@@ -13,7 +13,7 @@ import { useDeleteCustomer } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
 import { useMemo, useEffect } from 'react';
 import { isTempId } from '../src/utils/optimisticIdMap';
 
@@ -59,7 +59,12 @@ const Customers: React.FC = () => {
       toast.success('Customer deleted successfully');
     } catch (err) {
       console.error('Failed to delete customer:', err);
-      toast.error('Failed to delete customer');
+      const msg = getErrorMessage(err);
+      if (msg.includes('fk_orders_customer') || msg.toLowerCase().includes('orders')) {
+        toast.error('Cannot delete customer: this customer is referenced by one or more orders. Delete or reassign those orders first.');
+      } else {
+        toast.error(`Failed to delete customer: ${msg}`);
+      }
     }
   };
 

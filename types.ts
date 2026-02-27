@@ -74,6 +74,7 @@ export interface Order {
   id: string;
   orderNumber: string;
   orderDate: string;
+  createdAt?: string;
   customerId: string;
   createdBy: string;
   status: OrderStatus;
@@ -95,9 +96,12 @@ export interface Order {
   processedAt?: string; // ISO timestamp when marked processing
   completedAt?: string; // ISO timestamp when marked completed
   paidAt?: string; // ISO timestamp when payment received
-  // Flags set when the order has been sent to external couriers
-  sentToSteadfast?: boolean;
-  sentToCarryBee?: boolean;
+  // Relational fields: populated from joined customer and user data
+  // Present when fetching paginated orders via orders_with_customer_creator view
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  creatorName?: string;
 }
 
 export interface Bill {
@@ -123,6 +127,11 @@ export interface Bill {
   processedAt?: string; // ISO timestamp when marked processing
   receivedAt?: string; // ISO timestamp when marked received
   paidAt?: string; // ISO timestamp when payment received
+  // Relational fields populated by joined paginated queries
+  vendorName?: string;
+  vendorPhone?: string;
+  vendorAddress?: string;
+  creatorName?: string;
 }
 
 export interface Account {
@@ -152,6 +161,11 @@ export interface Transaction {
   history?: {
     created?: string;
   };
+  // Relational fields provided by joined queries
+  accountName?: string;
+  contactName?: string;
+  contactType?: 'Customer' | 'Vendor' | null;
+  creatorName?: string;
 }
 
 export interface Settings {

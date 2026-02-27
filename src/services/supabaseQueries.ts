@@ -280,68 +280,92 @@ function mapCustomer(row: any): Customer {
 export async function fetchOrders() {
   const mapped = await queryWithTimeout<Order>(
     supabase
-      .from('orders')
+      .from('orders_with_customer_creator')
       .select('*')
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapOrder);
 }
 
-// Paginated orders fetcher: returns page of orders and total count
+/**
+ * Paginated orders fetcher with separated browsing and search modes.
+ * 
+ * Browsing mode (no search):
+ *   - Fetches from orders_with_customer_creator view
+ *   - Uses ORDER BY created_at DESC for deterministic pagination
+ *   - Results cached under ['orders', page]
+ * 
+ * Search mode (search term exists):
+ *   - Queries with server-side ILIKE filtering on order_number, customer name/phone
+ *   - Results cached under ['orders-search', term, page]
+ *   - Always runs against database, never against locally loaded pages
+ * 
+ * Returns orders with joined customer name/phone and creator username for display
+ * without requiring additional queries.
+ */
+// Fetch paginated orders and include joined customer (name, phone, address) and creator name
+// in the same round‑trip.  The UI must never perform any secondary customer lookup after
+// this call – all displayed customer data (and data used by modals) should already be
+// present on the order object.  The query is intentionally lean, only selecting fields
+// required by the orders table and related modals.  **Avoid column aliasing here**; Supabase
+// REST will mangle strings like "total AS amount" into a single identifier, causing
+// 42703 errors.  We handle renaming on the client if needed.
 export async function fetchOrdersPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
   filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
 ) {
+  const label = `fetchOrdersPage p=${page} sz=${pageSize}`;
+  console.time(label);
   const start = (page - 1) * pageSize;
   const end = start + pageSize - 1;
 
-  // Select explicit columns to avoid transferring large JSON blobs unless needed
-  // Include `history` so list views can show courier/status metadata
+  // Determine if we're in search mode
+  const searchTerm = filters?.search?.trim();
+  const isSearching = !!searchTerm;
+
+  // Start with the view that includes joined customer/creator data
+  // Select only the columns required for the orders table UI to keep payload lean
   let query: any = supabase
-    .from('orders')
+    .from('orders_with_customer_creator')
     .select(
-      `id, order_number, order_date, customer_id, created_by, status, subtotal, discount, shipping, total, paid_amount, notes, history, created_at`,
+      `id, order_number, order_date, status, total, created_at, 
+       customer_id, customer_name, customer_phone, customer_address, 
+       created_by, creator_name`,
       { count: 'estimated' }
     );
 
-  // Apply filters BEFORE ordering and range (critical for Supabase pagination)
+  // Apply non-search filters BEFORE ordering and range
   if (filters) {
     if (filters.status && filters.status !== 'All') {
       query = query.eq('status', filters.status);
     }
     if (filters.from) {
-      query = query.gte('order_date', filters.from);
+      query = query.gte('created_at', filters.from);
     }
     if (filters.to) {
-      query = query.lte('order_date', filters.to);
-    }
-    if (filters.search) {
-      const q = filters.search.trim();
-      if (!q) {
-        // ignore empty
-      } else if (/\d/.test(q)) {
-        // If the search contains digits, treat it as a phone search: lookup customers by phone and filter by customer_id
-        try {
-          const { data: custs, error: custErr } = await supabase.from('customers').select('id').ilike('phone', `%${q}%`);
-          if (!custErr && custs && custs.length > 0) {
-            const ids = custs.map((c: any) => c.id);
-            query = query.in('customer_id', ids);
-          } else {
-            // Fallback to order_number search if no matching customers
-            query = query.ilike('order_number', `%${q}%`);
-          }
-        } catch (e) {
-          // On error, fallback to order_number search
-          query = query.ilike('order_number', `%${q}%`);
-        }
-      } else {
-        // Default: search by order_number
-        query = query.ilike('order_number', `%${q}%`);
-      }
+      query = query.lte('created_at', filters.to);
     }
     if (filters.createdByIds && filters.createdByIds.length > 0) {
       query = query.in('created_by', filters.createdByIds);
+    }
+
+    // CRITICAL: Search filtering is database-driven and always runs against current data.
+    // This ensures search results are always fresh and never filtered from locally-loaded pages.
+    if (isSearching) {
+      const q = searchTerm;
+      if (/\d/.test(q)) {
+        // If search contains digits: try phone search first, fallback to order_number
+        // Use OR filtering to search across both
+        query = query.or(
+          `customer_phone.ilike.%${q}%,order_number.ilike.%${q}%`
+        );
+      } else {
+        // If no digits: search order_number and customer name
+        query = query.or(
+          `customer_name.ilike.%${q}%,order_number.ilike.%${q}%`
+        );
+      }
     }
   }
 
@@ -352,18 +376,22 @@ export async function fetchOrdersPage(
     const { data, error, count } = await query;
     if (error) {
       console.error('[supabaseQueries] fetchOrdersPage error:', error);
+      console.timeEnd(label);
       return { data: [], count: 0 } as { data: Order[]; count: number };
     }
-    return { data: (data || []).map(mapOrder), count: count ?? 0 };
+    const result = { data: (data || []).map(mapOrder), count: count ?? 0 };
+    console.timeEnd(label);
+    return result;
   } catch (err) {
     console.error('[supabaseQueries] fetchOrdersPage exception:', err);
+    console.timeEnd(label);
     return { data: [], count: 0 } as { data: Order[]; count: number };
   }
 }
 
 export async function fetchOrderById(id: string) {
   const { data, error } = await supabase
-    .from('orders')
+    .from('orders_with_customer_creator')
     .select('*')
     .eq('id', id)
     .single();
@@ -378,7 +406,7 @@ export async function fetchOrderById(id: string) {
 export async function fetchOrdersByCustomerId(customerId: string) {
   const mapped = await queryWithTimeout<Order>(
     supabase
-      .from('orders')
+      .from('orders_with_customer_creator')
       .select('*')
       .eq('customer_id', customerId)
       .order('order_date', { ascending: false })
@@ -386,9 +414,42 @@ export async function fetchOrdersByCustomerId(customerId: string) {
   return mapped.map(mapOrder);
 }
 
+/**
+ * Fetch the next order number without allocating it.
+ * This is advisory only - the actual number allocation happens atomically
+ * when create_order_atomic inserts the order.
+ * Used for UI preview so users see what number their order will receive.
+ */
+export async function getNextOrderNumber(): Promise<string> {
+  const { data, error } = await supabase.rpc('get_next_order_number');
+  if (error) {
+    console.error('[supabaseQueries] getNextOrderNumber error:', error);
+    throw error;
+  }
+  if (!data) {
+    throw new Error('Failed to generate next order number');
+  }
+  return data;
+}
+
+export async function getNextBillNumber(): Promise<string> {
+  const { data, error } = await supabase.rpc('get_next_bill_number');
+  if (error) {
+    console.error('[supabaseQueries] getNextBillNumber error:', error);
+    throw error;
+  }
+  if (!data) throw new Error('Failed to generate next bill number');
+  return data;
+}
+
 export async function createOrder(order: Omit<Order, 'id'>) {
   await ensureAuthenticated();
-  // Use server RPC to atomically allocate order_number (based on order_settings.prefix and max existing number)
+  // Use server RPC to atomically allocate order_number and return joined data
+  // The RPC function handles:
+  // 1. Acquiring advisory lock for atomic allocation
+  // 2. Computing next order_seq
+  // 3. Inserting order with computed order_number
+  // 4. Returning complete order with joined customer name/phone and creator username
   const createdBy = getCurrentUserId();
   const rpcParams: any = {
     p_order_date: order.orderDate,
@@ -405,14 +466,43 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     p_history: order.history,
   };
 
+  console.time('rpc create_order_atomic');
   const { data, error } = await supabase.rpc('create_order_atomic', rpcParams);
+  console.timeEnd('rpc create_order_atomic');
   if (error) {
     console.error('[supabaseQueries] createOrder (rpc) error:', error);
     throw error;
   }
-  // Supabase rpc returns an array of rows when returning SETOF
-  const row = Array.isArray(data) ? data[0] : data;
-  return mapOrder(row);
+  
+  // RPC now returns JSONB object with joined data
+  // Map the camelCase fields back to the Order type
+  if (!data) {
+    throw new Error('RPC returned no data');
+  }
+
+  const mappedData = {
+    id: data.id,
+    order_number: data.order_number,
+    order_date: data.order_date,
+    customer_id: data.customer_id,
+    customer_name: data.customer_name,
+    customer_phone: data.customer_phone,
+    customer_address: data.customer_address,
+    created_by: data.created_by,
+    creator_name: data.creator_name,
+    status: data.status,
+    items: data.items,
+    subtotal: data.subtotal,
+    discount: data.discount,
+    shipping: data.shipping,
+    total: data.total,
+    paid_amount: data.paid_amount,
+    notes: data.notes,
+    history: data.history,
+    created_at: data.created_at,
+  };
+
+  return mapOrder(mappedData);
 }
 
 /**
@@ -440,22 +530,32 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.history && { history: updates.history }),
     })
     .eq('id', id)
-    .select();
+    .select('id');
 
   if (error) {
     console.error('[supabaseQueries] updateOrder error:', error);
     throw error;
   }
 
-  // Supabase may return an array when multiple rows are affected or none.
-  // If no rows are returned (e.g., RLS prevents returning the row), handle gracefully.
   if (!data || (Array.isArray(data) && data.length === 0)) {
-    console.warn('[supabaseQueries] updateOrder: update succeeded but no row was returned (possible RLS). Returning null.');
+    console.warn('[supabaseQueries] updateOrder: update succeeded but no row ID returned (possible RLS). Returning null.');
     return null;
   }
 
-  const row = Array.isArray(data) ? data[0] : data;
-  return mapOrder(row);
+  // After updating, fetch the full joined data from the view
+  const updatedId = Array.isArray(data) ? data[0].id : data.id;
+  const { data: fullData, error: fetchError } = await supabase
+    .from('orders_with_customer_creator')
+    .select('*')
+    .eq('id', updatedId)
+    .single();
+
+  if (fetchError) {
+    console.error('[supabaseQueries] updateOrder: failed to fetch updated order with relations:', fetchError);
+    throw fetchError;
+  }
+
+  return mapOrder(fullData);
 }
 
 export async function deleteOrder(id: string) {
@@ -511,10 +611,18 @@ function mapOrder(row: any): Order {
     subtotal: row.subtotal ?? 0,
     discount: row.discount ?? 0,
     shipping: row.shipping ?? 0,
-    total: row.total ?? 0,
+    // 'amount' alias may be returned by some queries; fall back to total
+    total: row.total ?? row.amount ?? 0,
     notes: row.notes,
     history: row.history ?? {},
     paidAmount: row.paid_amount ?? row.paidAmount ?? 0,
+    // Relational fields from joined customer_creator view
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    creatorName: row.creator_name,
+    // also include address for downstream modals
+    customerAddress: row.customer_address,
+    createdAt: row.created_at,
   };
 }
 
@@ -677,10 +785,11 @@ export async function fetchTransactionsPage(
   const start = (page - 1) * pageSize;
   const end = start + pageSize - 1;
 
+  // Use joined view so account/contact/creator names are available in the same round-trip
   let query: any = supabase
-    .from('transactions')
+    .from('transactions_with_relations')
     .select(
-      `id, date, type, category, account_id, to_account_id, amount, description, reference_id, contact_id, payment_method, attachment_name, attachment_url, created_by, created_at`,
+      `id, date, type, category, account_id, account_name, to_account_id, amount, description, reference_id, contact_id, contact_name, contact_type, payment_method, attachment_name, attachment_url, created_by, creator_name, created_at`,
       { count: 'estimated' }
     );
 
@@ -716,7 +825,7 @@ export async function fetchTransactionsPage(
 
 export async function fetchTransactionById(id: string) {
   const { data, error } = await supabase
-    .from('transactions')
+    .from('transactions_with_relations')
     .select('*')
     .eq('id', id)
     .single();
@@ -840,6 +949,11 @@ function mapTransaction(row: any): Transaction {
     attachmentUrl: row.attachment_url ?? row.attachmentUrl,
     createdBy: row.created_by ?? row.createdBy,
     createdAt: createdAt || null,
+    // Relational fields from transactions_with_relations view
+    accountName: row.account_name ?? row.accountName,
+    contactName: row.contact_name ?? row.contactName,
+    contactType: row.contact_type ?? row.contactType,
+    creatorName: row.creator_name ?? row.creatorName,
   };
 }
 
@@ -1223,9 +1337,10 @@ export async function fetchBillsPage(
   const start = (page - 1) * pageSize;
   const end = start + pageSize - 1;
 
+  // Use joined view to include vendor and creator info in one round-trip
   let query: any = supabase
-    .from('bills')
-    .select('id, bill_number, bill_date, vendor_id, total, paid_amount, status, created_by, created_at', { count: 'estimated' });
+    .from('bills_with_vendor_creator')
+    .select('id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, total, paid_amount, status, created_by, creator_name, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range (critical for Supabase pagination)
   if (filters) {
@@ -1285,7 +1400,7 @@ export async function fetchBills() {
 
 export async function fetchBillById(id: string) {
   const { data, error } = await supabase
-    .from('bills')
+    .from('bills_with_vendor_creator')
     .select('*')
     .eq('id', id)
     .single();
@@ -1299,32 +1414,71 @@ export async function fetchBillById(id: string) {
 
 export async function createBill(bill: Omit<Bill, 'id'>) {
   await ensureAuthenticated();
-  const id = crypto.randomUUID();
-  const { data, error } = await supabase
-    .from('bills')
-    .insert([{
-      id,
-      bill_number: bill.billNumber,
-      bill_date: bill.billDate,
-      vendor_id: bill.vendorId,
-      created_by: bill.createdBy,
-      status: bill.status,
-      items: bill.items,
-      subtotal: bill.subtotal,
-      discount: bill.discount,
-      shipping: bill.shipping,
-      total: bill.total,
-      paid_amount: bill.paidAmount,
-      history: bill.history || {},
-    }])
-    .select()
-    .single();
-  
-  if (error) {
-    console.error('[supabaseQueries] createBill error:', error);
-    throw error;
+  const createdBy = getCurrentUserId();
+
+  // Try to get a previewed next bill number from RPC; fall back to 'Bill-' prefix when RPC is unavailable
+  let billNumberPreview: string | null = null;
+  try {
+    const { data: rpcPreview, error: rpcErr } = await supabase.rpc('get_next_bill_number');
+    if (!rpcErr && rpcPreview) billNumberPreview = rpcPreview as string;
+  } catch (e) {
+    // ignore and fallback
   }
-  return mapBill(data);
+  if (!billNumberPreview) {
+    // Fallback prefix and a time-based suffix to avoid immediate collisions
+    billNumberPreview = 'Bill-' + Math.floor(Date.now() / 1000).toString();
+  }
+
+  // Try to extract numeric seq if present
+  const m = (billNumberPreview || '').match(/(\d+)$/);
+  const billSeq = m ? parseInt(m[1], 10) : null;
+
+  // Build insert object
+  const insertObj: any = {
+    bill_number: billNumberPreview,
+    ...(billSeq !== null ? { bill_seq: billSeq } : {}),
+    bill_date: bill.billDate,
+    vendor_id: bill.vendorId,
+    created_by: createdBy,
+    status: bill.status,
+    items: bill.items as any,
+    subtotal: bill.subtotal,
+    discount: bill.discount,
+    shipping: bill.shipping,
+    total: bill.total,
+    paid_amount: bill.paidAmount,
+    notes: bill.notes,
+    history: bill.history,
+  };
+
+  // Insert and ask DB for the created id, then fetch the joined view row so we return relational fields
+  const id = crypto.randomUUID();
+  insertObj.id = id;
+
+  const { data: insertRes, error: insertErr } = await supabase
+    .from('bills')
+    .insert([insertObj])
+    .select('id')
+    .single();
+
+  if (insertErr) {
+    console.error('[supabaseQueries] createBill insert error:', insertErr);
+    throw insertErr;
+  }
+
+  // Fetch full joined row from the view to include vendor/creator fields
+  const { data: full, error: fullErr } = await supabase
+    .from('bills_with_vendor_creator')
+    .select('*')
+    .eq('id', insertRes.id)
+    .single();
+
+  if (fullErr) {
+    console.error('[supabaseQueries] createBill fetch full row error:', fullErr);
+    throw fullErr;
+  }
+
+  return mapBill(full);
 }
 
 export async function updateBill(id: string, updates: Partial<Bill>) {
@@ -1399,6 +1553,11 @@ function mapBill(row: any): Bill {
     notes: row.notes,
     paidAmount: row.paid_amount ?? row.paidAmount ?? 0,
     history: row.history,
+    // Relational fields provided by bills_with_vendor_creator view
+    vendorName: row.vendor_name ?? row.vendorName,
+    vendorPhone: row.vendor_phone ?? row.vendorPhone,
+    vendorAddress: row.vendor_address ?? row.vendorAddress,
+    creatorName: row.creator_name ?? row.creatorName,
   };
 }
 

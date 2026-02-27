@@ -48,19 +48,7 @@ const Transactions: React.FC = () => {
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   // Instead of loading entire customers/vendors tables, only fetch rows referenced by the current page.
-  React.useEffect(() => {
-    if (!transactions || transactions.length === 0) return;
-
-    // Collect contact IDs referenced in this page of transactions
-    const contactIds = Array.from(new Set(transactions.map(t => t.contactId).filter(Boolean) as string[]));
-
-    // Prefetch only required customer/vendor rows
-    contactIds.forEach((id) => {
-      // Try customer first, then vendor - both fetchers are cheap when cached
-      queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }).catch(() => {});
-      queryClient.fetchQuery({ queryKey: ['vendor', id], queryFn: () => fetchVendorById(id) }).catch(() => {});
-    });
-  }, [transactions, queryClient]);
+  // Relational contact/account names are now included in the paginated transactions payload
   const { data: orders = [] } = useOrders();
   const { data: bills = [] } = useBills();
   const { data: allCategories = [] } = useCategories();
@@ -154,7 +142,9 @@ const Transactions: React.FC = () => {
     return null;
   };
 
-  const getContactName = (contactId: string) => {
+  const getContactName = (contactId: string, t?: Transaction) => {
+    // Prefer relational name included in transaction row
+    if (t && (t as any).contactName) return { name: (t as any).contactName, type: ((t as any).contactType as any) || 'Customer' };
     if (!contactId) return null;
     const customer = queryClient.getQueryData<any>(['customer', contactId]);
     if (customer) return { name: customer.name, type: 'Customer' };
@@ -271,13 +261,13 @@ const Transactions: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {transactionsLoading ? (
+                  {transactionsLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredTransactions.length === 0 ? (
                 <tr><td colSpan={7} className="px-6 py-16 text-center text-gray-400 italic font-medium">No transactions found.</td></tr>
               ) : (
                 filteredTransactions.map((t) => {
-                  const contact = t.contactId ? getContactName(t.contactId) : null;
+                  const contact = t.contactId ? getContactName(t.contactId, t) : null;
                   const creator = getCreatorName(t);
                   const hasLink = t.referenceId && (orders.some(o => o.id === t.referenceId) || bills.some(b => b.id === t.referenceId));
                   const isLinkedTransaction = !!t.referenceId;

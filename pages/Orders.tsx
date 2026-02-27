@@ -11,7 +11,7 @@ import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, Carry
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useOrdersPage, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
-import { fetchCustomerById } from '../src/services/supabaseQueries';
+import Pagination from '../src/components/Pagination';
 import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -32,6 +32,46 @@ const Orders: React.FC = () => {
 
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
+
+  // Compute server-side timestamp range based on selected filter
+  const timeFilters = useMemo(() => {
+    let from: string | undefined;
+    let to: string | undefined;
+    const now = new Date();
+    switch (filterRange) {
+      case 'Today':
+        from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        to = now.toISOString();
+        break;
+      case 'This Week': {
+        const first = new Date(now);
+        first.setDate(now.getDate() - now.getDay());
+        first.setHours(0, 0, 0, 0);
+        from = first.toISOString();
+        to = now.toISOString();
+        break;
+      }
+      case 'This Month':
+        from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        to = now.toISOString();
+        break;
+      case 'This Year':
+        from = new Date(now.getFullYear(), 0, 1).toISOString();
+        to = now.toISOString();
+        break;
+      case 'Custom':
+        if (customDates.from) from = new Date(customDates.from).toISOString();
+        if (customDates.to) {
+          const d = new Date(customDates.to);
+          d.setHours(23, 59, 59, 999);
+          to = d.toISOString();
+        }
+        break;
+      default:
+        break;
+    }
+    return { from, to };
+  }, [filterRange, customDates]);
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
   const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
@@ -65,20 +105,16 @@ const Orders: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
-  // Prefetch only customer rows referenced by visible orders (avoid loading full customers table)
-  React.useEffect(() => {
-    if (!orders || orders.length === 0) return;
-    const ids = Array.from(new Set(orders.map(o => o.customerId).filter(Boolean) as string[]));
-    ids.forEach(id => queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }).catch(() => {}));
-  }, [orders, queryClient]);
+  // all customer info is already provided by the joined query, so no extra fetch required
+
   const { data: accounts = [] } = useAccounts();
   const { data: orderSettings } = useOrderSettings();
 
-  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
+  // Reset page to 1 whenever any of the active filters or time range changes
   useEffect(() => {
     setPage(1);
   }, [searchQuery, statusTab, filterRange, customDates.from, customDates.to, createdByFilter]);
@@ -119,66 +155,12 @@ const Orders: React.FC = () => {
     return new Map(users.map(u => [u.id, u]));
   }, [users]);
 
-  const isWithinRange = (dateStr: string) => {
-    if (filterRange === 'All Time') return true;
-    const date = new Date(dateStr);
-    const now = new Date();
-    if (filterRange === 'Today') return date.toDateString() === now.toDateString();
-    if (filterRange === 'This Week') {
-      const first = now.getDate() - now.getDay();
-      const firstDay = new Date(new Date().setDate(first));
-      const lastDay = new Date(new Date().setDate(first + 6));
-      return date >= firstDay && date <= lastDay;
-    }
-    if (filterRange === 'This Month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-    if (filterRange === 'This Year') return date.getFullYear() === now.getFullYear();
-    if (filterRange === 'Custom') {
-      if (!customDates.from || !customDates.to) return true;
-      return date >= new Date(customDates.from) && date <= new Date(customDates.to);
-    }
-    return true;
-  };
 
-  // Helper to get creator name from createdBy field or history
-  const getCreatorName = (order: Order) => {
-    // First try to lookup from createdBy database field using O(1) Map lookup
-    if (order.createdBy?.trim()) {
-      const user = userMap.get(order.createdBy);
-      if (user?.name) return user.name;
-    }
-    
-    // Fallback: extract from history for older records
-    if (order.history?.created) {
-      // Orders history format: "{name} created this order on ..."
-      const match = order.history.created.match(/^(.+?)\s+created this order on/);
-      if (match && match[1]) return match[1];
-    }
-    
-    return null;
-  };
+  // creatorName is delivered alongside the order via the joined query
+  const getCreatorName = (order: Order) => order.creatorName || '';
 
-  const filteredOrders = useMemo(() => {
-    let results = orders
-      .filter(o => isWithinRange(o.orderDate))
-      .filter(o => statusTab === 'All' || o.status === statusTab);
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(order => {
-        const customer = queryClient.getQueryData<any>(['customer', order.customerId]);
-        const creatorName = getCreatorName(order);
-        return (
-          order.orderNumber.toLowerCase().includes(query) ||
-          customer?.name.toLowerCase().includes(query) ||
-          customer?.phone.includes(query) ||
-          creatorName?.toLowerCase().includes(query)
-        );
-      });
-    }
-
-    return results;
-  }, [orders, filterRange, customDates, statusTab, searchQuery]);
+  // orders already filtered/paginated by the server based on active filters
+  const displayedOrders = orders;
 
   const handleDuplicate = async (order: Order) => {
     if (!orderSettings) {
@@ -402,15 +384,12 @@ const Orders: React.FC = () => {
             <tbody className="divide-y divide-gray-50">
               {ordersLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
-              ) : filteredOrders.length === 0 ? (
+              ) : displayedOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
-              ) : filteredOrders.map((order) => {
+              ) : displayedOrders.map((order) => {
                 const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
                 const isOwner = order.createdBy === user?.id;
-                const cust = queryClient.getQueryData<any>(['customer', order.customerId]);
-                const custState = queryClient.getQueryState(['customer', order.customerId]);
-                const custLoading = ordersLoading || ((custState as any)?.status === 'loading') || ((custState as any)?.isFetching > 0);
-                const custName = custLoading ? 'Loading...' : (cust?.name ?? 'Unknown');
+                const custName = order.customerName ?? 'Unknown';
                 return (
                   <tr 
                     key={order.id} 
@@ -425,7 +404,7 @@ const Orders: React.FC = () => {
                     </td>
                     <td className="px-6 py-5">
                       <span className="text-sm font-bold text-gray-700">{custName}</span>
-                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{cust?.phone || ''}</p>
+                      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{order.customerPhone || ''}</p>
                     </td>
                     <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(order) || '—'}</td>
                     <td className="px-6 py-5">
@@ -544,23 +523,13 @@ const Orders: React.FC = () => {
           <div className="text-sm text-gray-600">
             {`Showing ${Math.min((page - 1) * pageSize + 1, totalOrdersCount || 0)} - ${Math.min(page * pageSize, totalOrdersCount || 0)} of ${totalOrdersCount} orders`}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className={`px-3 py-1 rounded-md font-bold ${page <= 1 ? 'bg-gray-100 text-gray-400' : 'bg-white text-gray-700 border'}`}
-            >
-              Prev
-            </button>
-            <div className="px-3 py-1 text-sm">Page {page} of {totalPages}</div>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className={`px-3 py-1 rounded-md font-bold ${page >= totalPages ? 'bg-gray-100 text-gray-400' : 'bg-white text-gray-700 border'}`}
-            >
-              Next
-            </button>
-          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p)}
+            disabled={ordersLoading}
+          />
         </div>
       <CommonPaymentModal
         isOpen={!!showPaymentModal}
@@ -578,13 +547,31 @@ const Orders: React.FC = () => {
         isOpen={!!showSteadfast} 
         onClose={() => setShowSteadfast(null)}
         order={showSteadfast ? orders.find(o => o.id === showSteadfast) : null}
-        customer={showSteadfast ? queryClient.getQueryData(['customer', orders.find(o => o.id === showSteadfast)?.customerId]) : null}
+        customer={
+          showSteadfast
+            ? (() => {
+                const o = orders.find(o => o.id === showSteadfast);
+                return o
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  : null;
+              })()
+            : null
+        }
       />
       <CarryBeeModal 
         isOpen={!!showCarryBee} 
         onClose={() => setShowCarryBee(null)}
         order={showCarryBee ? orders.find(o => o.id === showCarryBee) : null}
-        customer={showCarryBee ? queryClient.getQueryData(['customer', orders.find(o => o.id === showCarryBee)?.customerId]) : null}
+        customer={
+          showCarryBee
+            ? (() => {
+                const o = orders.find(o => o.id === showCarryBee);
+                return o
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  : null;
+              })()
+            : null
+        }
       />
     </div>
   );

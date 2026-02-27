@@ -252,9 +252,10 @@ const Bills: React.FC = () => {
                     <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{bill.billDate}</p>
                   </td>
                   <td className="px-6 py-5">
-                    <span className="text-sm font-bold text-gray-700">{vendors.find(v => v.id === bill.vendorId)?.name || 'Unknown Vendor'}</span>
+                    <span className="text-sm font-bold text-gray-700">{bill.vendorName || vendors.find(v => v.id === bill.vendorId)?.name || 'Unknown Vendor'}</span>
+                    <p className="text-[10px] text-gray-400 font-medium mt-0.5">{bill.vendorPhone || ''}</p>
                   </td>
-                  <td className="px-6 py-5 text-xs font-bold text-gray-500">{getCreatorName(bill) || '—'}</td>
+                  <td className="px-6 py-5 text-xs font-bold text-gray-500">{bill.creatorName || getCreatorName(bill) || '—'}</td>
                   <td className="px-6 py-5">
                     <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getStatusColor(bill.status)}`}>{bill.status}</span>
                   </td>

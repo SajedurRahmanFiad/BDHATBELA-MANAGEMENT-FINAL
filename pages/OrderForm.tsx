@@ -8,7 +8,7 @@ import { Button } from '../components';
 import { theme } from '../theme';
 import { useOrder, useOrderSettings } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage, getNextOrderNumber, getErrorMessage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
@@ -100,7 +100,8 @@ const OrderForm: React.FC = () => {
   // Form state
   const [customerId, setCustomerId] = useState('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
-  const [orderNumber, setOrderNumber] = useState('');
+  const [orderNumber, setOrderNumber] = useState('Generating...');
+  const [orderNumberLoading, setOrderNumberLoading] = useState(false);
   const [items, setItems] = useState<OrderItem[]>([]);
   // Keep discount/shipping as strings for the inputs to avoid
   // controlled-number UX problems; parse when calculating/saving.
@@ -163,11 +164,22 @@ const OrderForm: React.FC = () => {
       setShipping(String(existingOrderData.shipping ?? 0));
       setNotes(existingOrderData.notes || '');
       initializedRef.current = true;
-    } else if (!isEdit && orderSettings) {
-      // Pre-fill with next order number from settings
-      setOrderNumber(`${orderSettings.prefix}${orderSettings.nextNumber}`);
+    } else if (!isEdit) {
+      // For new orders, fetch the next order number from the server
+      setOrderNumberLoading(true);
+      getNextOrderNumber()
+        .then(nextNumber => {
+          setOrderNumber(nextNumber);
+          initializedRef.current = true;
+        })
+        .catch(err => {
+          console.error('Failed to fetch next order number:', err);
+          setOrderNumber('ERROR');
+          toast.error('Failed to generate order number. Please refresh the page.');
+        })
+        .finally(() => setOrderNumberLoading(false));
     }
-  }, [existingOrderData, isEdit, isEmployee, orderSettings, navigate, toast, user?.id]);
+  }, [existingOrderData, isEdit, isEmployee, navigate, toast, user?.id]);
 
   // Reset the initialization flag when switching to a different order id
   React.useEffect(() => {
@@ -235,8 +247,8 @@ const OrderForm: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!customerId || items.length === 0 || !orderNumber) {
-      const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is not set. Please wait for it to load.';
+    if (!customerId || items.length === 0 || !orderNumber || orderNumber === 'Generating...' || orderNumber === 'ERROR') {
+      const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is still being generated. Please wait a moment.';
       setError(msg);
       toast.error(msg);
       return;
@@ -302,7 +314,7 @@ const OrderForm: React.FC = () => {
       }
     } catch (err) {
       console.error('Failed to save order:', err);
-      const errorMsg = err instanceof Error ? err.message : 'Failed to save order';
+      const errorMsg = getErrorMessage(err);
       setError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -399,8 +411,9 @@ const OrderForm: React.FC = () => {
             <input 
               type="text" 
               readOnly 
-              placeholder={!orderSettings ? 'Loading...' : (isEdit ? 'Order number' : 'Assigned on save')} 
-              className="w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono ${theme.colors.primary[700]} text-sm font-bold" 
+              value={orderNumber}
+              placeholder="Generating..."
+              className={`w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono text-sm font-bold ${orderNumber === 'ERROR' ? 'text-red-600' : `${theme.colors.primary[700]}`}`} 
             />
           </div>
         </div>

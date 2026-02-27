@@ -12,7 +12,7 @@ import { useVendorsPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
-import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
 
 const Vendors: React.FC = () => {
   const navigate = useNavigate();
@@ -43,7 +43,12 @@ const Vendors: React.FC = () => {
       toast.success('Vendor deleted successfully');
     } catch (err) {
       console.error('Failed to delete vendor:', err);
-      toast.error('Failed to delete vendor');
+      const msg = getErrorMessage(err);
+      if (msg.includes('fk_bills_vendor') || msg.toLowerCase().includes('bills')) {
+        toast.error('Cannot delete vendor: this vendor is referenced by one or more bills. Delete or reassign those bills first.');
+      } else {
+        toast.error(`Failed to delete vendor: ${msg}`);
+      }
     }
   };
 

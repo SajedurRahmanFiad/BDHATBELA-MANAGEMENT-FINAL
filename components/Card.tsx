@@ -31,6 +31,7 @@ interface StatCardProps {
   iconBgColor?: string;
   isProfitCard?: boolean;
   profitValue?: number;
+  subtotalAmount?: string; // Optional: amount to show in brackets, e.g. "৳ 670"
 }
 
 const statCardVariants: Record<StatCardVariant, { bg: string; text: string; icon: string }> = {
@@ -76,7 +77,7 @@ const statCardVariants: Record<StatCardVariant, { bg: string; text: string; icon
   },
 };
 
-export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant = 'primary', bgColor, textColor: textColorProp, iconBgColor: iconBgColorProp, isProfitCard = false, profitValue }) => {
+export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant = 'primary', bgColor, textColor: textColorProp, iconBgColor: iconBgColorProp, isProfitCard = false, profitValue, subtotalAmount }) => {
   const style = statCardVariants[variant];
   
   // Use provided colors or determine from profit card logic
@@ -107,7 +108,14 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant 
       <div className="flex-1">
         {/* slightly smaller title text */}
         <p className={`text-[10px] font-bold uppercase tracking-widest ${textColor === 'text-white' ? 'text-white/70' : 'text-gray-400'}`}>{title}</p>
-        <h3 className={`text-xl font-black mt-1 ${textColor}`}>{value}</h3>
+        <h3 className={`text-xl font-black mt-1 flex flex-wrap items-baseline ${textColor}`}>
+          <span>{value}</span>
+          {subtotalAmount && (
+            <span className="text-sm font-semibold ml-1 whitespace-nowrap">
+              ({subtotalAmount})
+            </span>
+          )}
+        </h3>
       </div>
     </div>
   );

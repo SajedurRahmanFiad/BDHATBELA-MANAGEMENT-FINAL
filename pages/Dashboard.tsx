@@ -84,6 +84,15 @@ const Dashboard: React.FC = () => {
     cancelled: filteredOrders.filter(o => o.status === OrderStatus.CANCELLED).length,
   };
 
+  // Calculate total amounts for each order status
+  const orderTotals = {
+    total: filteredOrders.reduce((sum, o) => sum + o.total, 0),
+    processing: filteredOrders.filter(o => o.status === OrderStatus.PROCESSING).reduce((sum, o) => sum + o.total, 0),
+    picked: filteredOrders.filter(o => o.status === OrderStatus.PICKED).reduce((sum, o) => sum + o.total, 0),
+    completed: filteredOrders.filter(o => o.status === OrderStatus.COMPLETED).reduce((sum, o) => sum + o.total, 0),
+    cancelled: filteredOrders.filter(o => o.status === OrderStatus.CANCELLED).reduce((sum, o) => sum + o.total, 0),
+  };
+
   const totalReceivables = filteredOrders.reduce((sum, o) => sum + (o.total - o.paidAmount), 0);
   const totalPayables = filteredBills.reduce((sum, b) => sum + (b.total - b.paidAmount), 0);
 
@@ -205,11 +214,11 @@ const Dashboard: React.FC = () => {
 
         {/* second row: order status breakdown including cancelled */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mt-6">
-          <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" />
-          <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" />
-          <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" />
-          <StatCard title="Completed Orders" value={orderCounts.completed} icon={ICONS.PlusCircle} bgColor="bg-teal-600" textColor="text-white" iconBgColor="bg-teal-700" />
-          <StatCard title="Cancelled Orders" value={orderCounts.cancelled} icon={ICONS.AlertCircle} bgColor="bg-red-500" textColor="text-white" iconBgColor="bg-red-600" />
+          <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" subtotalAmount={formatCurrency(orderTotals.total)} />
+          <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" subtotalAmount={formatCurrency(orderTotals.processing)} />
+          <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" subtotalAmount={formatCurrency(orderTotals.picked)} />
+          <StatCard title="Completed Orders" value={orderCounts.completed} icon={ICONS.PlusCircle} bgColor="bg-teal-600" textColor="text-white" iconBgColor="bg-teal-700" subtotalAmount={formatCurrency(orderTotals.completed)} />
+          <StatCard title="Cancelled Orders" value={orderCounts.cancelled} icon={ICONS.AlertCircle} bgColor="bg-red-500" textColor="text-white" iconBgColor="bg-red-600" subtotalAmount={formatCurrency(orderTotals.cancelled)} />
         </div>
 
         <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm">

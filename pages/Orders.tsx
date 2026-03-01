@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import PortalMenu from '../components/PortalMenu';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { Order, OrderStatus, UserRole, Transaction, isEmployeeRole } from '../types';
@@ -20,6 +20,7 @@ import { handlePrintOrder } from '../src/utils/printUtils';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
@@ -30,8 +31,51 @@ const Orders: React.FC = () => {
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Initialize state from URL params, but will be synced by useEffect below
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
+  const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
+  const [createdByFilter, setCreatedByFilter] = useState<string>('all');
+  const [page, setPage] = useState<number>(1);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+
+  const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
+  const [showSteadfast, setShowSteadfast] = useState<string | null>(null);
+  const [showCarryBee, setShowCarryBee] = useState<string | null>(null);
+  const [paymentForm, setPaymentForm] = useState({
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    accountId: '',
+    amount: 0
+  });
+
+  const { data: users = [] } = useUsers();
+
+  // Sync state FROM URL params whenever URL changes (on mount and when navigating back)
+  useEffect(() => {
+    const pageParam = Number(searchParams.get('page'));
+    if (Number.isFinite(pageParam) && pageParam > 0) {
+      setPage(pageParam);
+    }
+    
+    const statusParam = searchParams.get('status') as OrderStatus | null;
+    setStatusTab(statusParam || 'All');
+    
+    const rangeParam = searchParams.get('range') as FilterRange | null;
+    setFilterRange(rangeParam || 'All Time');
+    
+    const createdByParam = searchParams.get('createdBy');
+    setCreatedByFilter(createdByParam || 'all');
+    
+    setCustomDates({
+      from: searchParams.get('from') || '',
+      to: searchParams.get('to') || ''
+    });
+  }, [searchParams]);
 
   // Compute server-side timestamp range based on selected filter
   const timeFilters = useMemo(() => {
@@ -72,25 +116,6 @@ const Orders: React.FC = () => {
     }
     return { from, to };
   }, [filterRange, customDates]);
-  const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
-  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-
-  const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
-  const [showSteadfast, setShowSteadfast] = useState<string | null>(null); // Order ID for Steadfast modal
-  const [showCarryBee, setShowCarryBee] = useState<string | null>(null); // Order ID for CarryBee modal
-  const [paymentForm, setPaymentForm] = useState({
-    date: new Date().toISOString().split('T')[0],
-    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    accountId: '',
-    amount: 0
-  });
-
-  const [page, setPage] = useState<number>(1);
-  
-  const { data: users = [] } = useUsers();
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
@@ -101,7 +126,6 @@ const Orders: React.FC = () => {
     if (createdByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
-    // Specific user ID
     return [createdByFilter];
   }, [createdByFilter, users]);
 
@@ -109,15 +133,23 @@ const Orders: React.FC = () => {
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
-  // all customer info is already provided by the joined query, so no extra fetch required
 
   const { data: accounts = [] } = useAccounts();
   const { data: orderSettings } = useOrderSettings();
 
-  // Reset page to 1 whenever any of the active filters or time range changes
+  // When user explicitly changes filters via UI (not from URL), reset page to 1 and update URL
   useEffect(() => {
-    setPage(1);
-  }, [searchQuery, statusTab, filterRange, customDates.from, customDates.to, createdByFilter]);
+    const params: Record<string, string> = {};
+    if (page && page > 1) params.page = String(page);
+    if (statusTab && statusTab !== 'All') params.status = String(statusTab);
+    if (filterRange && filterRange !== 'All Time') params.range = filterRange;
+    if (customDates.from) params.from = customDates.from;
+    if (customDates.to) params.to = customDates.to;
+    if (createdByFilter && createdByFilter !== 'all') params.createdBy = createdByFilter;
+    if (searchQuery) params.search = searchQuery;
+
+    setSearchParams(params, { replace: true });
+  }, [page, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, searchQuery, setSearchParams]);
 
   // Wrapper functions that reset page AND apply filter (atomic operation)
   const handleStatusTabChange = (newStatus: OrderStatus | 'All') => {
@@ -311,8 +343,8 @@ const Orders: React.FC = () => {
 
       // Close modal immediately - queries will auto-update via React Query
       setShowPaymentModal(null);
-      // Refresh current page after payment update
-      queryClient.invalidateQueries({ queryKey: ['orders', page] });
+      // Refresh orders cache so the updated order is re-fetched and will no longer appear under the old status/tab
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     } catch (err) {
       console.error('Failed to add payment:', err);
       toast.error('Failed to add payment: ' + (err instanceof Error ? err.message : 'Unknown error'));
@@ -399,7 +431,7 @@ const Orders: React.FC = () => {
                     key={order.id} 
                     onMouseEnter={() => setHoveredRow(order.id)} 
                     onMouseLeave={() => setHoveredRow(null)} 
-                    onClick={() => navigate(`/orders/${order.id}`)} 
+                    onClick={() => navigate(`/orders/${order.id}`, { state: { from: `${location.pathname}${location.search}` } })} 
                     className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
                   >
                     <td className="px-6 py-5">

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { OrderStatus, Order, UserRole, Transaction, isEmployeeRole } from '../types';
@@ -16,6 +16,7 @@ import { handlePrintOrder } from '../src/utils/printUtils';
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const user = db.currentUser;
@@ -70,6 +71,8 @@ const OrderDetails: React.FC = () => {
       
       // Explicitly invalidate the query cache after mutation succeeds to prevent stale data (FIX: prevents "not found" race condition)
       queryClient.invalidateQueries({ queryKey: ['order', id] });
+      // Also invalidate orders list so list views reflect status change
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
       
       setIsActionOpen(false);
     } catch (err) {
@@ -233,7 +236,11 @@ const OrderDetails: React.FC = () => {
       {/* Header with Top Action Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/orders')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
+          <button onClick={() => {
+            const from = (location.state as any)?.from;
+            if (from) navigate(from);
+            else navigate(-1);
+          }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
           <h2 className="text-md md:text-2xl font-bold text-gray-900">{order.orderNumber}</h2>

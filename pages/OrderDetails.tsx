@@ -62,6 +62,22 @@ const OrderDetails: React.FC = () => {
   const updateStatus = async (newStatus: OrderStatus, historyKey?: keyof Order['history'], historyText?: string) => {
     if (!order) return;
     try {
+      // Client-side guard: prevent transitioning to statuses that consume stock
+      const forbiddenStatuses = [OrderStatus.PROCESSING, OrderStatus.PICKED, OrderStatus.COMPLETED];
+      if (forbiddenStatuses.includes(newStatus)) {
+        const oos = order.items
+          .map(i => {
+            const p = products.find(pp => pp.id === i.productId);
+            const stock = p ? Number(p.stock || 0) : 0;
+            return stock <= 0 ? (p?.name || i.productName || i.productId) : null;
+          })
+          .filter(Boolean) as string[];
+
+        if (oos.length > 0) {
+          toast.error(`Out of stock: ${oos.join(', ')}`);
+          return;
+        }
+      }
       const updates = { 
         ...order, 
         status: newStatus, 
@@ -123,6 +139,19 @@ const OrderDetails: React.FC = () => {
     
     // Mark as completed when any payment is added
     const status = OrderStatus.COMPLETED;
+
+    // Prevent completing an order if any items are out of stock
+    const oosComplete = order.items
+      .map(i => {
+        const p = products.find(pp => pp.id === i.productId);
+        const stock = p ? Number(p.stock || 0) : 0;
+        return stock <= 0 ? (p?.name || i.productName || i.productId) : null;
+      })
+      .filter(Boolean) as string[];
+    if (oosComplete.length > 0) {
+      toast.error(`Cannot complete order — out of stock: ${oosComplete.join(', ')}`);
+      return;
+    }
     
     const updatedOrder = { 
       ...order, 

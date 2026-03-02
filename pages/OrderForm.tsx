@@ -223,8 +223,7 @@ const OrderForm: React.FC = () => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
     if ((product.stock ?? 0) <= 0) {
-      toast.error(`"${product.name}" is out of stock.`);
-      return;
+      toast.warning(`"${product.name}" is out of stock — will be created On Hold.`);
     }
 
     const newItem: OrderItem = {

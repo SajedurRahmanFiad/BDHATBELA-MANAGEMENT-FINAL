@@ -5,7 +5,7 @@ import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
-import { isWithinDateRange, FilterRange } from '../utils';
+import { isWithinDateRange, FilterRange, getTodayDate } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { 
   useOrders, useBills, useTransactions, useUsers, useCategories
@@ -76,6 +76,10 @@ const Dashboard: React.FC = () => {
 
   const totalProfit = totalSales - totalPurchases - otherExpenses;
 
+  // counts for the stat cards. `total` is simply the number of orders
+  // remaining after the date-range filter; it does **not** exclude any
+  // statuses. thus the "Total Orders" card will display every order in the
+  // selected window regardless of processing/completed/cancelled/etc.
   const orderCounts = {
     total: filteredOrders.length,
     processing: filteredOrders.filter(o => o.status === OrderStatus.PROCESSING).length,
@@ -104,7 +108,7 @@ const Dashboard: React.FC = () => {
   // --- EMPLOYEE CALCULATIONS ---
   // For employees the top FilterBar should not affect stat cards — use unfiltered `orders` for stats
   const myTotalCreated = orders.filter(o => o.createdBy === user.id).length;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayDate();
   const myCreatedToday = orders.filter(o => o.createdBy === user.id && o.orderDate === todayStr).length;
   const myPendingOrders = orders.filter(o => o.createdBy === user.id && o.status === OrderStatus.ON_HOLD).length;
 
@@ -204,7 +208,7 @@ const Dashboard: React.FC = () => {
         />
 
         {/* first row: financial metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <StatCard title="Total Sales" value={formatCurrency(totalSales)} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
           <StatCard title="Total Purchases" value={formatCurrency(totalPurchases)} icon={ICONS.Briefcase} bgColor="bg-purple-600" textColor="text-white" iconBgColor="bg-purple-700" />
           <StatCard title="Other Expenses" value={formatCurrency(otherExpenses)} icon={ICONS.Delete} bgColor="bg-amber-500" textColor="text-white" iconBgColor="bg-amber-600" />
@@ -213,7 +217,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* second row: order status breakdown including cancelled */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mt-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-6 mt-6">
           <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" subtotalAmount={formatCurrency(orderTotals.total)} />
           <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" subtotalAmount={formatCurrency(orderTotals.processing)} />
           <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" subtotalAmount={formatCurrency(orderTotals.picked)} />

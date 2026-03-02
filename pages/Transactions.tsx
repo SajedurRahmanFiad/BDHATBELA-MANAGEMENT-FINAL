@@ -14,6 +14,7 @@ import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { getDateTimeFilters } from '../utils';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ const Transactions: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   
   const { data: users = [] } = useUsers();
+  const timeFilters = useMemo(() => getDateTimeFilters(filterRange, customDates), [filterRange, customDates]);
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
@@ -43,7 +45,7 @@ const Transactions: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(page, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(page, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
@@ -107,27 +109,6 @@ const Transactions: React.FC = () => {
     return new Map(users.map(u => [u.id, u]));
   }, [users]);
 
-  const isWithinRange = (dateStr: string) => {
-    if (filterRange === 'All Time') return true;
-    const date = new Date(dateStr);
-    const now = new Date();
-    if (filterRange === 'Today') return date.toDateString() === now.toDateString();
-    if (filterRange === 'This Week') {
-      const first = now.getDate() - now.getDay();
-      const last = first + 6;
-      const firstDay = new Date(new Date().setDate(first));
-      const lastDay = new Date(new Date().setDate(last));
-      return date >= firstDay && date <= lastDay;
-    }
-    if (filterRange === 'This Month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-    if (filterRange === 'This Year') return date.getFullYear() === now.getFullYear();
-    if (filterRange === 'Custom') {
-      if (!customDates.from || !customDates.to) return true;
-      return date >= new Date(customDates.from) && date <= new Date(customDates.to);
-    }
-    return true;
-  };
-
   const getCreatorName = (transaction: Transaction) => {
     if (!transaction.createdBy?.trim()) return null;
     const user = userMap.get(transaction.createdBy);
@@ -155,7 +136,6 @@ const Transactions: React.FC = () => {
 
   const filteredTransactions = useMemo(() => {
     let results = transactions
-      .filter(t => isWithinRange(t.date))
       .filter(t => typeTab === 'All' || t.type === typeTab);
 
     // Apply search filter
@@ -178,7 +158,7 @@ const Transactions: React.FC = () => {
     }
 
     return results;
-  }, [transactions, filterRange, customDates, typeTab, searchQuery, allCategories, users]);
+  }, [transactions, typeTab, searchQuery, allCategories, users]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     try {

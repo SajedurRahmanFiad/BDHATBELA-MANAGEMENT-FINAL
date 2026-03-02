@@ -17,6 +17,7 @@ import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { handlePrintOrder } from '../src/utils/printUtils';
+import { getDateOnlyFilters } from '../utils';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
@@ -77,44 +78,9 @@ const Orders: React.FC = () => {
     });
   }, [searchParams]);
 
-  // Compute server-side timestamp range based on selected filter
-  const timeFilters = useMemo(() => {
-    let from: string | undefined;
-    let to: string | undefined;
-    const now = new Date();
-    switch (filterRange) {
-      case 'Today':
-        from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        to = now.toISOString();
-        break;
-      case 'This Week': {
-        const first = new Date(now);
-        first.setDate(now.getDate() - now.getDay());
-        first.setHours(0, 0, 0, 0);
-        from = first.toISOString();
-        to = now.toISOString();
-        break;
-      }
-      case 'This Month':
-        from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        to = now.toISOString();
-        break;
-      case 'This Year':
-        from = new Date(now.getFullYear(), 0, 1).toISOString();
-        to = now.toISOString();
-        break;
-      case 'Custom':
-        if (customDates.from) from = new Date(customDates.from).toISOString();
-        if (customDates.to) {
-          const d = new Date(customDates.to);
-          d.setHours(23, 59, 59, 999);
-          to = d.toISOString();
-        }
-        break;
-      default:
-        break;
-    }
-    return { from, to };
+  // Compute server-side order_date range based on selected filter
+  const dateFilters = useMemo(() => {
+    return getDateOnlyFilters(filterRange, customDates);
   }, [filterRange, customDates]);
 
   // Compute createdByIds based on createdByFilter
@@ -129,7 +95,7 @@ const Orders: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: dateFilters.from, to: dateFilters.to, search: searchQuery, createdByIds });
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));

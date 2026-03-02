@@ -5,6 +5,107 @@
 
 export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
 
+const isValidDate = (value: Date): boolean => !Number.isNaN(value.getTime());
+
+const formatYmd = (value: Date): string => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, '0');
+  const day = `${value.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseYmd = (value: string, endOfDay: boolean): Date | null => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (!isValidDate(date)) return null;
+  if (endOfDay) date.setHours(23, 59, 59, 999);
+  else date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const parseDateInput = (value: string): Date | null => {
+  const ymd = parseYmd(value, false);
+  if (ymd) return ymd;
+  const date = new Date(value);
+  return isValidDate(date) ? date : null;
+};
+
+const startOfToday = (now: Date): Date => {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const endOfDay = (value: Date): Date => {
+  const date = new Date(value);
+  date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const buildDateRange = (
+  filterRange: FilterRange,
+  customDates: { from: string; to: string }
+): { from?: Date; to?: Date } => {
+  const now = new Date();
+
+  if (filterRange === 'All Time') return {};
+
+  if (filterRange === 'Today') {
+    return { from: startOfToday(now), to: endOfDay(now) };
+  }
+
+  if (filterRange === 'This Week') {
+    const first = new Date(now);
+    first.setDate(now.getDate() - now.getDay());
+    first.setHours(0, 0, 0, 0);
+    return { from: first, to: endOfDay(now) };
+  }
+
+  if (filterRange === 'This Month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    from.setHours(0, 0, 0, 0);
+    return { from, to: endOfDay(now) };
+  }
+
+  if (filterRange === 'This Year') {
+    const from = new Date(now.getFullYear(), 0, 1);
+    from.setHours(0, 0, 0, 0);
+    return { from, to: endOfDay(now) };
+  }
+
+  const from = parseYmd(customDates.from, false) || undefined;
+  const to = parseYmd(customDates.to, true) || undefined;
+
+  if (from && to && from.getTime() > to.getTime()) {
+    return { from: to, to: from };
+  }
+
+  return { from, to };
+};
+
+export const getDateTimeFilters = (
+  filterRange: FilterRange,
+  customDates: { from: string; to: string }
+): { from?: string; to?: string } => {
+  const { from, to } = buildDateRange(filterRange, customDates);
+  return {
+    ...(from && { from: from.toISOString() }),
+    ...(to && { to: to.toISOString() }),
+  };
+};
+
+export const getDateOnlyFilters = (
+  filterRange: FilterRange,
+  customDates: { from: string; to: string }
+): { from?: string; to?: string } => {
+  const { from, to } = buildDateRange(filterRange, customDates);
+  return {
+    ...(from && { from: formatYmd(from) }),
+    ...(to && { to: formatYmd(to) }),
+  };
+};
+
 /**
  * Check if a date string falls within the given filter range
  */
@@ -13,35 +114,11 @@ export const isWithinDateRange = (
   filterRange: FilterRange,
   customDates: { from: string; to: string }
 ): boolean => {
-  if (filterRange === 'All Time') return true;
-
-  const date = new Date(dateStr);
-  const now = new Date();
-
-  if (filterRange === 'Today') {
-    return date.toDateString() === now.toDateString();
-  }
-
-  if (filterRange === 'This Week') {
-    const first = now.getDate() - now.getDay();
-    const firstDay = new Date(new Date().setDate(first));
-    const lastDay = new Date(new Date().setDate(first + 6));
-    return date >= firstDay && date <= lastDay;
-  }
-
-  if (filterRange === 'This Month') {
-    return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-  }
-
-  if (filterRange === 'This Year') {
-    return date.getFullYear() === now.getFullYear();
-  }
-
-  if (filterRange === 'Custom') {
-    if (!customDates.from || !customDates.to) return true;
-    return date >= new Date(customDates.from) && date <= new Date(customDates.to);
-  }
-
+  const date = parseDateInput(dateStr);
+  if (!date) return false;
+  const { from, to } = buildDateRange(filterRange, customDates);
+  if (from && date < from) return false;
+  if (to && date > to) return false;
   return true;
 };
 
@@ -60,7 +137,7 @@ export const formatDate = (dateStr: string, locale: string = 'en-BD'): string =>
  * Get today's date in YYYY-MM-DD format
  */
 export const getTodayDate = (): string => {
-  return new Date().toISOString().split('T')[0];
+  return formatYmd(new Date());
 };
 
 /**

@@ -15,6 +15,7 @@ import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { getDateOnlyFilters } from '../utils';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
@@ -31,6 +32,7 @@ const Bills: React.FC = () => {
   const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
   
   const { data: users = [] } = useUsers();
+  const timeFilters = useMemo(() => getDateOnlyFilters(filterRange, customDates), [filterRange, customDates]);
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
@@ -45,7 +47,7 @@ const Bills: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: billsPage, isFetching: billsLoading } = useBillsPage(page, pageSize, { from: customDates.from, to: customDates.to, search: searchQuery, createdByIds });
+  const { data: billsPage, isFetching: billsLoading } = useBillsPage(page, pageSize, { from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const bills = billsPage?.data ?? [];
   const total = billsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -87,26 +89,6 @@ const Bills: React.FC = () => {
   const userMap = useMemo(() => {
     return new Map(users.map(u => [u.id, u]));
   }, [users]);
-
-  const isWithinRange = (dateStr: string) => {
-    if (filterRange === 'All Time') return true;
-    const date = new Date(dateStr);
-    const now = new Date();
-    if (filterRange === 'Today') return date.toDateString() === now.toDateString();
-    if (filterRange === 'This Week') {
-      const first = now.getDate() - now.getDay();
-      const firstDay = new Date(new Date().setDate(first));
-      const lastDay = new Date(new Date().setDate(first + 6));
-      return date >= firstDay && date <= lastDay;
-    }
-    if (filterRange === 'This Month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-    if (filterRange === 'This Year') return date.getFullYear() === now.getFullYear();
-    if (filterRange === 'Custom') {
-      if (!customDates.from || !customDates.to) return true;
-      return date >= new Date(customDates.from) && date <= new Date(customDates.to);
-    }
-    return true;
-  };
 
   // Helper to get creator name from createdBy field or history
   const getCreatorName = (bill: Bill) => {

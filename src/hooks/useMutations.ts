@@ -66,6 +66,26 @@ function parsePageKey(k: any[]): { page: number; pageSize: number; filters: any 
   return { page, pageSize, filters };
 }
 
+function parseComparableDate(value: any): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) {
+    return new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getResourceDateValue(resource: string, row: any): any {
+  if (resource === 'orders') return row.orderDate || row.order_date || row.createdAt || row.created_at || null;
+  if (resource === 'bills') return row.billDate || row.bill_date || row.createdAt || row.created_at || null;
+  if (resource === 'transactions') return row.date || row.createdAt || row.created_at || null;
+  return row.createdAt || row.created_at || row.date || null;
+}
+
 // Helper: determine whether a row belongs to a paginated filter set for known resources
 function matchesFiltersForResource(resource: string, row: any, filters: any): boolean {
   if (!filters) return true;
@@ -74,14 +94,18 @@ function matchesFiltersForResource(resource: string, row: any, filters: any): bo
     if (filters.status && filters.status !== 'All') {
       if ((row.status || row.status === '') && row.status !== filters.status) return false;
     }
-    const createdAt = row.createdAt || row.created_at || row.date || null;
-    if (filters.from && createdAt) {
-      const fromD = new Date(filters.from);
-      if (new Date(createdAt) < fromD) return false;
+    const rowDate = parseComparableDate(getResourceDateValue(resource, row));
+    if (filters.from) {
+      const fromD = parseComparableDate(filters.from);
+      if (fromD && (!rowDate || rowDate < fromD)) return false;
     }
-    if (filters.to && createdAt) {
-      const toD = new Date(filters.to);
-      if (new Date(createdAt) > toD) return false;
+    if (filters.to) {
+      const toD = parseComparableDate(filters.to);
+      if (toD && (!rowDate || rowDate > toD)) return false;
+    }
+    if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
+      const cb = row.createdBy || row.created_by;
+      if (!cb || !filters.createdByIds.includes(cb)) return false;
     }
 
     // Resource-specific heuristics
@@ -92,12 +116,6 @@ function matchesFiltersForResource(resource: string, row: any, filters: any): bo
       if (filters.accountId && (row.accountId || row.account_id) && (row.accountId || row.account_id) !== filters.accountId) return false;
       if (filters.contactId && (row.contactId || row.contact_id) && (row.contactId || row.contact_id) !== filters.contactId) return false;
       if (filters.type && (row.type || row.type === '') && row.type !== filters.type) return false;
-    }
-    if (resource === 'orders') {
-      if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
-        const cb = row.createdBy || row.created_by;
-        if (!filters.createdByIds.includes(cb)) return false;
-      }
     }
 
     return true;
@@ -388,16 +406,7 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
           // Only modify first page entries
           if (pageNum !== 1) return;
           if (value && (value as any).data && Array.isArray((value as any).data)) {
-            const matchesFilters = (() => {
-              if (!filters) return true;
-              if (filters.status && filters.status !== 'All' && data.status !== filters.status) return false;
-              if (filters.from && data.createdAt && data.createdAt < filters.from) return false;
-              if (filters.to && data.createdAt && data.createdAt > filters.to) return false;
-              if (filters.createdByIds && Array.isArray(filters.createdByIds) && filters.createdByIds.length > 0) {
-                if (!filters.createdByIds.includes(data.createdBy)) return false;
-              }
-              return true;
-            })();
+            const matchesFilters = matchesFiltersForResource('orders', data, filters);
 
             if (matchesFilters) {
               queryClient.setQueryData(key as any, { ...(value as any), data: [data, ...((value as any).data)].slice(0, sz || DEFAULT_PAGE_SIZE), count: (value as any).count ? (value as any).count + 1 : 1 });

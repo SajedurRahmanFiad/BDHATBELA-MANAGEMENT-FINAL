@@ -342,10 +342,10 @@ export async function fetchOrdersPage(
       query = query.eq('status', filters.status);
     }
     if (filters.from) {
-      query = query.gte('created_at', filters.from);
+      query = query.gte('order_date', filters.from);
     }
     if (filters.to) {
-      query = query.lte('created_at', filters.to);
+      query = query.lte('order_date', filters.to);
     }
     if (filters.createdByIds && filters.createdByIds.length > 0) {
       query = query.in('created_by', filters.createdByIds);

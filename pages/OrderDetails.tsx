@@ -77,7 +77,7 @@ const OrderDetails: React.FC = () => {
       setIsActionOpen(false);
     } catch (err) {
       console.error('Failed to update order status:', err);
-      toast.error('Failed to update order status');
+      toast.error(err instanceof Error ? err.message : 'Failed to update order status');
     }
   };
 

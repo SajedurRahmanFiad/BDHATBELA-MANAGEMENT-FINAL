@@ -59,6 +59,7 @@ export interface Product {
   category: string;
   salePrice: number;
   purchasePrice: number;
+  stock: number;
   createdBy?: string;
 }
 
@@ -122,6 +123,7 @@ export interface Bill {
     created?: string;
     processing?: string;
     received?: string;
+    cancelled?: string;
     paid?: string;
   };
   paidAmount: number;

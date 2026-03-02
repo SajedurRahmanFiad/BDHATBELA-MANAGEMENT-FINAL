@@ -58,6 +58,8 @@ import ExpenseSummary from './pages/reports/ExpenseSummary';
 import IncomeSummary from './pages/reports/IncomeSummary';
 import IncomeVsExpense from './pages/reports/IncomeVsExpense';
 import ProfitLoss from './pages/reports/ProfitLoss';
+import ProductQuantitySold from './pages/reports/ProductQuantitySold';
+import CustomerSalesReport from './pages/reports/CustomerSalesReport';
 import PrintOrder from './pages/PrintOrder';
 
 // Inner app component that uses auth context
@@ -191,6 +193,12 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
       } />
       <Route path="/reports/profit-loss" element={
         isAuthenticated ? <Layout><ProfitLoss /></Layout> : <Navigate to="/login" replace />
+      } />
+      <Route path="/reports/product-quantity-sold" element={
+        isAuthenticated ? <Layout><ProductQuantitySold /></Layout> : <Navigate to="/login" replace />
+      } />
+      <Route path="/reports/customer-sales" element={
+        isAuthenticated ? <Layout><CustomerSalesReport /></Layout> : <Navigate to="/login" replace />
       } />
 
       <Route path="/settings" element={

@@ -50,7 +50,8 @@ const ProductForm: React.FC = () => {
     category: '',
     image: '',
     salePrice: 0,
-    purchasePrice: 0
+    purchasePrice: 0,
+    stock: 0,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,8 @@ const ProductForm: React.FC = () => {
         category: form.category || '',
         image: form.image || 'https://picsum.photos/200/200?random=' + Math.random(),
         salePrice: form.salePrice || 0,
-        purchasePrice: form.purchasePrice || 0
+        purchasePrice: form.purchasePrice || 0,
+        stock: Math.max(0, Number(form.stock || 0)),
       };
 
       if (isEdit) {
@@ -193,6 +195,20 @@ const ProductForm: React.FC = () => {
               className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] text-gray-600 font-bold`}
               value={form.purchasePrice}
               onChange={e => setForm({...form, purchasePrice: parseFloat(e.target.value) || 0})}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">{isEdit ? 'Stock' : 'Opening Stock'}</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              className="w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82] font-bold"
+              value={form.stock ?? 0}
+              onChange={e => setForm({ ...form, stock: Math.max(0, parseInt(e.target.value || '0', 10) || 0) })}
             />
           </div>
         </div>

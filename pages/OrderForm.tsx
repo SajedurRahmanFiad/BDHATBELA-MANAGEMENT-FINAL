@@ -222,6 +222,10 @@ const OrderForm: React.FC = () => {
   const addItem = (productId: string) => {
     const product = products.find(p => p.id === productId);
     if (!product) return;
+    if ((product.stock ?? 0) <= 0) {
+      toast.error(`"${product.name}" is out of stock.`);
+      return;
+    }
 
     const newItem: OrderItem = {
       productId: product.id,
@@ -495,6 +499,7 @@ const OrderForm: React.FC = () => {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.primary[700]} truncate">{p.name}</p>
                                 <p className="text-[10px] font-bold ${theme.colors.primary[600]}/60 uppercase tracking-widest">{formatCurrency(p.salePrice)}</p>
+                                <p className={`text-[10px] font-bold uppercase tracking-widest ${p.stock <= 0 ? 'text-red-500' : 'text-gray-400'}`}>Stock: {p.stock ?? 0}</p>
                               </div>
                             </button>
                           ))}

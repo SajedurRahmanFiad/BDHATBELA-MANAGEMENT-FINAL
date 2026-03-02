@@ -61,6 +61,20 @@ const Reports: React.FC = () => {
       icon: ICONS.Reports,
       color: 'bg-purple-50 text-purple-600',
       to: '/reports/profit-loss'
+    },
+    {
+      title: 'Product Quantity Sold',
+      description: 'Track sold quantities per product for the selected period.',
+      icon: ICONS.Products,
+      color: 'bg-emerald-50 text-emerald-600',
+      to: '/reports/product-quantity-sold'
+    },
+    {
+      title: 'Customer Sales Report',
+      description: 'Compare customers by order count, quantity, and sales amount.',
+      icon: ICONS.Customers,
+      color: 'bg-cyan-50 text-cyan-600',
+      to: '/reports/customer-sales'
     }
   ];
 

@@ -374,6 +374,7 @@ const BillForm: React.FC = () => {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.secondary[700]} truncate">{p.name}</p>
                                 <p className="text-[10px] font-bold ${theme.colors.secondary[600]}/60 uppercase tracking-widest">Cost: {formatCurrency(p.purchasePrice)}</p>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Current Stock: {p.stock ?? 0}</p>
                               </div>
                             </button>
                           ))}

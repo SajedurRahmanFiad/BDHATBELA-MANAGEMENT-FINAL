@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import supabase from './supabaseClient';
-import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus } from '../../types';
+import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus, BillStatus } from '../../types';
 import { db } from '../../db';
 
 export const DEFAULT_PAGE_SIZE = 25;
@@ -507,6 +507,138 @@ export async function createOrder(order: Omit<Order, 'id'>) {
   return mapOrder(mappedData);
 }
 
+type LineItem = { productId?: string; quantity?: number };
+
+function aggregateItemQuantities(items: any[]): Map<string, number> {
+  const quantities = new Map<string, number>();
+  (items || []).forEach((item: LineItem) => {
+    const productId = String(item?.productId || '').trim();
+    const quantity = Number(item?.quantity || 0);
+    if (!productId || !Number.isFinite(quantity) || quantity <= 0) return;
+    quantities.set(productId, (quantities.get(productId) || 0) + quantity);
+  });
+  return quantities;
+}
+
+function buildStockDeltas(
+  previousItems: any[],
+  nextItems: any[],
+  previousCoeff: number,
+  nextCoeff: number
+): Map<string, number> {
+  const deltas = new Map<string, number>();
+  const prev = aggregateItemQuantities(previousItems);
+  const next = aggregateItemQuantities(nextItems);
+  const productIds = new Set<string>([...prev.keys(), ...next.keys()]);
+
+  productIds.forEach((productId) => {
+    const delta = (prev.get(productId) || 0) * previousCoeff + (next.get(productId) || 0) * nextCoeff;
+    if (delta !== 0) deltas.set(productId, delta);
+  });
+
+  return deltas;
+}
+
+async function resolveProductStockUpdates(
+  deltas: Map<string, number>,
+  context: string
+): Promise<Array<{ id: string; stock: number }>> {
+  if (deltas.size === 0) return [];
+
+  const productIds = Array.from(deltas.keys());
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('id, name, stock')
+    .in('id', productIds);
+
+  if (productsError) {
+    console.error(`[supabaseQueries] ${context} stock fetch error:`, productsError);
+    throw productsError;
+  }
+
+  const byId = new Map<string, any>((products || []).map((p: any) => [p.id, p]));
+  const missing = productIds.filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    throw new Error(`Stock update failed: products not found (${missing.join(', ')})`);
+  }
+
+  const insufficient: string[] = [];
+  const updates: Array<{ id: string; stock: number }> = [];
+  productIds.forEach((productId) => {
+    const row = byId.get(productId);
+    const currentStock = Number(row?.stock || 0);
+    const delta = Number(deltas.get(productId) || 0);
+    const nextStock = currentStock + delta;
+    if (nextStock < 0) {
+      const name = row?.name || productId;
+      insufficient.push(`${name} (need ${Math.abs(delta)}, have ${currentStock})`);
+      return;
+    }
+    updates.push({ id: productId, stock: nextStock });
+  });
+
+  if (insufficient.length > 0) {
+    throw new Error(`Insufficient stock: ${insufficient.join('; ')}`);
+  }
+
+  return updates;
+}
+
+async function applyResolvedProductStockUpdates(
+  updates: Array<{ id: string; stock: number }>,
+  context: string
+): Promise<void> {
+  if (!updates.length) return;
+
+  for (const upd of updates) {
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ stock: upd.stock })
+      .eq('id', upd.id);
+
+    if (updateError) {
+      console.error(`[supabaseQueries] ${context} stock update error:`, updateError);
+      throw updateError;
+    }
+  }
+}
+
+function isOrderStockApplied(status?: string | null): boolean {
+  return status === OrderStatus.PROCESSING || status === OrderStatus.PICKED || status === OrderStatus.COMPLETED;
+}
+
+function isBillStockApplied(status?: string | null): boolean {
+  return status === BillStatus.RECEIVED || status === BillStatus.PAID;
+}
+
+async function applyOrderStockTransition(
+  previousStatus: string,
+  nextStatus: string,
+  previousItems: any[],
+  nextItems: any[]
+): Promise<Array<{ id: string; stock: number }>> {
+  const previousApplied = isOrderStockApplied(previousStatus);
+  const nextApplied = isOrderStockApplied(nextStatus);
+  const previousCoeff = previousApplied ? 1 : 0;
+  const nextCoeff = nextApplied ? -1 : 0;
+  const deltas = buildStockDeltas(previousItems, nextItems, previousCoeff, nextCoeff);
+  return resolveProductStockUpdates(deltas, 'order');
+}
+
+async function applyBillStockTransition(
+  previousStatus: string,
+  nextStatus: string,
+  previousItems: any[],
+  nextItems: any[]
+): Promise<Array<{ id: string; stock: number }>> {
+  const previousApplied = isBillStockApplied(previousStatus);
+  const nextApplied = isBillStockApplied(nextStatus);
+  const previousCoeff = previousApplied ? -1 : 0;
+  const nextCoeff = nextApplied ? 1 : 0;
+  const deltas = buildStockDeltas(previousItems, nextItems, previousCoeff, nextCoeff);
+  return resolveProductStockUpdates(deltas, 'bill');
+}
+
 /**
  * Helper: Get the next available order number by querying the highest existing number + 1.
  * Uses the prefix from order_settings and the max numeric value from orders table.
@@ -515,6 +647,27 @@ export async function createOrder(order: Omit<Order, 'id'>) {
 
 export async function updateOrder(id: string, updates: Partial<Order>) {
   await ensureAuthenticated();
+  const { data: existingOrderRow, error: existingOrderError } = await supabase
+    .from('orders')
+    .select('status, items')
+    .eq('id', id)
+    .single();
+
+  if (existingOrderError) {
+    console.error('[supabaseQueries] updateOrder existing row fetch error:', existingOrderError);
+    throw existingOrderError;
+  }
+
+  const previousStatus = String(existingOrderRow?.status || '');
+  const previousItems = Array.isArray(existingOrderRow?.items) ? existingOrderRow.items : [];
+  const nextStatus = updates.status ?? previousStatus;
+  const nextItems = updates.items !== undefined ? updates.items : previousItems;
+  let pendingStockUpdates: Array<{ id: string; stock: number }> = [];
+
+  if (updates.status !== undefined || updates.items !== undefined) {
+    pendingStockUpdates = await applyOrderStockTransition(previousStatus, String(nextStatus), previousItems, nextItems || []);
+  }
+
   const carrybeeConsignmentId =
     (updates as any).carrybeeConsignmentId ?? (updates as any).carrybee_consignment_id;
   const { data, error } = await supabase
@@ -525,7 +678,7 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.orderNumber && { order_number: updates.orderNumber }),
       ...(updates.notes !== undefined && { notes: updates.notes }),
       ...(updates.status && { status: updates.status }),
-      ...(updates.items && { items: updates.items }),
+      ...(updates.items !== undefined && { items: updates.items }),
       ...(updates.subtotal !== undefined && { subtotal: updates.subtotal }),
       ...(updates.discount !== undefined && { discount: updates.discount }),
       ...(updates.shipping !== undefined && { shipping: updates.shipping }),
@@ -558,6 +711,21 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
   if (fetchError) {
     console.error('[supabaseQueries] updateOrder: failed to fetch updated order with relations:', fetchError);
     throw fetchError;
+  }
+
+  try {
+    await applyResolvedProductStockUpdates(pendingStockUpdates, 'order');
+  } catch (stockErr) {
+    // Best-effort rollback to avoid order status and stock drifting apart.
+    try {
+      await supabase
+        .from('orders')
+        .update({ status: previousStatus, items: previousItems })
+        .eq('id', id);
+    } catch (rollbackErr) {
+      console.error('[supabaseQueries] updateOrder stock rollback error:', rollbackErr);
+    }
+    throw stockErr;
   }
 
   return mapOrder(fullData);
@@ -976,7 +1144,7 @@ export async function fetchProductsPage(
 
   let query: any = supabase
     .from('products')
-    .select('id, name, image, category, sale_price, purchase_price, created_at', { count: 'estimated' });
+    .select('id, name, image, category, sale_price, purchase_price, stock, created_at', { count: 'estimated' });
 
   // Apply filters BEFORE ordering and range (critical for Supabase to handle pagination correctly)
   if (category) query = query.eq('category', category);
@@ -1011,7 +1179,7 @@ export async function fetchProductsMini() {
     // Select minimal columns and reduce limit to keep payload small for dropdowns
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, sale_price, purchase_price')
+      .select('id, name, sale_price, purchase_price, stock')
       .order('created_at', { ascending: false })
       .limit(100); // smaller limit for faster responses
 
@@ -1034,7 +1202,7 @@ export async function fetchProductsSearch(q: string, limit: number = 50) {
     // Server-side search: avoid selecting images to keep results lightweight
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, sale_price, purchase_price')
+      .select('id, name, sale_price, purchase_price, stock')
       .ilike('name', `%${q.trim()}%`)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -1514,6 +1682,27 @@ export async function createBill(bill: Omit<Bill, 'id'>) {
 
 export async function updateBill(id: string, updates: Partial<Bill>) {
   await ensureAuthenticated();
+  const { data: existingBillRow, error: existingBillError } = await supabase
+    .from('bills')
+    .select('status, items')
+    .eq('id', id)
+    .single();
+
+  if (existingBillError) {
+    console.error('[supabaseQueries] updateBill existing row fetch error:', existingBillError);
+    throw existingBillError;
+  }
+
+  const previousStatus = String(existingBillRow?.status || '');
+  const previousItems = Array.isArray(existingBillRow?.items) ? existingBillRow.items : [];
+  const nextStatus = updates.status ?? previousStatus;
+  const nextItems = updates.items !== undefined ? updates.items : previousItems;
+  let pendingStockUpdates: Array<{ id: string; stock: number }> = [];
+
+  if (updates.status !== undefined || updates.items !== undefined) {
+    pendingStockUpdates = await applyBillStockTransition(previousStatus, String(nextStatus), previousItems, nextItems || []);
+  }
+
   const { data, error } = await supabase
     .from('bills')
     .update({
@@ -1522,7 +1711,7 @@ export async function updateBill(id: string, updates: Partial<Bill>) {
       ...(updates.billNumber && { bill_number: updates.billNumber }),
       ...(updates.notes !== undefined && { notes: updates.notes }),
       ...(updates.status && { status: updates.status }),
-      ...(updates.items && { items: updates.items }),
+      ...(updates.items !== undefined && { items: updates.items }),
       ...(updates.subtotal !== undefined && { subtotal: updates.subtotal }),
       ...(updates.discount !== undefined && { discount: updates.discount }),
       ...(updates.shipping !== undefined && { shipping: updates.shipping }),
@@ -1537,6 +1726,20 @@ export async function updateBill(id: string, updates: Partial<Bill>) {
   if (error) {
     console.error('[supabaseQueries] updateBill error:', error);
     throw error;
+  }
+  try {
+    await applyResolvedProductStockUpdates(pendingStockUpdates, 'bill');
+  } catch (stockErr) {
+    // Best-effort rollback to keep bill state and inventory aligned.
+    try {
+      await supabase
+        .from('bills')
+        .update({ status: previousStatus, items: previousItems })
+        .eq('id', id);
+    } catch (rollbackErr) {
+      console.error('[supabaseQueries] updateBill stock rollback error:', rollbackErr);
+    }
+    throw stockErr;
   }
   return mapBill(data);
 }
@@ -1694,7 +1897,7 @@ export async function fetchProducts(category?: string) {
   try {
     let query = supabase
       .from('products')
-      .select('id, name, image, category, sale_price, purchase_price, created_at')
+      .select('id, name, image, category, sale_price, purchase_price, stock, created_at')
       .order('created_at', { ascending: false });
     
     if (category) {
@@ -1735,6 +1938,7 @@ export async function createProduct(product: Omit<Product, 'id'>) {
       category: product.category,
       sale_price: product.salePrice,
       purchase_price: product.purchasePrice,
+      stock: product.stock ?? 0,
     }])
     .select()
     .single();
@@ -1755,6 +1959,7 @@ export async function updateProduct(id: string, updates: Partial<Product>) {
       ...(updates.category && { category: updates.category }),
       ...(updates.salePrice !== undefined && { sale_price: updates.salePrice }),
       ...(updates.purchasePrice !== undefined && { purchase_price: updates.purchasePrice }),
+      ...(updates.stock !== undefined && { stock: updates.stock }),
     })
     .eq('id', id)
     .select()
@@ -1783,10 +1988,11 @@ function mapProduct(row: any): Product {
   return {
     id: row.id,
     name: row.name,
-    image: row.image,
-    category: row.category,
+    image: row.image || '',
+    category: row.category || '',
     salePrice: row.sale_price ?? row.salePrice ?? 0,
     purchasePrice: row.purchase_price ?? row.purchasePrice ?? 0,
+    stock: row.stock ?? 0,
     createdBy: row.created_by ?? row.createdBy,
   };
 }

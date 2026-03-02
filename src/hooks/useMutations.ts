@@ -496,7 +496,7 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
         queryClient.setQueryData(['order', variables.id], context.previousOrder);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Update any cached BROWSING paginated order pages in-place to avoid full refetch
       const browsingPages = queryClient.getQueriesData({ queryKey: ['orders'] });
       browsingPages.forEach(([key, value]) => {
@@ -517,6 +517,11 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
 
       // Update detail cache deterministically
       queryClient.setQueryData(['order', data.id], data);
+
+      // Stock can change when status/items change
+      if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ['products'], exact: false });
+      }
     },
   });
 }
@@ -719,7 +724,7 @@ export function useUpdateBill(): UseMutationResult<Bill, Error, { id: string; up
         queryClient.setQueryData(['bill', variables.id], context.previousBill);
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Update any cached paginated bills pages in-place to avoid full refetch
       const pages = queryClient.getQueriesData({ queryKey: ['bills'] });
       pages.forEach(([key, value]) => {
@@ -732,6 +737,11 @@ export function useUpdateBill(): UseMutationResult<Bill, Error, { id: string; up
         }
       });
       queryClient.invalidateQueries({ queryKey: ['bill', data.id] });
+
+      // Stock can change when status/items change
+      if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ['products'], exact: false });
+      }
     },
   });
 }

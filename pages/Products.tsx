@@ -139,6 +139,16 @@ const Products: React.FC = () => {
               </div>
             ),
           },
+          {
+            key: 'stock',
+            label: 'Stock',
+            align: 'right' as const,
+            render: (_stock, product) => (
+              <span className={`font-black ${product.stock <= 0 ? 'text-red-600' : product.stock <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {product.stock}
+              </span>
+            ),
+          },
           ...(isAdmin ? [{
             key: 'id',
             label: 'Actions',

@@ -10,6 +10,7 @@ import { useAuth } from '../src/contexts/AuthProvider';
 import { 
   useOrders, useBills, useTransactions, useUsers, useCategories
 } from '../src/hooks/useQueries';
+import { buildCustomerSalesRows, buildProductSalesRows } from '../src/utils/salesReportUtils';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   LineChart, Line, PieChart, Pie, Cell, Legend, ComposedChart 
@@ -190,6 +191,14 @@ const Dashboard: React.FC = () => {
     return data.length > 0 ? data : [{ name: 'No Data', value: 1, color: '#D1D5DB' }];
   }, [filteredTransactions, totalPurchases, allCategories]);
 
+  const topSoldProducts = useMemo(() => {
+    return buildProductSalesRows(orders, filterRange, customDates).slice(0, 5).map((r) => ({ name: r.productName, qty: r.quantity }));
+  }, [orders, filterRange, customDates]);
+
+  const topCustomers = useMemo(() => {
+    return buildCustomerSalesRows(orders, filterRange, customDates).slice(0, 5);
+  }, [orders, filterRange, customDates]);
+
   // The performance chart should respect the current filter
   const employeePerformanceData = dashUsers.map(u => ({
     name: u.name.split(' ')[0],
@@ -207,22 +216,21 @@ const Dashboard: React.FC = () => {
           setCustomDates={setCustomDates}
         />
 
-        {/* first row: financial metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-6">
-          <StatCard title="Total Sales" value={formatCurrency(totalSales)} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
-          <StatCard title="Total Purchases" value={formatCurrency(totalPurchases)} icon={ICONS.Briefcase} bgColor="bg-purple-600" textColor="text-white" iconBgColor="bg-purple-700" />
-          <StatCard title="Other Expenses" value={formatCurrency(otherExpenses)} icon={ICONS.Delete} bgColor="bg-amber-500" textColor="text-white" iconBgColor="bg-amber-600" />
-          <StatCard title="Total Profit" value={formatCurrency(totalProfit)} icon={ICONS.Reports} isProfitCard={true} profitValue={totalProfit} />
-          <StatCard title="Avg Order Value" value={formatCurrency(averageOrderValue)} icon={ICONS.Banking} bgColor="bg-green-600" textColor="text-white" iconBgColor="bg-green-700" />
-        </div>
+        <div className="space-y-6">
+          {/* Stats: combined so they flow breaklessly on small screens */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
+            <StatCard title="Total Sales" value={formatCurrency(totalSales)} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
+            <StatCard title="Total Purchases" value={formatCurrency(totalPurchases)} icon={ICONS.Briefcase} bgColor="bg-purple-600" textColor="text-white" iconBgColor="bg-purple-700" />
+            <StatCard title="Other Expenses" value={formatCurrency(otherExpenses)} icon={ICONS.Delete} bgColor="bg-amber-500" textColor="text-white" iconBgColor="bg-amber-600" />
+            <StatCard title="Total Profit" value={formatCurrency(totalProfit)} icon={ICONS.Reports} isProfitCard={true} profitValue={totalProfit} />
+            <StatCard title="Avg Order Value" value={formatCurrency(averageOrderValue)} icon={ICONS.Banking} bgColor="bg-green-600" textColor="text-white" iconBgColor="bg-green-700" />
 
-        {/* second row: order status breakdown including cancelled */}
-        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-6 mt-6">
-          <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" subtotalAmount={formatCurrency(orderTotals.total)} />
-          <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" subtotalAmount={formatCurrency(orderTotals.processing)} />
-          <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" subtotalAmount={formatCurrency(orderTotals.picked)} />
-          <StatCard title="Completed Orders" value={orderCounts.completed} icon={ICONS.PlusCircle} bgColor="bg-teal-600" textColor="text-white" iconBgColor="bg-teal-700" subtotalAmount={formatCurrency(orderTotals.completed)} />
-          <StatCard title="Cancelled Orders" value={orderCounts.cancelled} icon={ICONS.AlertCircle} bgColor="bg-red-500" textColor="text-white" iconBgColor="bg-red-600" subtotalAmount={formatCurrency(orderTotals.cancelled)} />
+            <StatCard title="Total Orders" value={orderCounts.total} icon={ICONS.Dashboard} bgColor="bg-indigo-700" textColor="text-white" iconBgColor="bg-indigo-800" subtotalAmount={formatCurrency(orderTotals.total)} />
+            <StatCard title="Processing Orders" value={orderCounts.processing} icon={ICONS.More} bgColor="bg-sky-500" textColor="text-white" iconBgColor="bg-sky-600" subtotalAmount={formatCurrency(orderTotals.processing)} />
+            <StatCard title="Picked Orders" value={orderCounts.picked} icon={ICONS.Courier} bgColor="bg-cyan-500" textColor="text-white" iconBgColor="bg-cyan-600" subtotalAmount={formatCurrency(orderTotals.picked)} />
+            <StatCard title="Completed Orders" value={orderCounts.completed} icon={ICONS.PlusCircle} bgColor="bg-teal-600" textColor="text-white" iconBgColor="bg-teal-700" subtotalAmount={formatCurrency(orderTotals.completed)} />
+            <StatCard title="Cancelled Orders" value={orderCounts.cancelled} icon={ICONS.AlertCircle} bgColor="bg-red-500" textColor="text-white" iconBgColor="bg-red-600" subtotalAmount={formatCurrency(orderTotals.cancelled)} />
+          </div>
         </div>
 
         <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm">
@@ -265,6 +273,49 @@ const Dashboard: React.FC = () => {
                 </ComposedChart>
               )}
             </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Top 5 Sold Products</h3>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">By Qty</span>
+            </div>
+            <div className="space-y-3">
+              {topSoldProducts.length === 0 ? (
+                <p className="text-sm text-gray-400 italic">No completed sales in this period.</p>
+              ) : (
+                topSoldProducts.map((p, idx) => (
+                  <div key={`${p.name}-${idx}`} className="flex items-center justify-between border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
+                    <span className="text-sm font-bold text-gray-900">{p.name}</span>
+                    <span className="text-sm font-black text-emerald-600">{p.qty}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Top 5 Customers</h3>
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">By Sales</span>
+            </div>
+            <div className="space-y-3">
+              {topCustomers.length === 0 ? (
+                <p className="text-sm text-gray-400 italic">No completed sales in this period.</p>
+              ) : (
+                topCustomers.map((c, idx) => (
+                  <div key={`${c.name}-${idx}`} className="flex items-center justify-between border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-gray-900">{c.name}</span>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{c.orders} orders</span>
+                    </div>
+                    <span className="text-sm font-black text-emerald-600">{formatCurrency(c.amount)}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
 

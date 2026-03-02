@@ -104,6 +104,28 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     loadSettings();
   }, []);
 
+  // Update favicon links when company logo becomes available
+  useEffect(() => {
+    if (!companySettings?.logo) return;
+    try {
+      const setLink = (rel: string) => {
+        let el = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+        if (!el) {
+          el = document.createElement('link');
+          el.rel = rel;
+          document.head.appendChild(el);
+        }
+        el.href = companySettings.logo;
+      };
+
+      setLink('icon');
+      setLink('shortcut icon');
+      setLink('apple-touch-icon');
+    } catch (e) {
+      console.error('Failed to set favicon:', e);
+    }
+  }, [companySettings.logo]);
+
   // Reset main scroll position when route changes so each page starts at top
   React.useEffect(() => {
     // main is the scrollable container in this layout

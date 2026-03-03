@@ -1,15 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { db } from '../db';
 import { formatCurrency } from '../constants';
 import { triggerPrintDialog } from '../src/utils/printUtils';
-import { useOrder, useCustomer, useUsers, useProducts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useOrder, useCustomer, useUsers, useProductImagesByIds, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
 import { theme } from '../theme';
 
 interface InvoiceContentProps {
   order: any;
   customer: any;
-  products: any[];
+  productImages: Record<string, string>;
   companySettings: any;
   invoiceSettings: any;
 }
@@ -17,7 +17,7 @@ interface InvoiceContentProps {
 const InvoiceContent: React.FC<InvoiceContentProps> = ({
   order,
   customer,
-  products,
+  productImages,
   companySettings,
   invoiceSettings,
 }) => {
@@ -101,16 +101,28 @@ const InvoiceContent: React.FC<InvoiceContentProps> = ({
             </thead>
             <tbody className="divide-y divide-gray-50 print:divide-gray-300">
               {order.items.map((item, idx) => {
-                const product = products.find(p => p.id === item.productId);
+                const fallbackItemImage =
+                  typeof item?.productImage === 'string'
+                    ? item.productImage
+                    : typeof item?.image === 'string'
+                      ? item.image
+                      : '';
+                const imageSrc = fallbackItemImage || productImages[String(item.productId || '').trim()] || '';
                 return (
                   <tr key={idx} className="group">
                     <td className="py-6 print:py-3">
                       <div className="flex items-center gap-4">
-                        <img
-                          src={product?.image}
-                          className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm print:w-10 print:h-10 print:rounded-full print:border-gray-300 print:shadow-none"
-                          alt={item.productName}
-                        />
+                        {imageSrc ? (
+                          <img
+                            src={imageSrc}
+                            className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm print:w-10 print:h-10 print:rounded-full print:border-gray-300 print:shadow-none"
+                            alt={item.productName}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full border border-gray-100 shadow-sm bg-gray-50 text-gray-400 text-sm flex items-center justify-center print:w-10 print:h-10 print:rounded-full print:border-gray-300 print:shadow-none">
+                            {(item.productName || '?').slice(0, 1).toUpperCase()}
+                          </div>
+                        )}
                         <span className="font-bold text-gray-900 print:text-sm">{item.productName}</span>
                       </div>
                     </td>
@@ -177,7 +189,11 @@ const PrintOrder: React.FC = () => {
   const { data: order, isPending: orderLoading } = useOrder(id || '');
   const { data: customer } = useCustomer(order ? order.customerId : undefined);
   const { data: users = [] } = useUsers();
-  const { data: products = [] } = useProducts();
+  const orderItemProductIds = useMemo(
+    () => Array.from(new Set((order?.items || []).map((item: any) => String(item?.productId || '').trim()).filter(Boolean))),
+    [order?.items]
+  );
+  const { data: productImages = {} } = useProductImagesByIds(orderItemProductIds);
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   const printTriggeredRef = useRef(false);
@@ -206,7 +222,7 @@ const PrintOrder: React.FC = () => {
           <InvoiceContent
             order={order}
             customer={customer}
-            products={products}
+            productImages={productImages}
             companySettings={companySettings}
             invoiceSettings={invoiceSettings}
           />
@@ -217,7 +233,7 @@ const PrintOrder: React.FC = () => {
           <InvoiceContent
             order={order}
             customer={customer}
-            products={products}
+            productImages={productImages}
             companySettings={companySettings}
             invoiceSettings={invoiceSettings}
           />

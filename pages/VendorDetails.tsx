@@ -4,19 +4,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Bill, BillStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
-import { useVendor, useBills } from '../src/hooks/useQueries';
+import { useVendor, useBillsByVendorId } from '../src/hooks/useQueries';
 
 const VendorDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data: vendor, isPending: loading } = useVendor(id || '');
-  const { data: allBills = [] } = useBills();
+  const { data: vendorBills = [] } = useBillsByVendorId(vendor?.id);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading vendor details...</div>;
   if (!vendor) return <div className="p-8 text-center text-gray-500">Vendor not found.</div>;
-
-  const vendorBills = allBills.filter(b => b.vendorId === vendor.id);
 
   const getStatusColor = (status: BillStatus) => {
     switch (status) {

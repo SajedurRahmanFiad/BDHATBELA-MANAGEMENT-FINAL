@@ -10,6 +10,7 @@ import {
   fetchTransactionsPage,
   fetchProductsPage,
   fetchBills,
+  fetchBillsByVendorId,
   fetchBillsPage,
   fetchBillById,
   fetchAccounts,
@@ -24,6 +25,7 @@ import {
   fetchVendorById,
   fetchProducts,
   fetchProductById,
+  fetchProductImagesByIds,
   fetchCategories,
   fetchCategoriesById,
   fetchPaymentMethods,
@@ -59,7 +61,7 @@ export function useCustomersPage(
     queryFn: () => fetchCustomersPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
   });
 }
 
@@ -93,7 +95,7 @@ export function useOrdersPage(
     queryFn: () => fetchOrdersPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
   });
 }
 
@@ -135,7 +137,17 @@ export function useBillsPage(
     queryFn: () => fetchBillsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
+  });
+}
+
+export function useBillsByVendorId(vendorId: string | undefined): UseQueryResult<Bill[], Error> {
+  return useQuery({
+    queryKey: ['billsByVendorId', vendorId],
+    queryFn: () => fetchBillsByVendorId(vendorId || ''),
+    enabled: !!vendorId,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
   });
 }
 
@@ -188,7 +200,7 @@ export function useTransactionsPage(
     queryFn: () => fetchTransactionsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
   });
 }
 
@@ -208,7 +220,7 @@ export function useUsers(): UseQueryResult<User[], Error> {
     queryKey: ['users'],
     queryFn: fetchUsers,
     staleTime: 5 * 60 * 1000, // 5 minutes - matches bills/orders cache, creator names stay fresh without refetch on every mutation
-    refetchOnMount: true,
+    refetchOnMount: false,
   });
 }
 
@@ -252,7 +264,7 @@ export function useVendorsPage(
     queryFn: () => fetchVendorsPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
   });
 }
 
@@ -297,7 +309,7 @@ export function useProductsPage(
     staleTime: 15 * 60 * 1000,
     keepPreviousData: true,
     refetchOnWindowFocus: false,
-    refetchOnMount: true,
+    refetchOnMount: false,
   };
 
   return useQuery(options);
@@ -309,6 +321,29 @@ export function useProduct(id: string | undefined): UseQueryResult<Product | nul
     queryFn: () => fetchProductById(id || ''),
     enabled: !!id,
     staleTime: 15 * 60 * 1000, // Keep single-product cache consistent with products master cache
+  });
+}
+
+export function useProductImagesByIds(
+  productIds: string[] | undefined
+): UseQueryResult<Record<string, string>, Error> {
+  const ids = Array.from(
+    new Set((productIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+  ).sort();
+
+  return useQuery({
+    queryKey: ['product-images', ...ids],
+    queryFn: async () => {
+      const rows = await fetchProductImagesByIds(ids);
+      return rows.reduce((acc, row) => {
+        acc[row.id] = row.image || '';
+        return acc;
+      }, {} as Record<string, string>);
+    },
+    enabled: ids.length > 0,
+    staleTime: 15 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 }
 

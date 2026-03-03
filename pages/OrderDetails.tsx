@@ -1,13 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { OrderStatus, Order, UserRole, Transaction, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
 import { theme } from '../theme';
-import { useOrder, useCustomer, useUsers, useProducts, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useOrder, useCustomer, useUsers, useProductImagesByIds, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
@@ -17,7 +16,6 @@ const OrderDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const user = db.currentUser;
   const isAdmin = user.role === UserRole.ADMIN;
@@ -26,7 +24,11 @@ const OrderDetails: React.FC = () => {
   const { data: order, isPending: orderLoading, error: orderError } = useOrder(id || '');
   const { data: customer } = useCustomer(order ? order.customerId : undefined);
   const { data: users = [] } = useUsers();
-  const { data: products = [] } = useProducts();
+  const orderItemProductIds = useMemo(
+    () => Array.from(new Set((order?.items || []).map((item) => String(item?.productId || '').trim()).filter(Boolean))),
+    [order?.items]
+  );
+  const { data: productImages = {} } = useProductImagesByIds(orderItemProductIds);
   const { data: accounts = [] } = useAccounts();
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
@@ -68,12 +70,6 @@ const OrderDetails: React.FC = () => {
         history: historyKey ? { ...order.history, [historyKey]: historyText } : order.history
       };
       await updateMutation.mutateAsync({ id: id!, updates });
-      
-      // Explicitly invalidate the query cache after mutation succeeds to prevent stale data (FIX: prevents "not found" race condition)
-      queryClient.invalidateQueries({ queryKey: ['order', id] });
-      // Also invalidate orders list so list views reflect status change
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
-      
       setIsActionOpen(false);
     } catch (err) {
       console.error('Failed to update order status:', err);
@@ -182,11 +178,6 @@ const OrderDetails: React.FC = () => {
         const accountStatus = results[1].status === 'rejected' ? 'failed' : 'succeeded';
         throw new Error(`Payment update failed: Order update ${orderStatus}, Account update ${accountStatus}`);
       }
-
-      // Explicitly invalidate the query cache to ensure fresh data is fetched (FIX: prevents "not found" race condition)
-      queryClient.invalidateQueries({ queryKey: ['order', id] });
-      // Also invalidate orders list to reflect the payment in list view
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
 
       setShowPaymentModal(false);
       toast.success('Payment recorded successfully');
@@ -348,12 +339,24 @@ const OrderDetails: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {order.items.map((item, idx) => {
-                      const product = products.find(p => p.id === item.productId);
+                      const fallbackItemImage =
+                        typeof (item as any)?.productImage === 'string'
+                          ? (item as any).productImage
+                          : typeof (item as any)?.image === 'string'
+                            ? (item as any).image
+                            : '';
+                      const imageSrc = fallbackItemImage || productImages[String(item.productId || '').trim()] || '';
                       return (
                         <tr key={idx} className="group">
                           <td className="py-3 sm:py-4 lg:py-6">
                             <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 min-w-0">
-                              <img src={product?.image} className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full object-cover border border-gray-100 shadow-sm flex-shrink-0" />
+                              {imageSrc ? (
+                                <img src={imageSrc} className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full object-cover border border-gray-100 shadow-sm flex-shrink-0" alt={item.productName} />
+                              ) : (
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full border border-gray-100 shadow-sm bg-gray-50 text-gray-400 text-xs flex items-center justify-center flex-shrink-0">
+                                  {(item.productName || '?').slice(0, 1).toUpperCase()}
+                                </div>
+                              )}
                               <span className="font-bold text-gray-900 text-[10px] sm:text-xs lg:text-base break-words">{item.productName}</span>
                             </div>
                           </td>

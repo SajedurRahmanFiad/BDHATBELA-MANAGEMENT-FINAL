@@ -9,6 +9,8 @@ interface RealtimeContextType {
 }
 
 const RealtimeContext = createContext<RealtimeContextType | undefined>(undefined);
+const ENABLE_REALTIME = import.meta.env.VITE_ENABLE_REALTIME === 'true';
+const ENABLE_CARRYBEE_SYNC = import.meta.env.VITE_ENABLE_CARRYBEE_SYNC === 'true';
 
 /**
  * RealtimeProvider sets up Supabase Realtime subscriptions for orders, bills, and transactions.
@@ -24,6 +26,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const syncingRef = React.useRef(false);
 
   useEffect(() => {
+    if (!ENABLE_REALTIME) {
+      setIsConnected(false);
+      return;
+    }
+
     console.log('[Realtime] Initializing subscriptions for orders, bills, transactions...');
 
     // Subscribe to orders changes (INSERT, UPDATE, DELETE)
@@ -222,10 +229,10 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Periodically sync CarryBee transfer statuses and auto-mark picked orders.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!ENABLE_CARRYBEE_SYNC || !user?.id) return;
 
     let cancelled = false;
-    const INTERVAL_MS = 30_000;
+    const INTERVAL_MS = 10 * 60_000; // 10 minutes
 
     const runSync = async () => {
       if (cancelled || syncingRef.current) return;

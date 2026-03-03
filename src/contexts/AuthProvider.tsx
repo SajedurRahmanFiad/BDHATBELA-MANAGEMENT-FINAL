@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser, fetchUserById, fetchProducts, fetchAccounts } from '../services/supabaseQueries';
+import { loginUser, fetchUserById, fetchAccounts } from '../services/supabaseQueries';
 import { useQueryClient } from '@tanstack/react-query';
 import { db, saveDb } from '../../db';
 
@@ -72,10 +72,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             db.currentUser = fetched as any;
             saveDb();
             console.log('[Auth] Session restored:', fetched.name);
-            // Prefetch small-to-medium master datasets (products, accounts)
-            // so UI can render instantly after auth without fetching heavy tables.
+            // Prefetch only lightweight datasets at auth-time.
+            // Product rows can be very large (image payloads), so avoid eager prefetch.
             try {
-              queryClient.prefetchQuery({ queryKey: ['products'], queryFn: () => fetchProducts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
               queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
             } catch (e) {
               // ignore prefetch errors
@@ -133,9 +132,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.dispatchEvent(new Event('authChange'));
 
       console.log('[Auth] User logged in:', dbUser.name);
-      // Prefetch master datasets for fast UI
+      // Prefetch only lightweight datasets for fast UI.
+      // Avoid prefetching products because image fields can be very large.
         try {
-          queryClient.prefetchQuery({ queryKey: ['products'], queryFn: () => fetchProducts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
           queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
         } catch (e) {
           // ignore

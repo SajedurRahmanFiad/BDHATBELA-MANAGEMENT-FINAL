@@ -3,8 +3,11 @@
 Write-Host "Deploying CarryBee Edge Functions..." -ForegroundColor Cyan
 Write-Host ""
 
-# Set the access token
-$env:SUPABASE_ACCESS_TOKEN = "sbp_23a6f68dd3b0fb611a57d93a28022c5f4595645f"
+# Require an access token from environment instead of hardcoding secrets in repo
+if (-not $env:SUPABASE_ACCESS_TOKEN) {
+    Write-Host "SUPABASE_ACCESS_TOKEN is not set. Please export it before running this script." -ForegroundColor Red
+    exit 1
+}
 
 # Deploy cities function
 Write-Host "Deploying carrybee-cities..." -ForegroundColor Yellow

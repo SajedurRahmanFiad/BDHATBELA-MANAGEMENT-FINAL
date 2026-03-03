@@ -281,7 +281,10 @@ export async function fetchOrders() {
   const mapped = await queryWithTimeout<Order>(
     supabase
       .from('orders_with_customer_creator')
-      .select('*')
+      .select(
+        `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
+         created_by, creator_name, status, items, total, paid_amount, created_at`
+      )
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapOrder);
@@ -943,8 +946,11 @@ function mapAccount(row: any): Account {
 export async function fetchTransactions() {
   const mapped = await queryWithTimeout<Transaction>(
     supabase
-      .from('transactions')
-      .select('*')
+      .from('transactions_with_relations')
+      .select(
+        `id, date, type, category, account_id, account_name, to_account_id, amount, description,
+         reference_id, contact_id, contact_name, contact_type, payment_method, created_by, creator_name, created_at`
+      )
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapTransaction);
@@ -963,7 +969,7 @@ export async function fetchTransactionsPage(
   let query: any = supabase
     .from('transactions_with_relations')
     .select(
-      `id, date, type, category, account_id, account_name, to_account_id, amount, description, reference_id, contact_id, contact_name, contact_type, payment_method, attachment_name, attachment_url, created_by, creator_name, created_at`,
+      `id, date, type, category, account_id, account_name, to_account_id, amount, description, reference_id, contact_id, contact_name, contact_type, payment_method, created_by, creator_name, created_at`,
       { count: 'estimated' }
     );
 
@@ -1226,13 +1232,13 @@ export async function fetchUsers() {
   // for schemas that don't have created_at on users.
   const { data, error } = await supabase
     .from('users')
-    .select('*')
+    .select('id, name, phone, role, image, created_at')
     .order('created_at', { ascending: false });
 
   if (error) {
     // If created_at doesn't exist, retry without that ordering
     if (String(error.message || '').includes('created_at') || error.code === '42703') {
-      const retry = await supabase.from('users').select('*').order('name', { ascending: true });
+      const retry = await supabase.from('users').select('id, name, phone, role, image').order('name', { ascending: true });
       if (retry.error) {
         console.error('[supabaseQueries] fetchUsers retry error:', retry.error);
         return [] as User[];
@@ -1590,8 +1596,24 @@ export async function fetchBillsPage(
 export async function fetchBills() {
   const mapped = await queryWithTimeout<Bill>(
     supabase
-      .from('bills')
-      .select('*')
+      .from('bills_with_vendor_creator')
+      .select(
+        'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
+      )
+      .order('created_at', { ascending: false })
+  );
+  return mapped.map(mapBill);
+}
+
+export async function fetchBillsByVendorId(vendorId: string) {
+  if (!vendorId) return [] as Bill[];
+  const mapped = await queryWithTimeout<Bill>(
+    supabase
+      .from('bills_with_vendor_creator')
+      .select(
+        'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
+      )
+      .eq('vendor_id', vendorId)
       .order('created_at', { ascending: false })
   );
   return mapped.map(mapBill);
@@ -1924,6 +1946,42 @@ export async function fetchProductById(id: string) {
     return null;
   }
   return mapProduct(data);
+}
+
+/**
+ * Fetch only product id + image for a small set of product IDs.
+ * This avoids loading the full products table (which can time out when image payloads are large).
+ */
+export async function fetchProductImagesByIds(productIds: string[]) {
+  const ids = Array.from(
+    new Set(
+      (productIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!ids.length) return [] as Array<{ id: string; image: string }>;
+
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, image')
+      .in('id', ids);
+
+    if (error) {
+      console.error('[supabaseQueries] fetchProductImagesByIds error:', error);
+      return [] as Array<{ id: string; image: string }>;
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      image: row.image || '',
+    }));
+  } catch (err) {
+    console.error('[supabaseQueries] fetchProductImagesByIds exception:', err);
+    return [] as Array<{ id: string; image: string }>;
+  }
 }
 
 export async function createProduct(product: Omit<Product, 'id'>) {
@@ -3412,6 +3470,7 @@ export default {
   deleteVendor,
   fetchProducts,
   fetchProductById,
+  fetchProductImagesByIds,
   createProduct,
   updateProduct,
   deleteProduct,

@@ -1,13 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
 import { db } from '../db';
-import { UserRole, isEmployeeRole } from '../types';
+import { UserRole, isEmployeeRole, Order } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
 import { fetchCompanySettings } from '../src/services/supabaseQueries';
+import { useOrders } from '../src/hooks/useQueries';
 
 interface SidebarItemProps {
   to?: string;
@@ -82,7 +83,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, profile } = useAuth();
-  const { searchQuery, setSearchQuery } = useSearch();
+  const { searchQuery, setSearchQuery, clearSearch } = useSearch();
+  const { data: allOrders = [] } = useOrders();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -134,6 +136,56 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     // also reset window scroll as a fallback
     try { window.scrollTo(0, 0); } catch (e) {}
   }, [location.pathname]);
+
+  // clear search text any time we change pages, also compute placeholder/visibility
+  const getSearchConfig = (pathname: string) => {
+    // note: ordering matters for prefix checks
+    if (pathname.startsWith('/dashboard') || pathname.startsWith('/orders')) {
+      return { visible: true, placeholder: 'Search Orders' };
+    }
+    if (pathname.startsWith('/customers')) {
+      return { visible: true, placeholder: 'Search Customers' };
+    }
+    if (pathname.startsWith('/vendors')) {
+      return { visible: true, placeholder: 'Search Vendors' };
+    }
+    if (pathname.startsWith('/bills')) {
+      return { visible: true, placeholder: 'Search Bills' };
+    }
+    if (pathname.startsWith('/banking/accounts')) {
+      return { visible: true, placeholder: 'Search Accounts' };
+    }
+    if (pathname.startsWith('/banking/transactions')) {
+      return { visible: true, placeholder: 'Search Transactions' };
+    }
+    if (pathname.startsWith('/products')) {
+      return { visible: true, placeholder: 'Search Products' };
+    }
+    if (pathname.startsWith('/users')) {
+      return { visible: true, placeholder: 'Search Users' };
+    }
+    // fallback: hide
+    return { visible: false, placeholder: '' };
+  };
+
+  const { visible: showSearch, placeholder: searchPlaceholder } = getSearchConfig(location.pathname);
+
+  useEffect(() => {
+    clearSearch();
+  }, [location.pathname]);
+
+  // dashboard-specific filtered orders for dropdown
+  const dashboardResults: Order[] = useMemo(() => {
+    if (!location.pathname.startsWith('/dashboard') || !searchQuery) return [];
+    const q = searchQuery.toLowerCase();
+    return allOrders.filter(o => {
+      return (
+        o.orderNumber.toLowerCase().includes(q) ||
+        (o.customerName?.toLowerCase().includes(q) || false) ||
+        (o.customerPhone?.toLowerCase().includes(q) || false)
+      );
+    }).slice(0, 10);
+  }, [location.pathname, searchQuery, allOrders]);
 
   // Safety check: if user is somehow null (shouldn't happen with route guards), show loading
   if (!user) {
@@ -250,18 +302,36 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
           </button>
 
-          <div className="flex-1 max-w-xl mx-4 relative group hidden sm:block">
-            <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:${theme.colors.primary.text} ${theme.transitions.normal}`}>
-              {ICONS.Search}
+          {showSearch && (
+            <div className="flex-1 max-w-xl mx-4 relative group hidden sm:block">
+              <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:${theme.colors.primary.text} ${theme.transitions.normal}`}>
+                {ICONS.Search}
+              </div>
+              <input 
+                type="text" 
+                placeholder={searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} 
+              />
+
+              {/* dropdown for dashboard search results */}
+              {dashboardResults.length > 0 && (
+                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-auto">
+                  {dashboardResults.map(o => (
+                    <Link
+                      key={o.id}
+                      to={`/orders/${o.id}`}
+                      onClick={() => setSearchQuery('')}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      {o.orderNumber} {o.customerName ? `- ${o.customerName}` : ''}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
-            <input 
-              type="text" 
-              placeholder="Search orders, invoices, or customers..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} 
-            />
-          </div>
+          )}
 
           <div className="flex items-center gap-4">
             <div className="relative">

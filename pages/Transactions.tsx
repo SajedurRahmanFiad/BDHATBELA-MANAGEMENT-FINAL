@@ -7,8 +7,7 @@ import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, IconButton } from '../components';
 import { theme } from '../theme';
-import { useTransactionsPage, useOrders, useBills, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
-import { fetchCustomerById, fetchVendorById } from '../src/services/supabaseQueries';
+import { useTransactionsPage, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
 import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
@@ -51,8 +50,6 @@ const Transactions: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   // Instead of loading entire customers/vendors tables, only fetch rows referenced by the current page.
   // Relational contact/account names are now included in the paginated transactions payload
-  const { data: orders = [] } = useOrders();
-  const { data: bills = [] } = useBills();
   const { data: allCategories = [] } = useCategories();
   const deleteTransactionMutation = useDeleteTransaction();
 
@@ -176,11 +173,16 @@ const Transactions: React.FC = () => {
   };
 
   const handleRowClick = (transaction: Transaction) => {
-    if (transaction.referenceId) {
-      const isOrder = orders.some(o => o.id === transaction.referenceId);
-      if (isOrder) { navigate(`/orders/${transaction.referenceId}`); return; }
-      const isBill = bills.some(b => b.id === transaction.referenceId);
-      if (isBill) { navigate(`/bills/${transaction.referenceId}`); return; }
+    if (!transaction.referenceId) return;
+
+    // Reference routing is deterministic by transaction type/category in this app.
+    if (transaction.type === 'Income') {
+      navigate(`/orders/${transaction.referenceId}`);
+      return;
+    }
+
+    if (transaction.type === 'Expense' && transaction.category === 'expense_purchases') {
+      navigate(`/bills/${transaction.referenceId}`);
     }
   };
 
@@ -249,7 +251,10 @@ const Transactions: React.FC = () => {
                 filteredTransactions.map((t) => {
                   const contact = t.contactId ? getContactName(t.contactId, t) : null;
                   const creator = getCreatorName(t);
-                  const hasLink = t.referenceId && (orders.some(o => o.id === t.referenceId) || bills.some(b => b.id === t.referenceId));
+                  const hasLink = !!t.referenceId && (
+                    t.type === 'Income' ||
+                    (t.type === 'Expense' && t.category === 'expense_purchases')
+                  );
                   const isLinkedTransaction = !!t.referenceId;
                   const { date: dateStr, time: timeStr } = formatDateAndTime(t.date, (t as any).createdAt);
                   

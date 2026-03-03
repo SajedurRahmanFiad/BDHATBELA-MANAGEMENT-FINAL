@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
@@ -14,7 +13,6 @@ import { LoadingOverlay, CommonPaymentModal } from '../components';
 const BillDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const user = db.currentUser;
   
   // Query data
@@ -61,9 +59,6 @@ const BillDetails: React.FC = () => {
         history: historyKey ? { ...bill.history, [historyKey]: historyText } : bill.history
       };
       await updateMutation.mutateAsync({ id: id!, updates });
-      // Explicitly invalidate the query cache after mutation succeeds to prevent stale data
-      queryClient.invalidateQueries({ queryKey: ['bill', id] });
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
       setIsActionOpen(false);
     } catch (err) {
       console.error('Failed to update bill status:', err);
@@ -165,10 +160,6 @@ const BillDetails: React.FC = () => {
         const accountStatus = results[1].status === 'rejected' ? 'failed' : 'succeeded';
         throw new Error(`Payment update failed: Bill update ${billStatus}, Account update ${accountStatus}`);
       }
-
-      // Explicitly invalidate cache to ensure fresh data
-      queryClient.invalidateQueries({ queryKey: ['bill', id] });
-      queryClient.invalidateQueries({ queryKey: ['bills'] });
 
       setShowPaymentModal(false);
       toast.success('Payment recorded successfully');

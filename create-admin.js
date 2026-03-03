@@ -5,8 +5,11 @@
  * Run with: node create-admin.js
  */
 
-const SUPABASE_URL = 'ozjddzasadgffjjeqntc.supabase.co';
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96amRkemFzYWRnZmZqamVxbnRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM5MzAzMSwiZXhwIjoyMDg1OTY5MDMxfQ.aLWHhqL9GsntFPniUb--wsw8NX5XPnU1bdjOFzZJ5CY';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY;
+const BASE_URL = SUPABASE_URL
+  ? (SUPABASE_URL.startsWith('http') ? SUPABASE_URL : `https://${SUPABASE_URL}`)
+  : '';
 
 const phone = '01404020000';
 const email = `${phone}@bdhatbela.local`;
@@ -14,6 +17,11 @@ const password = 'admin@bdhatbela';
 
 async function createAdminUser() {
   try {
+    if (!BASE_URL || !SERVICE_ROLE_KEY) {
+      throw new Error(
+        'Missing environment variables. Set SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.'
+      );
+    }
     console.log('\n📝 Creating admin user...');
     console.log(`   Phone: ${phone}`);
     console.log(`   Email: ${email}`);
@@ -22,7 +30,7 @@ async function createAdminUser() {
     // Step 1: Create auth user
     console.log('1️⃣  Creating Supabase Auth user...');
     const authResponse = await fetch(
-      `https://${SUPABASE_URL}/auth/v1/admin/users`,
+      `${BASE_URL}/auth/v1/admin/users`,
       {
         method: 'POST',
         headers: {
@@ -61,7 +69,7 @@ async function createAdminUser() {
     // Step 2: Create user profile in database
     console.log('\n2️⃣  Creating user profile in database...');
     const profileResponse = await fetch(
-      `https://${SUPABASE_URL}/rest/v1/users`,
+      `${BASE_URL}/rest/v1/users`,
       {
         method: 'POST',
         headers: {

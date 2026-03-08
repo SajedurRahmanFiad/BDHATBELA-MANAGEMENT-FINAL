@@ -297,43 +297,45 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <header className={`flex-shrink-0 sticky top-0 z-40 ${theme.colors.bg.primary}/80 backdrop-blur-lg border-b ${theme.colors.border.primary} px-6 h-20 flex items-center justify-between`}>
-          <button onClick={() => setIsSidebarOpen(true)} className={`lg:hidden p-2.5 hover:${theme.colors.bg.tertiary} ${theme.radius.md} ${theme.colors.text.secondary} border ${theme.colors.border.primary}`}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
-          </button>
+        <header className={`flex-shrink-0 sticky top-0 z-40 ${theme.colors.bg.primary}/80 backdrop-blur-lg border-b ${theme.colors.border.primary} px-6 h-20 flex items-center`}>
+          <div className="flex-1 min-w-0 flex items-center">
+            <button onClick={() => setIsSidebarOpen(true)} className={`lg:hidden p-2.5 hover:${theme.colors.bg.tertiary} ${theme.radius.md} ${theme.colors.text.secondary} border ${theme.colors.border.primary}`}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+            </button>
 
-          {showSearch && (
-            <div className="flex-1 max-w-xl mx-4 relative group hidden sm:block">
-              <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:${theme.colors.primary.text} ${theme.transitions.normal}`}>
-                {ICONS.Search}
-              </div>
-              <input 
-                type="text" 
-                placeholder={searchPlaceholder}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} 
-              />
-
-              {/* dropdown for dashboard search results */}
-              {dashboardResults.length > 0 && (
-                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-auto">
-                  {dashboardResults.map(o => (
-                    <Link
-                      key={o.id}
-                      to={`/orders/${o.id}`}
-                      onClick={() => setSearchQuery('')}
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                      {o.orderNumber} {o.customerName ? `- ${o.customerName}` : ''}
-                    </Link>
-                  ))}
+            {showSearch && (
+              <div className="flex-1 max-w-xl mx-4 relative group hidden sm:block">
+                <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-300 group-focus-within:${theme.colors.primary.text} ${theme.transitions.normal}`}>
+                  {ICONS.Search}
                 </div>
-              )}
-            </div>
-          )}
+                <input 
+                  type="text" 
+                  placeholder={searchPlaceholder}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`block w-full pl-11 pr-4 py-2.5 ${theme.colors.bg.secondary} border-transparent focus:${theme.colors.bg.primary} focus:ring-2 focus:ring-[#3c5a82] focus:border-transparent ${theme.radius.md} text-sm ${theme.transitions.normal}`} 
+                />
 
-          <div className="flex items-center gap-4">
+                {/* dropdown for dashboard search results */}
+                {dashboardResults.length > 0 && (
+                  <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-auto">
+                    {dashboardResults.map(o => (
+                      <Link
+                        key={o.id}
+                        to={`/orders/${o.id}`}
+                        onClick={() => setSearchQuery('')}
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        {o.orderNumber} {o.customerName ? `- ${o.customerName}` : ''}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-4 ml-auto">
             <div className="relative">
               <button onClick={() => setIsPlusOpen(!isPlusOpen)} className={`${theme.colors.primary[600]} text-white w-10 h-10 flex items-center justify-center ${theme.radius.md} hover:${theme.colors.primary[700]} ${theme.transitions.normal} shadow-lg shadow-[#0f2f57]/20 active:scale-95`}>
                 {ICONS.Plus}

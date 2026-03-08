@@ -361,7 +361,7 @@ const Orders: React.FC = () => {
     }
 
     if (paperflyTracking) {
-      toast.warning('Tracking Unavailable');
+      window.open(`https://go.paperfly.com.bd/track/order/${encodeURIComponent(paperflyTracking)}`, '_blank', 'noopener,noreferrer');
       return;
     }
 

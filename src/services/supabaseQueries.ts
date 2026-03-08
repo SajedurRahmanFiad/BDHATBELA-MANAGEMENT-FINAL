@@ -283,7 +283,7 @@ export async function fetchOrders() {
       .from('orders_with_customer_creator')
       .select(
         `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
-         created_by, creator_name, status, items, total, paid_amount, created_at,
+         created_by, creator_name, status, items, notes, total, paid_amount, created_at,
          carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`
       )
       .order('created_at', { ascending: false })
@@ -334,7 +334,7 @@ export async function fetchOrdersPage(
     .from('orders_with_customer_creator')
     .select(
       `id, order_number, order_date, status, total, created_at, 
-       history,
+       history, notes,
        customer_id, customer_name, customer_phone, customer_address, 
        created_by, creator_name, carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`,
       { count: 'estimated' }

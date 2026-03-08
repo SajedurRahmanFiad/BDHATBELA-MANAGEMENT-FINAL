@@ -542,7 +542,6 @@ const Orders: React.FC = () => {
                                   {ICONS.Courier} Tracking
                                 </button>
                               )}
-                              <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
                               {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="border-t my-1"></div>
@@ -585,7 +584,6 @@ const Orders: React.FC = () => {
                               {sentToAnyCourier && (
                                 <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
                               )}
-                              <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
                               {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>

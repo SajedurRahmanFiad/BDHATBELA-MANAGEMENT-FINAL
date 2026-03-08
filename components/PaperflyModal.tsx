@@ -199,13 +199,13 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
   return (
     <>
       <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className={`${theme.card.elevated} w-full max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-300`}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className={`${theme.card.elevated} w-full max-w-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300`}>
           <div className="flex items-center justify-between p-6 border-b border-gray-100">
             <h2 className="text-2xl font-bold text-gray-900">Add to Paperfly</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
           </div>
-          <div className="p-6 space-y-4">
+          <div className="p-6 space-y-4 overflow-y-auto">
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
                 <p className="font-semibold">Error:</p>
@@ -273,7 +273,7 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
             </div>
           </div>
 
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
+          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
             <button
               onClick={onClose}
               disabled={submitting}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
-import type { Order, Customer } from '../types';
+import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { submitSteadfastOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
@@ -102,9 +102,28 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
 
       console.log('[SteadfastModal] Order submitted successfully to Steadfast');
       try {
+        const consignmentId = (
+          result?.consignment?.consignment_id ??
+          result?.consignment_id ??
+          result?.data?.consignment?.consignment_id ??
+          result?.data?.consignment_id ??
+          null
+        );
+        const courierStatus = (
+          result?.consignment?.status ??
+          result?.data?.consignment?.status ??
+          (typeof result?.status === 'string' ? result.status : null) ??
+          null
+        );
+
         const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
         console.log('[SteadfastModal] Setting courier history:', historyText);
-        await updateOrder.mutateAsync({ id: order.id, updates: { history: { ...order.history, courier: historyText } } });
+        const updates: any = { history: { ...order.history, courier: historyText } };
+
+        if (consignmentId) updates.steadfastConsignmentId = String(consignmentId);
+        if (courierStatus === 'pending') updates.status = OrderStatus.PROCESSING;
+
+        await updateOrder.mutateAsync({ id: order.id, updates });
         
         // Invalidate and refetch orders queries to ensure fresh data
         await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });

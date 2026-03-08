@@ -389,7 +389,7 @@ const Orders: React.FC = () => {
                 const isOwner = order.createdBy === user?.id;
                 const custName = order.customerName ?? 'Unknown';
                 const courierHistory = String(order.history?.courier || '').toLowerCase();
-                const sentToSteadfast = courierHistory.includes('steadfast');
+                const sentToSteadfast = courierHistory.includes('steadfast') || !!order.steadfastConsignmentId;
                 const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
                 const sentToAnyCourier = sentToSteadfast || sentToCarryBee;
                 return (

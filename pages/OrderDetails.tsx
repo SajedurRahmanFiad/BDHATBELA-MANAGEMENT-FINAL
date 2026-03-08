@@ -238,7 +238,7 @@ const OrderDetails: React.FC = () => {
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
-          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && order.history?.courier?.includes('Steadfast') && (
+          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && (order.history?.courier?.includes('Steadfast') || !!order.steadfastConsignmentId) && (
             <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
           )}
           {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && order.history?.courier?.includes('CarryBee') && (

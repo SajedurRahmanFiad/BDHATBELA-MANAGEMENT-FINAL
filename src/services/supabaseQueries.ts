@@ -283,7 +283,8 @@ export async function fetchOrders() {
       .from('orders_with_customer_creator')
       .select(
         `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
-         created_by, creator_name, status, items, total, paid_amount, created_at`
+         created_by, creator_name, status, items, total, paid_amount, created_at,
+         carrybee_consignment_id, steadfast_consignment_id`
       )
       .order('created_at', { ascending: false })
   );
@@ -335,7 +336,7 @@ export async function fetchOrdersPage(
       `id, order_number, order_date, status, total, created_at, 
        history,
        customer_id, customer_name, customer_phone, customer_address, 
-       created_by, creator_name, carrybee_consignment_id`,
+       created_by, creator_name, carrybee_consignment_id, steadfast_consignment_id`,
       { count: 'estimated' }
     );
 
@@ -505,6 +506,7 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     history: data.history,
     created_at: data.created_at,
     carrybee_consignment_id: data.carrybee_consignment_id,
+    steadfast_consignment_id: data.steadfast_consignment_id,
   };
 
   return mapOrder(mappedData);
@@ -673,6 +675,8 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
 
   const carrybeeConsignmentId =
     (updates as any).carrybeeConsignmentId ?? (updates as any).carrybee_consignment_id;
+  const steadfastConsignmentId =
+    (updates as any).steadfastConsignmentId ?? (updates as any).steadfast_consignment_id;
   const { data, error } = await supabase
     .from('orders')
     .update({
@@ -689,6 +693,7 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.paidAmount !== undefined && { paid_amount: updates.paidAmount }),
       ...(updates.history && { history: updates.history }),
       ...(carrybeeConsignmentId && { carrybee_consignment_id: carrybeeConsignmentId }),
+      ...(steadfastConsignmentId && { steadfast_consignment_id: steadfastConsignmentId }),
     })
     .eq('id', id)
     .select('id');
@@ -791,6 +796,7 @@ function mapOrder(row: any): Order {
     total: row.total ?? row.amount ?? 0,
     notes: row.notes,
     carrybeeConsignmentId: row.carrybee_consignment_id ?? row.carrybeeConsignmentId,
+    steadfastConsignmentId: row.steadfast_consignment_id ?? row.steadfastConsignmentId,
     history: row.history ?? {},
     paidAmount: row.paid_amount ?? row.paidAmount ?? 0,
     // Relational fields from joined customer_creator view

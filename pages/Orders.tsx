@@ -7,7 +7,7 @@ import { db } from '../db';
 import { Order, OrderStatus, UserRole, Transaction, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
-import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
+import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useOrdersPage, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
@@ -47,6 +47,7 @@ const Orders: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
   const [showSteadfast, setShowSteadfast] = useState<string | null>(null);
   const [showCarryBee, setShowCarryBee] = useState<string | null>(null);
+  const [showPaperfly, setShowPaperfly] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -77,6 +78,15 @@ const Orders: React.FC = () => {
       to: searchParams.get('to') || ''
     });
   }, [searchParams]);
+
+  // Force-refresh orders list when returning from OrderDetails after creating a new order.
+  useEffect(() => {
+    const navState = (location.state as any) || {};
+    if (!navState.refreshOrders) return;
+
+    queryClient.refetchQueries({ queryKey: ['orders'], exact: false, type: 'active' });
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, queryClient, navigate]);
 
   // Compute server-side order_date range based on selected filter
   const dateFilters = useMemo(() => {
@@ -317,6 +327,52 @@ const Orders: React.FC = () => {
     }
   };
 
+  const extractSteadfastTrackingFromHistory = (historyText?: string) => {
+    const text = String(historyText || '').trim();
+    if (!text) return '';
+    const patterns = [
+      /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+      /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+      /steadfast\.com\.bd\/t\/([a-z0-9-]+)/i,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) return String(match[1]).trim();
+    }
+    return '';
+  };
+
+  const handleOpenTracking = (order: Order) => {
+    const steadfastTracking = String(
+      order.steadfastConsignmentId || extractSteadfastTrackingFromHistory(order.history?.courier) || ''
+    ).trim();
+    const carryBeeConsignment = String(order.carrybeeConsignmentId || '').trim();
+    const paperflyTracking = String(order.paperflyTrackingNumber || '').trim();
+    const courierHistory = String(order.history?.courier || '').toLowerCase();
+
+    if (steadfastTracking) {
+      window.open(`https://steadfast.com.bd/t/${encodeURIComponent(steadfastTracking)}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (carryBeeConsignment) {
+      window.open(`https://merchant.carrybee.com/order-track/${encodeURIComponent(carryBeeConsignment)}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (paperflyTracking) {
+      toast.warning('Tracking Unavailable');
+      return;
+    }
+
+    if (courierHistory.includes('steadfast')) {
+      toast.warning('Steadfast tracking code is missing for this order');
+      return;
+    }
+
+    toast.warning('Tracking unavailable');
+  };
+
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -391,7 +447,8 @@ const Orders: React.FC = () => {
                 const courierHistory = String(order.history?.courier || '').toLowerCase();
                 const sentToSteadfast = courierHistory.includes('steadfast') || !!order.steadfastConsignmentId;
                 const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
-                const sentToAnyCourier = sentToSteadfast || sentToCarryBee;
+                const sentToPaperfly = courierHistory.includes('paperfly') || !!order.paperflyTrackingNumber;
+                const sentToAnyCourier = sentToSteadfast || sentToCarryBee || sentToPaperfly;
                 return (
                   <tr 
                     key={order.id} 
@@ -416,6 +473,9 @@ const Orders: React.FC = () => {
                       )}
                       {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && sentToCarryBee && (
                         <img src="/uploads/carrybee.png" alt="CarryBee" className="inline-block w-5 h-5 rounded-full ml-2" />
+                      )}
+                      {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && sentToPaperfly && (
+                        <img src="/uploads/paperfly.png" alt="Paperfly" className="inline-block w-5 h-5 rounded-full ml-2" />
                       )}
                     </td>
                     <td className="px-6 py-5 text-right">
@@ -447,13 +507,25 @@ const Orders: React.FC = () => {
                         </button>
                         <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
                           {isEmployee ? (
-                            // Employees can Edit/Delete only when order is in draft (On Hold). Otherwise show N/A.
-                            order.status === OrderStatus.ON_HOLD ? (
-                              <>
-                                <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                              </>
-                            ) : null
+                            <>
+                              {order.status === OrderStatus.ON_HOLD && (
+                                <>
+                                  <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                                  <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                                </>
+                              )}
+                              {sentToAnyCourier && (
+                                <>
+                                  <div className="border-t my-1"></div>
+                                  <button
+                                    onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
+                                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                                  >
+                                    {ICONS.Courier} Tracking
+                                  </button>
+                                </>
+                              )}
+                            </>
                           ) : (
                             <>
                               <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
@@ -462,12 +534,21 @@ const Orders: React.FC = () => {
                               )}
                               <div className="border-t my-1"></div>
                               <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
+                              {sentToAnyCourier && (
+                                <button
+                                  onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
+                                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                                >
+                                  {ICONS.Courier} Tracking
+                                </button>
+                              )}
                               <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Download} Download</button>
                               {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="border-t my-1"></div>
                                   <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
                                   <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
+                                  <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
                                 </>
                               )}
                               <div className="border-t my-1"></div>
@@ -479,16 +560,21 @@ const Orders: React.FC = () => {
                     </td>
 
                     {/* Desktop Hover Actions: admins keep full actions; employees see Edit/Delete when order is draft, otherwise N/A */}
-                    {hoveredRow === order.id && (isAdmin || (isEmployee && order.status === OrderStatus.ON_HOLD)) && (
+                    {hoveredRow === order.id && (isAdmin || (isEmployee && (order.status === OrderStatus.ON_HOLD || sentToAnyCourier))) && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
                           {isEmployee ? (
-                            order.status === OrderStatus.ON_HOLD ? (
-                              <>
-                                <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                                <button onClick={() => handleDelete(order.id)} className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
-                              </>
-                            ) : null
+                            <>
+                              {order.status === OrderStatus.ON_HOLD && (
+                                <>
+                                  <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                                  <button onClick={() => handleDelete(order.id)} className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                                </>
+                              )}
+                              {sentToAnyCourier && (
+                                <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
+                              )}
+                            </>
                           ) : (
                             <>
                               <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
@@ -496,12 +582,16 @@ const Orders: React.FC = () => {
                                 <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
                               )}
                               <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
+                              {sentToAnyCourier && (
+                                <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
+                              )}
                               <button className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Download PDF">{ICONS.Download}</button>
                               {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                   <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>
                                   <button onClick={() => setShowCarryBee(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-orange-50 rounded-lg" title="Send to CarryBee"><img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full"/></button>
+                                  <button onClick={() => setShowPaperfly(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Paperfly"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full"/></button>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                 </>
                               )}
@@ -568,6 +658,21 @@ const Orders: React.FC = () => {
           showCarryBee
             ? (() => {
                 const o = orders.find(o => o.id === showCarryBee);
+                return o
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  : null;
+              })()
+            : null
+        }
+      />
+      <PaperflyModal
+        isOpen={!!showPaperfly}
+        onClose={() => setShowPaperfly(null)}
+        order={showPaperfly ? orders.find(o => o.id === showPaperfly) : null}
+        customer={
+          showPaperfly
+            ? (() => {
+                const o = orders.find(o => o.id === showPaperfly);
                 return o
                   ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
                   : null;

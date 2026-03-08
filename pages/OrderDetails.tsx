@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
 import { OrderStatus, Order, UserRole, Transaction, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
-import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal } from '../components';
+import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
 import { useOrder, useCustomer, useUsers, useProductImagesByIds, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
@@ -43,6 +43,7 @@ const OrderDetails: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSteadfast, setShowSteadfast] = useState(false);
   const [showCarryBee, setShowCarryBee] = useState(false);
+  const [showPaperfly, setShowPaperfly] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
     accountId: db.settings.defaults.accountId || '',
@@ -60,6 +61,11 @@ const OrderDetails: React.FC = () => {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
   if (orderError || !order) return <div className="p-8 text-center text-gray-500">{orderError?.message || 'Order not found.'}</div>;
+  const courierHistoryLower = String(order.history?.courier || '').toLowerCase();
+  const sentToSteadfast = courierHistoryLower.includes('steadfast') || !!order.steadfastConsignmentId;
+  const sentToCarryBee = courierHistoryLower.includes('carrybee') || !!order.carrybeeConsignmentId;
+  const sentToPaperfly = courierHistoryLower.includes('paperfly') || !!order.paperflyTrackingNumber;
+  const sentToAnyCourier = sentToSteadfast || sentToCarryBee || sentToPaperfly;
 
   const updateStatus = async (newStatus: OrderStatus, historyKey?: keyof Order['history'], historyText?: string) => {
     if (!order) return;
@@ -196,6 +202,57 @@ const OrderDetails: React.FC = () => {
     setShowPaymentModal(true);
   };
 
+  const extractSteadfastTrackingFromHistory = (historyText?: string) => {
+    const text = String(historyText || '').trim();
+    if (!text) return '';
+    const patterns = [
+      /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+      /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+      /steadfast\.com\.bd\/t\/([a-z0-9-]+)/i,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) return String(match[1]).trim();
+    }
+    return '';
+  };
+
+  const handleOpenTracking = () => {
+    const steadfastTracking = String(
+      order.steadfastConsignmentId || extractSteadfastTrackingFromHistory(order.history?.courier) || ''
+    ).trim();
+    const carryBeeConsignment = String(order.carrybeeConsignmentId || '').trim();
+    const paperflyTracking = String(order.paperflyTrackingNumber || '').trim();
+    const courierHistory = String(order.history?.courier || '').toLowerCase();
+
+    if (steadfastTracking) {
+      window.open(`https://steadfast.com.bd/t/${encodeURIComponent(steadfastTracking)}`, '_blank', 'noopener,noreferrer');
+      setIsActionOpen(false);
+      return;
+    }
+
+    if (carryBeeConsignment) {
+      window.open(`https://merchant.carrybee.com/order-track/${encodeURIComponent(carryBeeConsignment)}`, '_blank', 'noopener,noreferrer');
+      setIsActionOpen(false);
+      return;
+    }
+
+    if (paperflyTracking) {
+      toast.warning('Tracking Unavailable');
+      setIsActionOpen(false);
+      return;
+    }
+
+    if (courierHistory.includes('steadfast')) {
+      toast.warning('Steadfast tracking code is missing for this order');
+      setIsActionOpen(false);
+      return;
+    }
+
+    toast.warning('Tracking unavailable');
+    setIsActionOpen(false);
+  };
+
   const handleDuplicate = async () => {
     if (!order) return;
     try {
@@ -229,8 +286,12 @@ const OrderDetails: React.FC = () => {
         <div className="flex items-center gap-3">
           <button onClick={() => {
             const from = (location.state as any)?.from;
-            if (from) navigate(from);
-            else navigate(-1);
+            const refreshOrdersOnBack = !!(location.state as any)?.refreshOrdersOnBack;
+            if (from) {
+              navigate(from, { state: { refreshOrders: refreshOrdersOnBack } });
+            } else {
+              navigate('/orders', { state: { refreshOrders: true } });
+            }
           }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
@@ -238,11 +299,14 @@ const OrderDetails: React.FC = () => {
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
-          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && (order.history?.courier?.includes('Steadfast') || !!order.steadfastConsignmentId) && (
+          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && sentToSteadfast && (
             <img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full" />
           )}
-          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && order.history?.courier?.includes('CarryBee') && (
+          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && sentToCarryBee && (
             <img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full" />
+          )}
+          {(order.status === OrderStatus.PROCESSING || order.status === OrderStatus.PICKED) && sentToPaperfly && (
+            <img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full" />
           )}
         </div>
         
@@ -273,6 +337,14 @@ const OrderDetails: React.FC = () => {
                   {isAdmin && order.status !== OrderStatus.COMPLETED && (
                     <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={openPayment}>
                       {ICONS.Banking} Add Payment
+                    </button>
+                  )}
+                  {sentToAnyCourier && (
+                    <button
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                      onClick={handleOpenTracking}
+                    >
+                      {ICONS.Courier} Tracking
                     </button>
                   )}
                   <div className="border-t my-1"></div>
@@ -447,10 +519,10 @@ const OrderDetails: React.FC = () => {
                   )
                 )}
 
-                {order.history.courier ? (
+                {sentToAnyCourier ? (
                   <p className="text-xs text-gray-700 leading-relaxed font-bold bg-gray-50 p-3 rounded-xl">{order.history.courier}</p>
                 ) : (
-                  (!isEmployee && order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !order.history?.courier) && (
+                  (!isEmployee && order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier) && (
                     <>
                       <button 
                         onClick={() => setShowSteadfast(true)}
@@ -463,6 +535,12 @@ const OrderDetails: React.FC = () => {
                         className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
                       >
                         <img src="/uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full" /> Add to CarryBee
+                      </button>
+                      <button
+                        onClick={() => setShowPaperfly(true)}
+                        className="w-full py-3 bg-[#0f2f57] hover:bg-[#0a1f38] text-white font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full" /> Add to Paperfly
                       </button>
                     </>
                   )
@@ -559,6 +637,12 @@ const OrderDetails: React.FC = () => {
       <CarryBeeModal 
         isOpen={showCarryBee} 
         onClose={() => setShowCarryBee(false)}
+        order={order}
+        customer={customer}
+      />
+      <PaperflyModal
+        isOpen={showPaperfly}
+        onClose={() => setShowPaperfly(false)}
         order={order}
         customer={customer}
       />

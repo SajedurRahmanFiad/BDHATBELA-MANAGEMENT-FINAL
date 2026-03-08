@@ -313,7 +313,7 @@ const OrderForm: React.FC = () => {
       } else {
         const createdOrder = await createMutation.mutateAsync(orderData as any);
         toast.success('Order created successfully');
-        navigate(`/orders/${createdOrder.id}`);
+        navigate(`/orders/${createdOrder.id}`, { state: { from: '/orders', refreshOrdersOnBack: true } });
       }
     } catch (err) {
       console.error('Failed to save order:', err);
@@ -416,7 +416,7 @@ const OrderForm: React.FC = () => {
               readOnly 
               value={orderNumber}
               placeholder="Generating..."
-              className={`w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono text-sm font-bold ${orderNumber === 'ERROR' ? 'text-red-600' : `${theme.colors.primary[700]}`}`} 
+              className={`w-full px-4 py-3 bg-gray-100 border border-gray-100 rounded-xl font-mono text-sm font-bold ${orderNumber === 'ERROR' ? 'text-red-600' : ``}`} 
             />
           </div>
         </div>

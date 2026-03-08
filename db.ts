@@ -18,6 +18,7 @@ const defaultSettings: Settings = {
   courier: {
     steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
+    paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
   },
 };
 

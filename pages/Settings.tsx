@@ -51,7 +51,8 @@ const SettingsPage: React.FC = () => {
   const [orderSettings, setOrderSettings] = useState({ prefix: 'ORD-', nextNumber: 1 });
   const [courierSettings, setCourierSettings] = useState({
     steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
-    carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' }
+    carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
+    paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
   });
   const [invoiceSettings, setInvoiceSettings] = useState({ title: 'Invoice', logoWidth: 120, logoHeight: 120, footer: '' });
   const [systemDefaults, setSystemDefaults] = useState({ 
@@ -781,6 +782,81 @@ const SettingsPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-6">
+                <h3 className="text-xl font-bold text-gray-800 border-b pb-4 flex items-center gap-2">
+                  <img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full" />
+                  <span className="">Paperfly</span> Secrets
+                </h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Base URL</label>
+                    <input
+                      type="text"
+                      value={courierSettings.paperfly.baseUrl}
+                      onChange={e => setCourierSettings({ ...courierSettings, paperfly: { ...courierSettings.paperfly, baseUrl: e.target.value } })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Username</label>
+                      <input
+                        type="text"
+                        value={courierSettings.paperfly.username}
+                        onChange={e => setCourierSettings({ ...courierSettings, paperfly: { ...courierSettings.paperfly, username: e.target.value } })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Password</label>
+                      <input
+                        type="text"
+                        value={courierSettings.paperfly.password}
+                        onChange={e => setCourierSettings({ ...courierSettings, paperfly: { ...courierSettings.paperfly, password: e.target.value } })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Paperfly Key</label>
+                      <input
+                        type="text"
+                        value={courierSettings.paperfly.paperflyKey}
+                        onChange={e => setCourierSettings({ ...courierSettings, paperfly: { ...courierSettings.paperfly, paperflyKey: e.target.value } })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Default Shop Name</label>
+                      <input
+                        type="text"
+                        value={courierSettings.paperfly.defaultShopName}
+                        onChange={e => setCourierSettings({ ...courierSettings, paperfly: { ...courierSettings.paperfly, defaultShopName: e.target.value } })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Max Weight (kg)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={courierSettings.paperfly.maxWeightKg ?? 0.3}
+                      onChange={e => setCourierSettings({
+                        ...courierSettings,
+                        paperfly: {
+                          ...courierSettings.paperfly,
+                          maxWeightKg: Number.parseFloat(e.target.value || '0'),
+                        }
+                      })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                    />
                   </div>
                 </div>
               </section>

@@ -102,13 +102,29 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
 
       console.log('[SteadfastModal] Order submitted successfully to Steadfast');
       try {
-        const consignmentId = (
-          result?.consignment?.consignment_id ??
-          result?.consignment_id ??
-          result?.data?.consignment?.consignment_id ??
-          result?.data?.consignment_id ??
+        const trackingCode = (
+          result?.consignment?.tracking_code ??
+          result?.consignment?.trackingCode ??
+          result?.tracking_code ??
+          result?.trackingCode ??
+          result?.data?.consignment?.tracking_code ??
+          result?.data?.consignment?.trackingCode ??
+          result?.data?.tracking_code ??
+          result?.data?.trackingCode ??
           null
         );
+        const consignmentId = (
+          result?.consignment?.consignment_id ??
+          result?.consignment?.consignmentId ??
+          result?.consignment_id ??
+          result?.consignmentId ??
+          result?.data?.consignment?.consignment_id ??
+          result?.data?.consignment?.consignmentId ??
+          result?.data?.consignment_id ??
+          result?.data?.consignmentId ??
+          null
+        );
+        const trackingOrConsignment = trackingCode ?? consignmentId;
         const courierStatus = (
           result?.consignment?.status ??
           result?.data?.consignment?.status ??
@@ -116,11 +132,11 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
           null
         );
 
-        const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+        const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}${trackingOrConsignment ? ` (Tracking: ${trackingOrConsignment})` : ''}`;
         console.log('[SteadfastModal] Setting courier history:', historyText);
         const updates: any = { history: { ...order.history, courier: historyText } };
 
-        if (consignmentId) updates.steadfastConsignmentId = String(consignmentId);
+        if (trackingOrConsignment) updates.steadfastConsignmentId = String(trackingOrConsignment);
         if (courierStatus === 'pending') updates.status = OrderStatus.PROCESSING;
 
         await updateOrder.mutateAsync({ id: order.id, updates });

@@ -1,0 +1,298 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { theme } from '../theme';
+import { OrderStatus, type Order, type Customer } from '../types';
+import { useCourierSettings } from '../src/hooks/useQueries';
+import { fetchPaperflyOrderTracking, submitPaperflyOrder } from '../src/services/supabaseQueries';
+import { useUpdateOrder } from '../src/hooks/useMutations';
+import { db } from '../db';
+
+interface PaperflyModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  order?: Order | null;
+  customer?: Customer | null;
+}
+
+function extractPaperflyTrackingStatusEntry(payload: any): any | null {
+  const trackingStatus = payload?.success?.trackingStatus;
+  if (Array.isArray(trackingStatus) && trackingStatus.length > 0) {
+    return trackingStatus[0] || null;
+  }
+  if (Array.isArray(payload?.trackingStatus) && payload.trackingStatus.length > 0) {
+    return payload.trackingStatus[0] || null;
+  }
+  if (Array.isArray(payload?.data?.trackingStatus) && payload.data.trackingStatus.length > 0) {
+    return payload.data.trackingStatus[0] || null;
+  }
+  return null;
+}
+
+function isPaperflyPickedFromEntry(entry: any): boolean {
+  const pickValue = entry?.Pick;
+  return pickValue !== null && pickValue !== undefined && String(pickValue).trim() !== '';
+}
+
+export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, order, customer }) => {
+  const queryClient = useQueryClient();
+  const { data: courierSettings } = useCourierSettings();
+  const updateOrder = useUpdateOrder();
+
+  const [storeName, setStoreName] = useState('');
+  const [productBrief, setProductBrief] = useState('');
+  const [maxWeightKg, setMaxWeightKg] = useState<number>(0.3);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<number | null>(null);
+  const pollingCancelledRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      pollingCancelledRef.current = true;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const defaultShopName = courierSettings?.paperfly?.defaultShopName || '';
+    const defaultWeight = Number(courierSettings?.paperfly?.maxWeightKg ?? 0.3);
+    setStoreName(defaultShopName);
+    setProductBrief(order?.notes || '');
+    setMaxWeightKg(Number.isFinite(defaultWeight) ? defaultWeight : 0.3);
+    setError(null);
+    pollingCancelledRef.current = false;
+  }, [isOpen, courierSettings?.paperfly?.defaultShopName, courierSettings?.paperfly?.maxWeightKg, order?.notes]);
+
+  useEffect(() => {
+    return () => {
+      pollingCancelledRef.current = true;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  if (!isOpen) return null;
+
+  const looksLikePhone = (value: string): boolean => /^[+]?[\d\s\-()]{7,20}$/.test(value.trim());
+  const rawPhone = String(customer?.phone || '').trim();
+  const rawAddress = String(customer?.address || '').trim();
+  const normalizedCustomerPhone = !looksLikePhone(rawPhone) && looksLikePhone(rawAddress) ? rawAddress : rawPhone;
+  const normalizedCustomerAddress = !looksLikePhone(rawPhone) && looksLikePhone(rawAddress) ? rawPhone : rawAddress;
+
+  const handleSubmit = async () => {
+    setError(null);
+
+    if (!order || !customer) {
+      setError('Missing order or customer information');
+      return;
+    }
+
+    const paperfly = courierSettings?.paperfly;
+    if (!paperfly) {
+      setError('No Paperfly credentials configured');
+      return;
+    }
+
+    const { baseUrl, username, password, paperflyKey } = paperfly;
+    if (!baseUrl || !username || !password || !paperflyKey) {
+      setError('Incomplete Paperfly settings. Please configure Base URL, Username, Password and Paperfly Key.');
+      return;
+    }
+    if (!storeName.trim()) {
+      setError('Store name is required');
+      return;
+    }
+    if (!Number.isFinite(maxWeightKg) || maxWeightKg <= 0) {
+      setError('Max weight must be a positive number');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const result = await submitPaperflyOrder({
+        baseUrl,
+        username,
+        password,
+        paperflyKey,
+        merchantOrderReference: order.orderNumber,
+        storeName: storeName.trim(),
+        productBrief: productBrief || '',
+        packagePrice: String(order.total || 0),
+        maxWeightKg: String(maxWeightKg),
+        customerName: customer.name || '',
+        customerAddress: normalizedCustomerAddress,
+        customerPhone: normalizedCustomerPhone,
+      });
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      const trackingNumber =
+        result?.success?.tracking_number ||
+        result?.tracking_number ||
+        result?.data?.success?.tracking_number ||
+        result?.data?.tracking_number ||
+        null;
+
+      const historyText = `Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+
+      const updates: any = { history: { ...order.history, courier: historyText } };
+      if (trackingNumber) {
+        updates.paperflyTrackingNumber = String(trackingNumber);
+      }
+
+      await updateOrder.mutateAsync({ id: order.id, updates });
+      await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
+      await queryClient.refetchQueries({ queryKey: ['order', order.id] });
+
+      if (trackingNumber) {
+        const referenceNumber = String(trackingNumber);
+        const poll = async () => {
+          if (pollingCancelledRef.current) return;
+          try {
+            const details = await fetchPaperflyOrderTracking({
+              baseUrl,
+              username,
+              password,
+              referenceNumber,
+            });
+            if (details.error) return;
+            const trackingEntry = extractPaperflyTrackingStatusEntry(details.data);
+            if (!isPaperflyPickedFromEntry(trackingEntry)) return;
+
+            const pickedHistory = `Marked picked automatically from Paperfly tracking status on ${new Date().toLocaleString()}`;
+            await updateOrder.mutateAsync({
+              id: order.id,
+              updates: { status: OrderStatus.PICKED, history: { ...order.history, picked: pickedHistory } },
+            });
+            await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
+            await queryClient.refetchQueries({ queryKey: ['order', order.id] });
+
+            pollingCancelledRef.current = true;
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+          } catch (err) {
+            console.error('[PaperflyModal] Polling error:', err);
+          }
+        };
+
+        pollingIntervalRef.current = window.setInterval(poll, 15_000) as unknown as number;
+        poll();
+      }
+
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className={`${theme.card.elevated} w-full max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-300`}>
+          <div className="flex items-center justify-between p-6 border-b border-gray-100">
+            <h2 className="text-2xl font-bold text-gray-900">Add to Paperfly</h2>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+          </div>
+          <div className="p-6 space-y-4">
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                <p className="font-semibold">Error:</p>
+                <p>{error}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-700">Store Name</label>
+              <input
+                type="text"
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-700">Product Brief</label>
+              <input
+                type="text"
+                value={productBrief}
+                onChange={(e) => setProductBrief(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-700">Order Reference</label>
+              <input
+                type="text"
+                value={order?.orderNumber || ''}
+                disabled
+                className="w-full px-4 py-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-700"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-700">Max Weight (kg)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={maxWeightKg}
+                onChange={(e) => setMaxWeightKg(Number.parseFloat(e.target.value || '0'))}
+                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Customer Name</label>
+              <p className="text-gray-900">{customer?.name || '-'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Customer Phone</label>
+              <p className="text-gray-900">{normalizedCustomerPhone || '-'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Customer Address</label>
+              <p className="text-gray-900">{normalizedCustomerAddress || '-'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">COD to Collect</label>
+              <p className="text-lg font-bold text-gray-900">BDT {order?.total?.toFixed(2) || '0.00'}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="flex-1 py-2 px-4 rounded-lg border border-gray-200 text-gray-700 font-bold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !order || !customer}
+              className="flex-1 py-2 px-4 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default PaperflyModal;

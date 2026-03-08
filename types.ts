@@ -87,6 +87,7 @@ export interface Order {
   notes?: string;
   carrybeeConsignmentId?: string;
   steadfastConsignmentId?: string;
+  paperflyTrackingNumber?: string;
   history: {
     created: string;
     courier?: string;
@@ -212,5 +213,13 @@ export interface Settings {
   courier: {
     steadfast: { baseUrl: string; apiKey: string; secretKey: string };
     carryBee: { baseUrl: string; clientId: string; clientSecret: string; clientContext: string; storeId: string };
+    paperfly: {
+      baseUrl: string;
+      username: string;
+      password: string;
+      paperflyKey: string;
+      defaultShopName: string;
+      maxWeightKg: number;
+    };
   };
 }

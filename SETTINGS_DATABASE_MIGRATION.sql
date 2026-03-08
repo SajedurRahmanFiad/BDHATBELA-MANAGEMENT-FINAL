@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS public.courier_settings (
   carryBee_base_url VARCHAR(255),
   carryBee_client_id VARCHAR(255),
   carryBee_client_secret VARCHAR(500),
+
+  -- Paperfly configuration
+  paperfly_base_url VARCHAR(255),
+  paperfly_username VARCHAR(255),
+  paperfly_password VARCHAR(500),
+  paperfly_key VARCHAR(500),
+  paperfly_default_shop_name VARCHAR(255),
+  paperfly_max_weight_kg NUMERIC(10,3) DEFAULT 0.3,
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -75,6 +83,12 @@ ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '{}';
 -- ORDER SETTINGS (if history column doesn't exist yet)
 ALTER TABLE public.orders 
 ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '{}';
+
+-- ORDER TRACKING COLUMNS (courier-specific IDs and tracking numbers)
+ALTER TABLE public.orders
+ADD COLUMN IF NOT EXISTS carrybee_consignment_id TEXT,
+ADD COLUMN IF NOT EXISTS steadfast_consignment_id TEXT,
+ADD COLUMN IF NOT EXISTS paperfly_tracking_number TEXT;
 
 -- ============== ROW LEVEL SECURITY (RLS) POLICIES ==============
 -- These policies allow all authenticated users to view and update settings

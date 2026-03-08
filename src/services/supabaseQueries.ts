@@ -284,7 +284,7 @@ export async function fetchOrders() {
       .select(
         `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
          created_by, creator_name, status, items, total, paid_amount, created_at,
-         carrybee_consignment_id, steadfast_consignment_id`
+         carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`
       )
       .order('created_at', { ascending: false })
   );
@@ -336,7 +336,7 @@ export async function fetchOrdersPage(
       `id, order_number, order_date, status, total, created_at, 
        history,
        customer_id, customer_name, customer_phone, customer_address, 
-       created_by, creator_name, carrybee_consignment_id, steadfast_consignment_id`,
+       created_by, creator_name, carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`,
       { count: 'estimated' }
     );
 
@@ -507,6 +507,7 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     created_at: data.created_at,
     carrybee_consignment_id: data.carrybee_consignment_id,
     steadfast_consignment_id: data.steadfast_consignment_id,
+    paperfly_tracking_number: data.paperfly_tracking_number,
   };
 
   return mapOrder(mappedData);
@@ -677,6 +678,8 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
     (updates as any).carrybeeConsignmentId ?? (updates as any).carrybee_consignment_id;
   const steadfastConsignmentId =
     (updates as any).steadfastConsignmentId ?? (updates as any).steadfast_consignment_id;
+  const paperflyTrackingNumber =
+    (updates as any).paperflyTrackingNumber ?? (updates as any).paperfly_tracking_number;
   const { data, error } = await supabase
     .from('orders')
     .update({
@@ -694,6 +697,7 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
       ...(updates.history && { history: updates.history }),
       ...(carrybeeConsignmentId && { carrybee_consignment_id: carrybeeConsignmentId }),
       ...(steadfastConsignmentId && { steadfast_consignment_id: steadfastConsignmentId }),
+      ...(paperflyTrackingNumber && { paperfly_tracking_number: paperflyTrackingNumber }),
     })
     .eq('id', id)
     .select('id');
@@ -797,6 +801,7 @@ function mapOrder(row: any): Order {
     notes: row.notes,
     carrybeeConsignmentId: row.carrybee_consignment_id ?? row.carrybeeConsignmentId,
     steadfastConsignmentId: row.steadfast_consignment_id ?? row.steadfastConsignmentId,
+    paperflyTrackingNumber: row.paperfly_tracking_number ?? row.paperflyTrackingNumber,
     history: row.history ?? {},
     paidAmount: row.paid_amount ?? row.paidAmount ?? 0,
     // Relational fields from joined customer_creator view
@@ -2750,7 +2755,8 @@ export async function fetchCourierSettings() {
       console.error('[supabaseQueries] fetchCourierSettings error:', error);
       return {
         steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
-        carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' }
+        carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
+        paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
       };
     }
     
@@ -2766,13 +2772,22 @@ export async function fetchCourierSettings() {
         clientSecret: data.carrybee_client_secret || '',
         clientContext: data.carrybee_client_context || '',
         storeId: data.carrybee_store_id || ''
+      },
+      paperfly: {
+        baseUrl: data.paperfly_base_url || '',
+        username: data.paperfly_username || '',
+        password: data.paperfly_password || '',
+        paperflyKey: data.paperfly_key || '',
+        defaultShopName: data.paperfly_default_shop_name || '',
+        maxWeightKg: Number(data.paperfly_max_weight_kg ?? 0.3),
       }
     };
   } catch (err) {
     console.error('[supabaseQueries] fetchCourierSettings exception:', err);
     return {
       steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
-      carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' }
+      carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
+      paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
     };
   }
 }
@@ -2780,6 +2795,7 @@ export async function fetchCourierSettings() {
 export async function updateCourierSettings(updates: {
   steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string };
   carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string };
+  paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number };
 }) {
   try {
     // Get current value to merge with updates
@@ -2793,6 +2809,12 @@ export async function updateCourierSettings(updates: {
       carrybee_client_secret: updates.carryBee?.clientSecret || current.carryBee.clientSecret,
       carrybee_client_context: updates.carryBee?.clientContext || current.carryBee.clientContext,
       carrybee_store_id: updates.carryBee?.storeId || current.carryBee.storeId,
+      paperfly_base_url: updates.paperfly?.baseUrl || current.paperfly.baseUrl,
+      paperfly_username: updates.paperfly?.username || current.paperfly.username,
+      paperfly_password: updates.paperfly?.password || current.paperfly.password,
+      paperfly_key: updates.paperfly?.paperflyKey || current.paperfly.paperflyKey,
+      paperfly_default_shop_name: updates.paperfly?.defaultShopName || current.paperfly.defaultShopName,
+      paperfly_max_weight_kg: updates.paperfly?.maxWeightKg !== undefined ? updates.paperfly.maxWeightKg : current.paperfly.maxWeightKg,
     };
     
     // Try to fetch an existing record
@@ -2839,6 +2861,14 @@ export async function updateCourierSettings(updates: {
         clientSecret: result?.carrybee_client_secret || '',
         clientContext: result?.carrybee_client_context || '',
         storeId: result?.carrybee_store_id || ''
+      },
+      paperfly: {
+        baseUrl: result?.paperfly_base_url || '',
+        username: result?.paperfly_username || '',
+        password: result?.paperfly_password || '',
+        paperflyKey: result?.paperfly_key || '',
+        defaultShopName: result?.paperfly_default_shop_name || '',
+        maxWeightKg: Number(result?.paperfly_max_weight_kg ?? 0.3),
       }
     };
   } catch (err) {
@@ -3375,6 +3405,285 @@ export async function submitSteadfastOrder(params: {
   }
 }
 
+export async function fetchSteadfastStatusByTrackingCode(params: {
+  baseUrl: string;
+  apiKey: string;
+  secretKey: string;
+  trackingCode: string;
+}): Promise<{ data?: any; error?: string }> {
+  try {
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/steadfast-status-by-trackingcode`;
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      return { error: `HTTP ${response.status}` };
+    }
+
+    const body = await response.json();
+    if (body?.error) {
+      return { error: body.error };
+    }
+
+    return { data: body?.data };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+export async function submitPaperflyOrder(params: {
+  baseUrl: string;
+  username: string;
+  password: string;
+  paperflyKey: string;
+  merchantOrderReference: string;
+  storeName: string;
+  productBrief: string;
+  packagePrice: number | string;
+  maxWeightKg: number | string;
+  customerName: string;
+  customerAddress: string;
+  customerPhone: string;
+}): Promise<any> {
+  try {
+    const baseUrl = params.baseUrl?.trim();
+    const username = params.username?.trim();
+    const password = params.password?.trim();
+    const paperflyKey = params.paperflyKey?.trim();
+
+    if (!baseUrl || !username || !password || !paperflyKey || !params.merchantOrderReference || !params.storeName || !params.customerName || !params.customerAddress || !params.customerPhone) {
+      console.warn('[supabaseQueries] Paperfly API parameters incomplete');
+      return { error: 'Missing required parameters' };
+    }
+
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/paperfly-submit-order`;
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        baseUrl,
+        username,
+        password,
+        paperflyKey,
+        merchantOrderReference: params.merchantOrderReference,
+        storeName: params.storeName,
+        productBrief: params.productBrief || '',
+        packagePrice: String(params.packagePrice ?? ''),
+        maxWeightKg: String(params.maxWeightKg ?? ''),
+        customerName: params.customerName,
+        customerAddress: params.customerAddress,
+        customerPhone: params.customerPhone,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[supabaseQueries] Paperfly submit Edge Function error:', response.status);
+      return { error: `HTTP ${response.status}` };
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      const detailedError = data.details ? `${data.error}: ${data.details}` : data.error;
+      return { error: detailedError };
+    }
+
+    return data.data;
+  } catch (err) {
+    console.error('[supabaseQueries] submitPaperflyOrder exception:', err instanceof Error ? err.message : err);
+    return { error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+export async function fetchPaperflyOrderTracking(params: {
+  baseUrl: string;
+  username: string;
+  password: string;
+  referenceNumber: string;
+}): Promise<{ data?: any; error?: string }> {
+  try {
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/paperfly-order-tracking`;
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      return { error: `HTTP ${response.status}` };
+    }
+
+    const body = await response.json();
+    if (body?.error) {
+      return { error: body.error };
+    }
+
+    return { data: body?.data };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+function extractPaperflyTrackingStatusEntry(payload: any): any | null {
+  const trackingStatus = payload?.success?.trackingStatus;
+  if (Array.isArray(trackingStatus) && trackingStatus.length > 0) {
+    return trackingStatus[0] || null;
+  }
+  if (Array.isArray(payload?.trackingStatus) && payload.trackingStatus.length > 0) {
+    return payload.trackingStatus[0] || null;
+  }
+  if (Array.isArray(payload?.data?.trackingStatus) && payload.data.trackingStatus.length > 0) {
+    return payload.data.trackingStatus[0] || null;
+  }
+  return null;
+}
+
+function isPaperflyPickedFromEntry(entry: any): boolean {
+  const pickValue = entry?.Pick;
+  return pickValue !== null && pickValue !== undefined && String(pickValue).trim() !== '';
+}
+
+export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; updated: number }> {
+  let checked = 0;
+  let updated = 0;
+
+  try {
+    const courier = await fetchCourierSettings();
+    const baseUrl = courier?.paperfly?.baseUrl?.trim();
+    const username = courier?.paperfly?.username?.trim();
+    const password = courier?.paperfly?.password?.trim();
+
+    if (!baseUrl || !username || !password) {
+      return { checked, updated };
+    }
+
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('id, status, history, paperfly_tracking_number')
+      .not('paperfly_tracking_number', 'is', null)
+      .neq('paperfly_tracking_number', '')
+      .in('status', [OrderStatus.ON_HOLD, OrderStatus.PROCESSING]);
+
+    if (error) {
+      console.error('[supabaseQueries] syncPaperflyOrderStatuses query error:', error);
+      return { checked, updated };
+    }
+
+    const orders = rows || [];
+    for (const row of orders) {
+      const referenceNumber = row.paperfly_tracking_number as string;
+      if (!referenceNumber) continue;
+      checked++;
+
+      try {
+        const details = await fetchPaperflyOrderTracking({
+          baseUrl,
+          username,
+          password,
+          referenceNumber,
+        });
+        if (details.error) continue;
+
+        const trackingEntry = extractPaperflyTrackingStatusEntry(details.data);
+        if (isPaperflyPickedFromEntry(trackingEntry)) {
+          const nextHistory = {
+            ...(row.history || {}),
+            picked: `Marked picked automatically from Paperfly tracking status on ${new Date().toLocaleString()}`,
+          };
+
+          await updateOrder(row.id, {
+            status: OrderStatus.PICKED,
+            history: nextHistory as any,
+          } as Partial<Order>);
+          updated++;
+        }
+      } catch (err) {
+        console.error('[supabaseQueries] syncPaperflyOrderStatuses detail error:', err);
+      }
+    }
+  } catch (err) {
+    console.error('[supabaseQueries] syncPaperflyOrderStatuses exception:', err);
+  }
+
+  return { checked, updated };
+}
+
+export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> {
+  let checked = 0;
+  let updated = 0;
+
+  try {
+    const courier = await fetchCourierSettings();
+    const baseUrl = courier?.steadfast?.baseUrl?.trim();
+    const apiKey = courier?.steadfast?.apiKey?.trim();
+    const secretKey = courier?.steadfast?.secretKey?.trim();
+
+    if (!baseUrl || !apiKey || !secretKey) {
+      return { checked, updated };
+    }
+
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('id, status, history, steadfast_consignment_id')
+      .not('steadfast_consignment_id', 'is', null)
+      .neq('steadfast_consignment_id', '')
+      .in('status', [OrderStatus.ON_HOLD, OrderStatus.PROCESSING]);
+
+    if (error) {
+      console.error('[supabaseQueries] syncSteadfastDeliveryStatuses query error:', error);
+      return { checked, updated };
+    }
+
+    const orders = rows || [];
+    for (const row of orders) {
+      const trackingCode = row.steadfast_consignment_id as string;
+      if (!trackingCode) continue;
+      checked++;
+
+      try {
+        const details = await fetchSteadfastStatusByTrackingCode({
+          baseUrl,
+          apiKey,
+          secretKey,
+          trackingCode,
+        });
+        if (details.error) continue;
+
+        const deliveryStatus = details?.data?.delivery_status;
+        if (deliveryStatus === 'pending' && row.status !== OrderStatus.PROCESSING) {
+          const nextHistory = {
+            ...(row.history || {}),
+            processing: `Marked processing automatically from Steadfast delivery status "pending" on ${new Date().toLocaleString()}`,
+          };
+
+          await updateOrder(row.id, {
+            status: OrderStatus.PROCESSING,
+            history: nextHistory as any,
+          } as Partial<Order>);
+          updated++;
+        }
+      } catch (err) {
+        console.error('[supabaseQueries] syncSteadfastDeliveryStatuses detail error:', err);
+      }
+    }
+  } catch (err) {
+    console.error('[supabaseQueries] syncSteadfastDeliveryStatuses exception:', err);
+  }
+
+  return { checked, updated };
+}
+
 // ========== BATCH SETTINGS ==========
 
 /**
@@ -3411,6 +3720,7 @@ export async function batchUpdateSettings(updates: {
   courier?: {
     steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string };
     carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string };
+    paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number };
   };
 }) {
   await ensureAuthenticated();
@@ -3506,5 +3816,10 @@ export default {
   fetchCourierSettings,
   updateCourierSettings,
   syncCarryBeeTransferStatuses,
+  fetchSteadfastStatusByTrackingCode,
+  syncSteadfastDeliveryStatuses,
+  submitPaperflyOrder,
+  fetchPaperflyOrderTracking,
+  syncPaperflyOrderStatuses,
   batchUpdateSettings,
 };

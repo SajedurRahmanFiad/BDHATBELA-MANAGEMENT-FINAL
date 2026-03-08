@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import supabase from '../services/supabaseClient';
-import { syncCarryBeeTransferStatuses } from '../services/supabaseQueries';
+import { syncCarryBeeTransferStatuses, syncPaperflyOrderStatuses, syncSteadfastDeliveryStatuses } from '../services/supabaseQueries';
 import { useAuth } from './AuthProvider';
 
 interface RealtimeContextType {
@@ -227,7 +227,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [queryClient]);
 
-  // Periodically sync CarryBee transfer statuses and auto-mark picked orders.
+  // Periodically sync courier transfer/tracking statuses and auto-mark picked orders.
   useEffect(() => {
     if (!ENABLE_CARRYBEE_SYNC || !user?.id) return;
 
@@ -238,12 +238,16 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (cancelled || syncingRef.current) return;
       syncingRef.current = true;
       try {
-        const result = await syncCarryBeeTransferStatuses();
-        if (!cancelled && result.updated > 0) {
+        const [carryBeeResult, paperflyResult, steadfastResult] = await Promise.all([
+          syncCarryBeeTransferStatuses(),
+          syncPaperflyOrderStatuses(),
+          syncSteadfastDeliveryStatuses(),
+        ]);
+        if (!cancelled && (carryBeeResult.updated > 0 || paperflyResult.updated > 0 || steadfastResult.updated > 0)) {
           queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
         }
       } catch (err) {
-        console.error('[Realtime] CarryBee sync failed:', err);
+        console.error('[Realtime] Courier sync failed:', err);
       } finally {
         syncingRef.current = false;
       }

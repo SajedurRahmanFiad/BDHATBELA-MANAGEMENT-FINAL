@@ -9,6 +9,7 @@ import { useCustomer, useCustomers } from '../src/hooks/useQueries';
 import { useCreateCustomer, useUpdateCustomer } from '../src/hooks/useMutations';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { isTempId } from '../src/utils/optimisticIdMap';
+import { sanitizePhoneInput } from '../utils';
 
 const CustomerForm: React.FC = () => {
   const { id } = useParams();
@@ -58,6 +59,11 @@ const CustomerForm: React.FC = () => {
   const handleSave = async () => {
     if (!form.name || !form.phone) {
       setError('Name and phone are required');
+      return;
+    }
+
+    if (form.phone.length > 11) {
+      setError('Phone number must be 11 digits or less');
       return;
     }
     
@@ -143,9 +149,12 @@ const CustomerForm: React.FC = () => {
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Phone Number</label>
               <input 
                 type="text" 
+                inputMode="numeric"
+                pattern="[0-9\u09E6-\u09EF]{0,11}"
+                maxLength={11}
                 className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.phone}
-                onChange={e => setForm({...form, phone: e.target.value})}
+                onChange={e => setForm({...form, phone: sanitizePhoneInput(e.target.value)})}
               />
             </div>
             <div className="space-y-2">

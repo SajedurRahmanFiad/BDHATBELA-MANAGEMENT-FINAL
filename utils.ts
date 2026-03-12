@@ -156,3 +156,15 @@ export const cloneAndUpdate = <T extends Record<string, any>>(
 ): T => {
   return { ...obj, ...updates };
 };
+
+/**
+ * Normalize a phone input string by stripping out any characters that are
+ * not English or Bengali digits and capping the result to 11 characters
+ * (the max length used throughout the app).
+ */
+export const sanitizePhoneInput = (value: string): string => {
+  // Allow standard 0‑9 digits and Bengali digits (U+09E6–U+09EF).
+  const digits = value.match(/[0-9\u09E6-\u09EF]/g);
+  // join and truncate to 11 characters
+  return (digits ? digits.join('') : '').slice(0, 11);
+};

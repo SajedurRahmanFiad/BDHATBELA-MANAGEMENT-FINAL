@@ -53,8 +53,8 @@ const VendorForm: React.FC = () => {
       return;
     }
 
-    if (form.phone.length > 11) {
-      setError('Phone number must be 11 digits or less');
+    if (!/^0\d{10}$/.test(form.phone)) {
+      setError('Phone number must be 11 digits and start with 0');
       return;
     }
     
@@ -131,11 +131,16 @@ const VendorForm: React.FC = () => {
               <input 
                 type="text" 
                 inputMode="numeric"
-                pattern="[0-9\u09E6-\u09EF]{0,11}"
+                pattern="^0\d{10}$"
                 maxLength={11}
                 className="w-full px-6 py-4 bg-gray-50 border border-gray-200 focus:border-[#3c5a82] focus:bg-white rounded-2xl font-bold transition-all outline-none"
                 value={form.phone}
-                onChange={e => setForm({...form, phone: sanitizePhoneInput(e.target.value)})}
+                onChange={e => {
+                  const phoneValue = sanitizePhoneInput(e.target.value);
+                  if (phoneValue === '' || phoneValue.startsWith('0')) {
+                    setForm({...form, phone: phoneValue});
+                  }
+                }}
               />
             </div>
             <div className="space-y-2">

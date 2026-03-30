@@ -37,8 +37,12 @@ const VendorForm: React.FC = () => {
 
     // If navigated here from a form, and an optimistic vendor exists in cache, populate
     const state: any = (location && (location as any).state) || {};
-    if (state.fromBillForm && state.preFill && state.preFill.name) {
-      setForm({ name: state.preFill.name, phone: state.preFill.phone || '', address: state.preFill.address || '' });
+    if (state.fromBillForm && state.preFill && (state.preFill.name || state.preFill.phone || state.preFill.address)) {
+      setForm({
+        name: state.preFill.name || '',
+        phone: state.preFill.phone || '',
+        address: state.preFill.address || '',
+      });
     }
   }, [vendor, location]);
 

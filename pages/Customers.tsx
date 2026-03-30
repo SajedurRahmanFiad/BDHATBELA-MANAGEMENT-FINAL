@@ -14,6 +14,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 import { useMemo, useEffect } from 'react';
 import { isTempId } from '../src/utils/optimisticIdMap';
 
@@ -26,7 +27,9 @@ const Customers: React.FC = () => {
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
   const [page, setPage] = React.useState<number>(1);
-  const { data: customersPage, isFetching, error } = useCustomersPage(page, pageSize, searchQuery);
+  const pageResetKey = useMemo(() => JSON.stringify({ searchQuery }), [searchQuery]);
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+  const { data: customersPage, isFetching, error } = useCustomersPage(effectivePage, pageSize, searchQuery);
   const customers = customersPage?.data ?? [];
   const total = customersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -168,7 +171,7 @@ const Customers: React.FC = () => {
         onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
         emptyMessage="No customers found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

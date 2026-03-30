@@ -14,6 +14,7 @@ import { useDeleteProduct } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { useSearch } from '../src/contexts/SearchContext';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 
 const Products: React.FC = () => {
   const navigate = useNavigate();
@@ -35,7 +36,13 @@ const Products: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: productsPage, isFetching } = useProductsPage(page, pageSize, searchQuery, undefined, createdByIds);
+  const pageResetKey = useMemo(
+    () => JSON.stringify({ searchQuery, createdByFilter, createdByIds }),
+    [searchQuery, createdByFilter, createdByIds]
+  );
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+
+  const { data: productsPage, isFetching } = useProductsPage(effectivePage, pageSize, searchQuery, undefined, createdByIds);
   const products = productsPage?.data ?? [];
   const total = productsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -181,7 +188,7 @@ const Products: React.FC = () => {
         loading={isFetching}
         emptyMessage="No products found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
-import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder, fetchCarryBeeOrderDetails } from '../src/services/supabaseQueries';
+import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder, syncCarryBeeTransferStatuses } from '../src/services/supabaseQueries';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
-import { OrderStatus } from '../types';
 import { db } from '../db';
 import type { Order, Customer } from '../types';
 
@@ -353,27 +352,19 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                       await queryClient.refetchQueries({ queryKey: ['order', order.id] });
                       console.log('[CarryBeeModal] Courier status updated and UI refreshed');
 
-                      // Start polling CarryBee order details to detect transfer_status
+                      // Start polling the shared server-side sync so the UI can refresh early
+                      // without maintaining a second CarryBee status parser in the browser.
                       if (consignmentId) {
-                        const targetStatus = 'At the sorting hub';
                         pollingCancelledRef.current = false;
 
                         const poll = async () => {
                           if (pollingCancelledRef.current) return;
                           try {
-                            const details = await fetchCarryBeeOrderDetails({
-                              baseUrl: courierSettings.carryBee.baseUrl,
-                              clientId: courierSettings.carryBee.clientId,
-                              clientSecret: courierSettings.carryBee.clientSecret,
-                              clientContext: courierSettings.carryBee.clientContext,
-                              consignmentId,
+                            const syncResult = await syncCarryBeeTransferStatuses({
+                              orderId: order.id,
+                              limit: 1,
                             });
-                            if (details.error) return;
-                            const transferStatus = details?.data?.data?.transfer_status || details?.data?.transfer_status || null;
-                            if (transferStatus === targetStatus && !pollingCancelledRef.current) {
-                              const pickedHistory = `Marked picked automatically on ${new Date().toLocaleString()}`;
-                              await updateOrder.mutateAsync({ id: order.id, updates: { status: OrderStatus.PICKED, history: { ...order.history, picked: pickedHistory } } });
-                              
+                            if (syncResult.updated > 0 && !pollingCancelledRef.current) {
                               // Refetch queries to reflect the updated order status
                               await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
                               await queryClient.refetchQueries({ queryKey: ['order', order.id] });

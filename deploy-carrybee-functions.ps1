@@ -9,44 +9,31 @@ if (-not $env:SUPABASE_ACCESS_TOKEN) {
     exit 1
 }
 
-# Deploy cities function
-Write-Host "Deploying carrybee-cities..." -ForegroundColor Yellow
-npx supabase functions deploy carrybee-cities
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to deploy carrybee-cities" -ForegroundColor Red
-} else {
-    Write-Host "✓ carrybee-cities deployed" -ForegroundColor Green
+$functions = @(
+    "carrybee-cities",
+    "carrybee-zones",
+    "carrybee-areas",
+    "carrybee-order-details",
+    "courier-sync-statuses"
+)
+
+foreach ($functionName in $functions) {
+    Write-Host ("Deploying {0}..." -f $functionName) -ForegroundColor Yellow
+    npx supabase functions deploy $functionName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ("Failed to deploy {0}" -f $functionName) -ForegroundColor Red
+    } else {
+        Write-Host ("[OK] {0} deployed" -f $functionName) -ForegroundColor Green
+    }
+    Write-Host ""
 }
 
-Write-Host ""
-
-# Deploy zones function
-Write-Host "Deploying carrybee-zones..." -ForegroundColor Yellow
-npx supabase functions deploy carrybee-zones
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to deploy carrybee-zones" -ForegroundColor Red
-} else {
-    Write-Host "✓ carrybee-zones deployed" -ForegroundColor Green
-}
-
-Write-Host ""
-
-# Deploy areas function
-Write-Host "Deploying carrybee-areas..." -ForegroundColor Yellow
-npx supabase functions deploy carrybee-areas
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to deploy carrybee-areas" -ForegroundColor Red
-} else {
-    Write-Host "✓ carrybee-areas deployed" -ForegroundColor Green
-}
-
-Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "All Edge Functions Deployed!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Your Edge Functions are now live:" -ForegroundColor Green
-Write-Host "  - https://ozjddzasadgffjjeqntc.supabase.co/functions/v1/carrybee-cities"
-Write-Host "  - https://ozjddzasadgffjjeqntc.supabase.co/functions/v1/carrybee-zones"
-Write-Host "  - https://ozjddzasadgffjjeqntc.supabase.co/functions/v1/carrybee-areas"
+foreach ($functionName in $functions) {
+    Write-Host ("  - https://ozjddzasadgffjjeqntc.supabase.co/functions/v1/{0}" -f $functionName)
+}
 Write-Host ""

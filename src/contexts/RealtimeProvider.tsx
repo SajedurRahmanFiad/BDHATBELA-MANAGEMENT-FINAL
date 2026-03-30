@@ -10,7 +10,7 @@ interface RealtimeContextType {
 
 const RealtimeContext = createContext<RealtimeContextType | undefined>(undefined);
 const ENABLE_REALTIME = import.meta.env.VITE_ENABLE_REALTIME === 'true';
-const ENABLE_CARRYBEE_SYNC = import.meta.env.VITE_ENABLE_CARRYBEE_SYNC === 'true';
+const ENABLE_CARRYBEE_SYNC = import.meta.env.VITE_ENABLE_CARRYBEE_SYNC !== 'false';
 
 /**
  * RealtimeProvider sets up Supabase Realtime subscriptions for orders, bills, and transactions.
@@ -227,7 +227,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [queryClient]);
 
-  // Periodically sync courier transfer/tracking statuses and auto-mark picked orders.
+  // Periodically trigger the server-side courier sync so active users see updates sooner.
   useEffect(() => {
     if (!ENABLE_CARRYBEE_SYNC || !user?.id) return;
 

@@ -13,6 +13,7 @@ import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 
 const Vendors: React.FC = () => {
   const navigate = useNavigate();
@@ -22,7 +23,9 @@ const Vendors: React.FC = () => {
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
   const [page, setPage] = React.useState<number>(1);
-  const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(page, pageSize, searchQuery);
+  const pageResetKey = useMemo(() => JSON.stringify({ searchQuery }), [searchQuery]);
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+  const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(effectivePage, pageSize, searchQuery);
   const vendors = vendorsPage.data || [];
   const total = vendorsPage.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -143,7 +146,7 @@ const Vendors: React.FC = () => {
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`)}
         emptyMessage="No vendors found"
       />
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />
     </div>
   );
 };

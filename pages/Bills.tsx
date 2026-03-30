@@ -15,6 +15,7 @@ import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 import { getDateOnlyFilters } from '../utils';
 
 const Bills: React.FC = () => {
@@ -47,7 +48,13 @@ const Bills: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: billsPage, isFetching: billsLoading } = useBillsPage(page, pageSize, { from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const pageResetKey = useMemo(
+    () => JSON.stringify({ searchQuery, filterRange, from: customDates.from, to: customDates.to, createdByFilter, createdByIds }),
+    [searchQuery, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
+  );
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+
+  const { data: billsPage, isFetching: billsLoading } = useBillsPage(effectivePage, pageSize, { from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const bills = billsPage?.data ?? [];
   const total = billsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -289,7 +296,7 @@ const Bills: React.FC = () => {
           </table>
         </div>
       </div>
-      <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={billsLoading} />
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={billsLoading} />
     </div>
   );
 };

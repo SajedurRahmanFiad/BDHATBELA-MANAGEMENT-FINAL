@@ -14,6 +14,7 @@ import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { sanitizePhoneInput } from '../utils';
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
@@ -387,8 +388,15 @@ const OrderForm: React.FC = () => {
                   </div>
                   <button 
                     onClick={() => {
+                      const preFilledPhone = sanitizePhoneInput(custSearchTerm);
                       setShowCustomerSearch(false);
-                      navigate('/customers/new', { state: { fromOrderForm: true, redirectPath: isEdit ? `/orders/edit/${id}` : '/orders/new' } });
+                      navigate('/customers/new', {
+                        state: {
+                          fromOrderForm: true,
+                          redirectPath: isEdit ? `/orders/edit/${id}` : '/orders/new',
+                          ...(preFilledPhone ? { preFill: { phone: preFilledPhone } } : {}),
+                        },
+                      });
                     }} 
                     className="w-full mt-2 py-3 ${theme.colors.primary[600]} text-[10px] font-black uppercase tracking-widest border-t border-gray-50 hover:bg-[#ebf4ff] transition-colors"
                   >

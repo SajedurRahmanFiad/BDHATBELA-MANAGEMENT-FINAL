@@ -13,6 +13,7 @@ import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 import { getDateTimeFilters } from '../utils';
 
 const Transactions: React.FC = () => {
@@ -44,7 +45,13 @@ const Transactions: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(page, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const pageResetKey = useMemo(
+    () => JSON.stringify({ searchQuery, typeTab, filterRange, from: customDates.from, to: customDates.to, createdByFilter, createdByIds }),
+    [searchQuery, typeTab, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
+  );
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+
+  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
@@ -273,7 +280,7 @@ const Transactions: React.FC = () => {
           </table>
         </div>
       </div>
-        <Pagination page={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={transactionsLoading} />
+        <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={transactionsLoading} />
     </div>
   );
 };

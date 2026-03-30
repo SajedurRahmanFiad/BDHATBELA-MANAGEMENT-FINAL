@@ -52,9 +52,20 @@ const CustomerForm: React.FC = () => {
       const optimistic = (customersList || []).find(c => c.id === id);
       if (optimistic) {
         setForm({ name: optimistic.name, phone: optimistic.phone, address: optimistic.address });
+        return;
       }
     }
-  }, [customer, customersList, id]);
+
+    const state: any = (location && (location as any).state) || {};
+    const preFill = state.fromOrderForm ? state.preFill : null;
+    if (preFill && (preFill.name || preFill.phone || preFill.address)) {
+      setForm({
+        name: preFill.name || '',
+        phone: preFill.phone || '',
+        address: preFill.address || '',
+      });
+    }
+  }, [customer, customersList, id, location]);
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {

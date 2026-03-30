@@ -319,8 +319,10 @@ export async function fetchOrdersPage(
   pageSize: number = DEFAULT_PAGE_SIZE,
   filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
 ) {
-  const label = `fetchOrdersPage p=${page} sz=${pageSize}`;
-  console.time(label);
+  const profileLabel = import.meta.env.DEV
+    ? `fetchOrdersPage p=${page} sz=${pageSize} @${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    : null;
+  if (profileLabel) console.time(profileLabel);
   const start = (page - 1) * pageSize;
   const end = start + pageSize - 1;
 
@@ -381,15 +383,15 @@ export async function fetchOrdersPage(
     const { data, error, count } = await query;
     if (error) {
       console.error('[supabaseQueries] fetchOrdersPage error:', error);
-      console.timeEnd(label);
+      if (profileLabel) console.timeEnd(profileLabel);
       return { data: [], count: 0 } as { data: Order[]; count: number };
     }
     const result = { data: (data || []).map(mapOrder), count: count ?? 0 };
-    console.timeEnd(label);
+    if (profileLabel) console.timeEnd(profileLabel);
     return result;
   } catch (err) {
     console.error('[supabaseQueries] fetchOrdersPage exception:', err);
-    console.timeEnd(label);
+    if (profileLabel) console.timeEnd(profileLabel);
     return { data: [], count: 0 } as { data: Order[]; count: number };
   }
 }
@@ -3235,74 +3237,63 @@ export async function fetchCarryBeeOrderDetails(params: {
 }
 
 /**
- * Poll CarryBee order details for all active orders that have a consignment id.
- * If transfer_status is exactly "At the sorting hub", mark the order as Picked.
+ * Trigger the shared server-side CarryBee sync.
+ * The Edge Function owns CarryBee status parsing and picked-status transitions.
  */
-export async function syncCarryBeeTransferStatuses(): Promise<{ checked: number; updated: number }> {
-  let checked = 0;
-  let updated = 0;
-
+export async function syncCarryBeeTransferStatuses(params?: {
+  mode?: 'incremental' | 'backfill';
+  limit?: number;
+  orderId?: string;
+  cursorCreatedAt?: string;
+}): Promise<{
+  checked: number;
+  updated: number;
+  hasMore?: boolean;
+  nextCursorCreatedAt?: string | null;
+  statusCounts?: Record<string, number>;
+  errors?: Array<{ orderId?: string; orderNumber?: string; error?: string }>;
+  updatedOrders?: Array<{ orderId?: string; orderNumber?: string; rawStatus?: string }>;
+}> {
   try {
-    const courier = await fetchCourierSettings();
-    const baseUrl = courier?.carryBee?.baseUrl?.trim();
-    const clientId = courier?.carryBee?.clientId?.trim();
-    const clientSecret = courier?.carryBee?.clientSecret?.trim();
-    const clientContext = courier?.carryBee?.clientContext?.trim();
+    const edgeFunctionUrl = `${SUPABASE_URL}/functions/v1/courier-sync-statuses`;
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        mode: params?.mode,
+        limit: params?.limit,
+        orderId: params?.orderId,
+        cursorCreatedAt: params?.cursorCreatedAt,
+      }),
+    });
 
-    if (!baseUrl || !clientId || !clientSecret || !clientContext) {
-      return { checked, updated };
+    if (!response.ok) {
+      console.error('[supabaseQueries] syncCarryBeeTransferStatuses Edge Function error:', response.status);
+      return { checked: 0, updated: 0 };
     }
 
-    const { data: rows, error } = await supabase
-      .from('orders')
-      .select('id, status, history, carrybee_consignment_id')
-      .not('carrybee_consignment_id', 'is', null)
-      .neq('carrybee_consignment_id', '')
-      .in('status', [OrderStatus.ON_HOLD, OrderStatus.PROCESSING]);
-
-    if (error) {
-      console.error('[supabaseQueries] syncCarryBeeTransferStatuses query error:', error);
-      return { checked, updated };
+    const body = await response.json();
+    if (body?.error) {
+      console.error('[supabaseQueries] syncCarryBeeTransferStatuses Edge Function returned error:', body.error);
+      return { checked: 0, updated: 0, errors: [{ error: body.error }] };
     }
 
-    const orders = rows || [];
-    for (const row of orders) {
-      const consignmentId = row.carrybee_consignment_id as string;
-      if (!consignmentId) continue;
-      checked++;
-
-      try {
-        const details = await fetchCarryBeeOrderDetails({
-          baseUrl,
-          clientId,
-          clientSecret,
-          clientContext,
-          consignmentId,
-        });
-        if (details.error) continue;
-        const transferStatus = details?.data?.data?.transfer_status || details?.data?.transfer_status || '';
-
-        if (transferStatus === 'At the sorting hub') {
-          const nextHistory = {
-            ...(row.history || {}),
-            picked: `Marked picked automatically from CarryBee transfer status on ${new Date().toLocaleString()}`,
-          };
-
-          await updateOrder(row.id, {
-            status: OrderStatus.PICKED,
-            history: nextHistory as any,
-          } as Partial<Order>);
-          updated++;
-        }
-      } catch (err) {
-        console.error('[supabaseQueries] syncCarryBeeTransferStatuses detail error:', err);
-      }
-    }
+    return {
+      checked: Number(body?.data?.checked || 0),
+      updated: Number(body?.data?.updated || 0),
+      hasMore: Boolean(body?.data?.hasMore),
+      nextCursorCreatedAt: body?.data?.nextCursorCreatedAt || null,
+      statusCounts: body?.data?.statusCounts || {},
+      errors: Array.isArray(body?.data?.errors) ? body.data.errors : [],
+      updatedOrders: Array.isArray(body?.data?.updatedOrders) ? body.data.updatedOrders : [],
+    };
   } catch (err) {
     console.error('[supabaseQueries] syncCarryBeeTransferStatuses exception:', err);
+    return { checked: 0, updated: 0 };
   }
-
-  return { checked, updated };
 }
 
 export async function submitSteadfastOrder(params: {

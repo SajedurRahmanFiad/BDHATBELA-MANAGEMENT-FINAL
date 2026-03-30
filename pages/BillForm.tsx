@@ -11,6 +11,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { sanitizePhoneInput } from '../utils';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
@@ -302,7 +303,17 @@ const BillForm: React.FC = () => {
                       </button>
                     ))}
                   </div>
-                  <Button onClick={() => { setShowVendorSearch(false); navigate('/vendors/new', { state: { fromBillForm: true, redirectPath: isEdit ? `/bills/edit/${id}` : '/bills/new' } }); }} variant="secondary" size="sm" className="w-full mt-2 text-[10px]" icon={ICONS.Plus}>Add New Vendor</Button>
+                  <Button onClick={() => {
+                    const preFilledPhone = sanitizePhoneInput(vendorSearchTerm);
+                    setShowVendorSearch(false);
+                    navigate('/vendors/new', {
+                      state: {
+                        fromBillForm: true,
+                        redirectPath: isEdit ? `/bills/edit/${id}` : '/bills/new',
+                        ...(preFilledPhone ? { preFill: { phone: preFilledPhone } } : {}),
+                      },
+                    });
+                  }} variant="secondary" size="sm" className="w-full mt-2 text-[10px]" icon={ICONS.Plus}>Add New Vendor</Button>
                 </div>
               )}
             </div>

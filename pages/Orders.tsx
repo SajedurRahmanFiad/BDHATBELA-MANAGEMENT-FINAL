@@ -16,6 +16,7 @@ import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, u
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useSearch } from '../src/contexts/SearchContext';
+import { useResettablePage } from '../src/hooks/useResettablePage';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getDateOnlyFilters } from '../utils';
 
@@ -105,7 +106,21 @@ const Orders: React.FC = () => {
     return [createdByFilter];
   }, [createdByFilter, users]);
 
-  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(page, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: dateFilters.from, to: dateFilters.to, search: searchQuery, createdByIds });
+  const pageResetKey = useMemo(
+    () => JSON.stringify({
+      searchQuery,
+      statusTab,
+      filterRange,
+      from: customDates.from,
+      to: customDates.to,
+      createdByFilter,
+      createdByIds,
+    }),
+    [searchQuery, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
+  );
+  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+
+  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(effectivePage, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: dateFilters.from, to: dateFilters.to, search: searchQuery, createdByIds });
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
@@ -116,7 +131,7 @@ const Orders: React.FC = () => {
   // When user explicitly changes filters via UI (not from URL), reset page to 1 and update URL
   useEffect(() => {
     const params: Record<string, string> = {};
-    if (page && page > 1) params.page = String(page);
+    if (effectivePage && effectivePage > 1) params.page = String(effectivePage);
     if (statusTab && statusTab !== 'All') params.status = String(statusTab);
     if (filterRange && filterRange !== 'All Time') params.range = filterRange;
     if (customDates.from) params.from = customDates.from;
@@ -125,7 +140,7 @@ const Orders: React.FC = () => {
     if (searchQuery) params.search = searchQuery;
 
     setSearchParams(params, { replace: true });
-  }, [page, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, searchQuery, setSearchParams]);
+  }, [effectivePage, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, searchQuery, setSearchParams]);
 
   // Wrapper functions that reset page AND apply filter (atomic operation)
   const handleStatusTabChange = (newStatus: OrderStatus | 'All') => {
@@ -611,10 +626,10 @@ const Orders: React.FC = () => {
 
         <div className="mt-4 flex items-center justify-between">
           <div className="text-sm text-gray-600">
-            {`Showing ${Math.min((page - 1) * pageSize + 1, totalOrdersCount || 0)} - ${Math.min(page * pageSize, totalOrdersCount || 0)} of ${totalOrdersCount} orders`}
+            {`Showing ${Math.min((effectivePage - 1) * pageSize + 1, totalOrdersCount || 0)} - ${Math.min(effectivePage * pageSize, totalOrdersCount || 0)} of ${totalOrdersCount} orders`}
           </div>
           <Pagination
-            page={page}
+            page={effectivePage}
             totalPages={totalPages}
             pageSize={pageSize}
             onPageChange={(p) => setPage(p)}

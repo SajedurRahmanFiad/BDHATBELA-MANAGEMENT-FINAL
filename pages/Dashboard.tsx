@@ -2,19 +2,31 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { UserRole, OrderStatus, Order, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-import { theme } from '../theme';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
-import { isWithinDateRange, FilterRange, getTodayDate } from '../utils';
+import { isWithinDateRange, FilterRange } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { 
-  useOrders, useBills, useTransactions, useUsers, useCategories
+  useOrders, useBills, useTransactions, useCategories
 } from '../src/hooks/useQueries';
 import { buildCustomerSalesRows, buildProductSalesRows } from '../src/utils/salesReportUtils';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  LineChart, Line, PieChart, Pie, Cell, Legend, ComposedChart 
+  Line, PieChart, Pie, Cell, Legend, ComposedChart 
 } from 'recharts';
+
+const getOrderCreationDateValue = (order: Order): string => order.createdAt || order.orderDate;
+
+const isSameLocalCalendarDay = (value: string | undefined, compareDate: Date = new Date()): boolean => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === compareDate.getFullYear() &&
+    date.getMonth() === compareDate.getMonth() &&
+    date.getDate() === compareDate.getDate()
+  );
+};
 
 const Dashboard: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
@@ -44,10 +56,9 @@ const Dashboard: React.FC = () => {
   const { data: orders = [], isPending: ordersLoading } = useOrders();
   const { data: bills = [], isPending: billsLoading } = useBills();
   const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
-  const { data: dashUsers = [], isPending: usersLoading } = useUsers();
   const { data: allCategories = [] } = useCategories();
   
-  const loading = ordersLoading || billsLoading || transactionsLoading || usersLoading;
+  const loading = ordersLoading || billsLoading || transactionsLoading;
 
   const filteredOrders = useMemo(() => orders.filter(o => isWithinDateRange(o.orderDate, filterRange, customDates)), [orders, filterRange, customDates]);
   const filteredBills = useMemo(() => bills.filter(b => isWithinDateRange(b.billDate, filterRange, customDates)), [bills, filterRange, customDates]);
@@ -107,11 +118,22 @@ const Dashboard: React.FC = () => {
     : 0;
 
   // --- EMPLOYEE CALCULATIONS ---
-  // For employees the top FilterBar should not affect stat cards — use unfiltered `orders` for stats
-  const myTotalCreated = orders.filter(o => o.createdBy === user.id).length;
-  const todayStr = getTodayDate();
-  const myCreatedToday = orders.filter(o => o.createdBy === user.id && o.orderDate === todayStr).length;
-  const myPendingOrders = orders.filter(o => o.createdBy === user.id && o.status === OrderStatus.ON_HOLD).length;
+  const myOrders = orders;
+  const filteredMyOrders = useMemo(
+    () => myOrders.filter((order) => isWithinDateRange(getOrderCreationDateValue(order), filterRange, customDates)),
+    [myOrders, filterRange, customDates]
+  );
+  const myTotalCreated = myOrders.length;
+  const myCreatedToday = myOrders.filter((order) => isSameLocalCalendarDay(getOrderCreationDateValue(order))).length;
+  const myPendingOrders = myOrders.filter((order) => order.status === OrderStatus.ON_HOLD).length;
+  const employeeStatusData = useMemo(() => ([
+    { name: 'On Hold', orders: filteredMyOrders.filter((order) => order.status === OrderStatus.ON_HOLD).length },
+    { name: 'Processing', orders: filteredMyOrders.filter((order) => order.status === OrderStatus.PROCESSING).length },
+    { name: 'Picked', orders: filteredMyOrders.filter((order) => order.status === OrderStatus.PICKED).length },
+    { name: 'Completed', orders: filteredMyOrders.filter((order) => order.status === OrderStatus.COMPLETED).length },
+    { name: 'Cancelled', orders: filteredMyOrders.filter((order) => order.status === OrderStatus.CANCELLED).length },
+  ]), [filteredMyOrders]);
+  const hasEmployeeChartData = employeeStatusData.some((entry) => entry.orders > 0);
 
   // --- CHART DATA ---
   // Calculate cash flow by month from UNFILTERED real data (not affected by FilterBar)
@@ -198,12 +220,6 @@ const Dashboard: React.FC = () => {
   const topCustomers = useMemo(() => {
     return buildCustomerSalesRows(orders, filterRange, customDates).slice(0, 5);
   }, [orders, filterRange, customDates]);
-
-  // The performance chart should respect the current filter
-  const employeePerformanceData = dashUsers.map(u => ({
-    name: u.name.split(' ')[0],
-    orders: filteredOrders.filter(o => o.createdBy === u.id).length
-  })).sort((a, b) => b.orders - a.orders);
 
   if (isAdmin) {
     return (
@@ -387,24 +403,30 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard title="Total Created" value={myTotalCreated} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
         <StatCard title="Created Today" value={myCreatedToday} icon={ICONS.Dashboard} bgColor="bg-teal-500" textColor="text-white" iconBgColor="bg-teal-600" />
-        <StatCard title="Pending (Hold)" value={myPendingOrders} icon={ICONS.More} bgColor="bg-orange-500" textColor="text-white" iconBgColor="bg-orange-600" />
+        <StatCard title="On Hold" value={myPendingOrders} icon={ICONS.More} bgColor="bg-orange-500" textColor="text-white" iconBgColor="bg-orange-600" />
       </div>
 
       <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-bold text-gray-900">Team Performance</h3>
-          <p className="text-sm text-gray-400">Comparing total orders across all employees</p>
+          <h3 className="text-xl font-bold text-gray-900">My Orders by Status</h3>
+          <p className="text-sm text-gray-400">Based on the selected date range</p>
         </div>
         <div className="h-[400px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={employeePerformanceData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
-              <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} />
-              <Bar dataKey="orders" fill="#10B981" radius={[12, 12, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {hasEmployeeChartData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={employeeStatusData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
+                <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} />
+                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} />
+                <Bar dataKey="orders" fill="#0f766e" radius={[12, 12, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-sm text-gray-400 italic">
+              No orders found in the selected date range.
+            </div>
+          )}
         </div>
       </div>
     </div>

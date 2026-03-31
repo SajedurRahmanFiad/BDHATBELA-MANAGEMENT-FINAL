@@ -7,6 +7,7 @@ import {
   fetchOrdersPage,
   fetchOrderById,
   fetchOrdersByCustomerId,
+  fetchEmployeeOrderCounts,
   fetchTransactionsPage,
   fetchProductsPage,
   fetchBills,
@@ -114,6 +115,20 @@ export function useOrdersByCustomerId(customerId: string | undefined): UseQueryR
     queryFn: () => fetchOrdersByCustomerId(customerId || ''),
     enabled: !!customerId,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useEmployeeOrderCounts(
+  createdByIds: string[],
+  filters?: { from?: string; to?: string }
+): UseQueryResult<Array<{ userId: string; orderCount: number }>, Error> {
+  const normalizedIds = Array.from(new Set((createdByIds || []).map((id) => String(id || '').trim()).filter(Boolean))).sort();
+  return useQuery({
+    queryKey: ['employeeOrderCounts', ...normalizedIds, filters?.from, filters?.to],
+    queryFn: () => fetchEmployeeOrderCounts(normalizedIds, filters),
+    enabled: normalizedIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
   });
 }
 

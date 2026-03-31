@@ -112,6 +112,7 @@ export interface Bill {
   id: string;
   billNumber: string;
   billDate: string;
+  createdAt?: string;
   vendorId: string;
   createdBy: string;
   status: BillStatus;

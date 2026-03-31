@@ -51,7 +51,7 @@ const Transactions: React.FC = () => {
   );
   const effectivePage = useResettablePage(page, setPage, pageResetKey);
 
-  const { data: transactionsPage, isPending: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const { data: transactionsPage, isFetching: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
@@ -166,10 +166,12 @@ const Transactions: React.FC = () => {
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     try {
-      // Prefer a time-aware value. If `dateString` is a date-only string (YYYY-MM-DD)
-      // or missing, fall back to DB `createdAt` which contains the timestamp.
       const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
+      if (!candidate) return { date: '', time: '' };
       const date = new Date(candidate);
+      if (Number.isNaN(date.getTime())) {
+        return { date: dateString || createdAt || '', time: '' };
+      }
       const timeZone = 'Asia/Dhaka';
       const dateStr = date.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric', timeZone });
       const timeStr = date.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone });
@@ -263,7 +265,7 @@ const Transactions: React.FC = () => {
                     (t.type === 'Expense' && t.category === 'expense_purchases')
                   );
                   const isLinkedTransaction = !!t.referenceId;
-                  const { date: dateStr, time: timeStr } = formatDateAndTime(t.date, (t as any).createdAt);
+                  const { date: dateStr, time: timeStr } = formatDateAndTime(t.date, t.createdAt);
                   
                   return (
                     <tr key={t.id} onClick={() => handleRowClick(t)} className={`hover:bg-gray-50 transition-all group ${hasLink ? 'cursor-pointer' : ''}`}>

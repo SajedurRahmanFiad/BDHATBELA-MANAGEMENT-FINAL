@@ -31,6 +31,11 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
+    if (!user?.id) {
+      setIsConnected(false);
+      return;
+    }
+
     console.log('[Realtime] Initializing subscriptions for orders, bills, transactions...');
 
     // Subscribe to orders changes (INSERT, UPDATE, DELETE)
@@ -42,31 +47,15 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
         (payload: any) => {
-          console.log('[Realtime] Orders change detected:', payload.eventType, payload.new?.id);
-          
-          if (payload.eventType === 'INSERT') {
-            // For new orders, add to cache immediately (user might be on the list)
-            const orders = queryClient.getQueryData<any[]>(['orders']) || [];
-            // Check if this order is already in the list (from optimistic update)
-            if (!orders.find(o => o.id === payload.new.id)) {
-              queryClient.setQueryData(['orders'], [payload.new, ...orders]);
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            // Update existing order in cache
-            queryClient.setQueryData(['orders'], (old: any[] = []) =>
-              old.map(o => o.id === payload.new.id ? payload.new : o)
-            );
-          } else if (payload.eventType === 'DELETE') {
-            // Remove deleted order from cache
-            queryClient.setQueryData(['orders'], (old: any[] = []) =>
-              old.filter(o => o.id !== payload.new.id)
-            );
-          }
-          
-          // Also invalidate related queries for safety
-          queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'] });
-          if (payload.new?.id) {
-            queryClient.invalidateQueries({ queryKey: ['order', payload.new.id] });
+          const changedOrderId = payload.new?.id || payload.old?.id;
+          console.log('[Realtime] Orders change detected:', payload.eventType, changedOrderId);
+
+          // Always refetch through the scoped query layer so employees only receive
+          // their own mapped orders and joined fields stay consistent.
+          queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+          queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'], exact: false });
+          if (changedOrderId) {
+            queryClient.invalidateQueries({ queryKey: ['order', changedOrderId] });
           }
         }
       )
@@ -225,7 +214,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       supabase.removeChannel(accountsChannel);
       setIsConnected(false);
     };
-  }, [queryClient]);
+  }, [queryClient, user?.id]);
 
   // Periodically trigger the server-side courier sync so active users see updates sooner.
   useEffect(() => {

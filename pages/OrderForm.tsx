@@ -2,11 +2,11 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
-import { Order, OrderStatus, OrderItem, UserRole, isEmployeeRole } from '../types';
+import { Customer, Order, OrderStatus, OrderItem, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useOrder, useOrderSettings } from '../src/hooks/useQueries';
+import { useCustomer, useOrder, useOrderSettings } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage, getNextOrderNumber, getErrorMessage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
@@ -90,7 +90,7 @@ const OrderForm: React.FC = () => {
   const products = (fullProducts && fullProducts.length > 0)
     ? fullProducts
     : (debouncedSearch ? productsSearch : (productsMini || []));
-  const { data: existingOrderData } = useOrder(isEdit ? id : undefined);
+  const { data: existingOrderData, isPending: existingOrderLoading } = useOrder(isEdit ? id : undefined);
   const { data: orderSettings } = useOrderSettings();
   
   // Mutations
@@ -138,6 +138,20 @@ const OrderForm: React.FC = () => {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+  const { data: selectedCustomerRecord } = useCustomer(customerId || undefined);
+
+  const seedCustomerCache = (customer: Pick<Customer, 'id'> & Partial<Customer>) => {
+    if (!customer.id) return;
+    queryClient.setQueryData(['customer', customer.id], (existing: Customer | null | undefined) => ({
+      id: customer.id,
+      name: customer.name ?? existing?.name ?? '',
+      phone: customer.phone ?? existing?.phone ?? '',
+      address: customer.address ?? existing?.address ?? '',
+      totalOrders: customer.totalOrders ?? existing?.totalOrders ?? 0,
+      dueAmount: customer.dueAmount ?? existing?.dueAmount ?? 0,
+      createdBy: customer.createdBy ?? existing?.createdBy,
+    }));
+  };
 
   // Initialize form with existing order data when loaded
   const initializedRef = React.useRef(false);
@@ -157,6 +171,12 @@ const OrderForm: React.FC = () => {
       }
 
       // For admins (or permitted employees) populate form once
+      seedCustomerCache({
+        id: existingOrderData.customerId,
+        name: existingOrderData.customerName,
+        phone: existingOrderData.customerPhone,
+        address: existingOrderData.customerAddress,
+      });
       setCustomerId(existingOrderData.customerId);
       setOrderDate(existingOrderData.orderDate);
       setOrderNumber(existingOrderData.orderNumber);
@@ -250,6 +270,13 @@ const OrderForm: React.FC = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
+  const handleCustomerSelect = (customer: Customer) => {
+    seedCustomerCache(customer);
+    setCustomerId(customer.id);
+    setShowCustomerSearch(false);
+    setCustSearchTerm('');
+  };
+
   const handleSave = async () => {
     if (!customerId || items.length === 0 || !orderNumber || orderNumber === 'Generating...' || orderNumber === 'ERROR') {
       const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is still being generated. Please wait a moment.';
@@ -326,8 +353,34 @@ const OrderForm: React.FC = () => {
     }
   };
 
-  const allVisibleCustomers = (debouncedCustSearch ? (customersSearchResults?.data || []) : (customersPage?.data || []));
-  const selectedCustomer = allVisibleCustomers.find((c: any) => c.id === customerId) || undefined;
+  const baseVisibleCustomers = debouncedCustSearch ? (customersSearchResults?.data || []) : (customersPage?.data || []);
+  const selectedCustomer =
+    baseVisibleCustomers.find((customer) => customer.id === customerId) ||
+    selectedCustomerRecord ||
+    (existingOrderData?.customerId === customerId
+      ? {
+          id: existingOrderData.customerId,
+          name: existingOrderData.customerName || '',
+          phone: existingOrderData.customerPhone || '',
+          address: existingOrderData.customerAddress || '',
+          totalOrders: 0,
+          dueAmount: 0,
+        }
+      : undefined);
+  const allVisibleCustomers =
+    selectedCustomer && !baseVisibleCustomers.some((customer) => customer.id === selectedCustomer.id)
+      ? [selectedCustomer, ...baseVisibleCustomers]
+      : baseVisibleCustomers;
+
+  if (isEdit && !existingOrderLoading && !existingOrderData) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Order Unavailable</h2>
+        <p className="text-gray-500 mb-6">You can only open orders that are available to your account.</p>
+        <Button onClick={() => navigate('/orders')} variant="primary">Back to Orders</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -378,7 +431,7 @@ const OrderForm: React.FC = () => {
                     {(allVisibleCustomers || []).map((c: any) => (
                       <button 
                         key={c.id} 
-                        onClick={() => { setCustomerId(c.id); setShowCustomerSearch(false); setCustSearchTerm(''); }} 
+                        onClick={() => handleCustomerSelect(c)} 
                         className="w-full px-4 py-2.5 text-left hover:bg-[#ebf4ff] rounded-lg group transition-colors"
                       >
                         <p className="text-sm font-bold text-gray-800 group-hover:${theme.colors.primary[700]}">{c.name}</p>

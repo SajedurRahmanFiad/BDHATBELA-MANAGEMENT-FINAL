@@ -109,6 +109,7 @@ const CustomerForm: React.FC = () => {
               if (Array.isArray(old) && old.some((c: any) => c.id === created.id)) return old;
               return [...old, created];
             });
+            queryClient.setQueryData(['customer', created.id], created);
           } catch (e) {
             // ignore cache update errors
           }

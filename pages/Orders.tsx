@@ -96,6 +96,7 @@ const Orders: React.FC = () => {
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
+    if (isEmployee) return undefined;
     if (createdByFilter === 'all') return undefined;
     if (createdByFilter === 'admins') {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
@@ -104,7 +105,7 @@ const Orders: React.FC = () => {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     return [createdByFilter];
-  }, [createdByFilter, users]);
+  }, [createdByFilter, users, isEmployee]);
 
   const pageResetKey = useMemo(
     () => JSON.stringify({
@@ -416,26 +417,31 @@ const Orders: React.FC = () => {
         statusOptions={Object.values(OrderStatus)}
       />
 
-      {/* Created By Filter Dropdown */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="flex items-center gap-4 flex-wrap">
-          <label className="text-sm font-bold text-gray-700">Created By:</label>
-          <select
-            value={createdByFilter}
-            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Users</option>
-            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
-            {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
-            <optgroup label="Specific Users">
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
-              ))}
-            </optgroup>
-          </select>
+      {!isEmployee ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="text-sm font-bold text-gray-700">Created By:</label>
+            <select
+              value={createdByFilter}
+              onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Users</option>
+              {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+              {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
+              <optgroup label="Specific Users">
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <p className="text-sm font-bold text-gray-700">Employees only see the orders they created.</p>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="overflow-x-auto">

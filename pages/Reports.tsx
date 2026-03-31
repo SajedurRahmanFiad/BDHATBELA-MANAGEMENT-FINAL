@@ -2,7 +2,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
-import { Button } from '../components';
 import { theme } from '../theme';
 
 const ReportCard: React.FC<{ 
@@ -75,6 +74,13 @@ const Reports: React.FC = () => {
       icon: ICONS.Customers,
       color: 'bg-cyan-50 text-cyan-600',
       to: '/reports/customer-sales'
+    },
+    {
+      title: 'User Activity & Performance',
+      description: 'Detailed per-user activity, performance, and salary support report with PDF export.',
+      icon: ICONS.Users,
+      color: 'bg-amber-50 text-amber-600',
+      to: '/reports/user-activity-performance'
     }
   ];
 

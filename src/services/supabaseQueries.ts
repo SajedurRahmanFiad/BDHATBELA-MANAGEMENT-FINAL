@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import supabase from './supabaseClient';
-import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus, BillStatus } from '../../types';
+import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus, BillStatus, isEmployeeRole } from '../../types';
 import { db } from '../../db';
 
 export const DEFAULT_PAGE_SIZE = 25;
@@ -58,6 +58,36 @@ function getCurrentUserId(): string {
     throw new Error('User session not available for mutation');
   }
   return user.id;
+}
+
+function getCurrentOrderAccessContext(): { userId: string | null; restrictToOwnOrders: boolean } {
+  const user = (db as any).currentUser;
+  return {
+    userId: user?.id ?? null,
+    restrictToOwnOrders: isEmployeeRole(user?.role),
+  };
+}
+
+function applyOrderReadScope<T>(query: T): T {
+  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
+  if (!restrictToOwnOrders || !userId) return query;
+  return (query as any).eq('created_by', userId);
+}
+
+function getScopedOrderCreatedByIds(createdByIds?: string[]): string[] | undefined {
+  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
+  if (restrictToOwnOrders) {
+    return userId ? [userId] : [];
+  }
+  return createdByIds;
+}
+
+function assertEmployeeCanAccessOrder(row: { created_by?: string | null } | null | undefined, action: string) {
+  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
+  if (!restrictToOwnOrders || !userId) return;
+  if (!row || !row.created_by || row.created_by !== userId) {
+    throw new Error(`Employees can only ${action} their own orders.`);
+  }
 }
 
 /**
@@ -278,15 +308,19 @@ function mapCustomer(row: any): Customer {
 // ========== ORDERS ==========
 
 export async function fetchOrders() {
-  const mapped = await queryWithTimeout<Order>(
-    supabase
-      .from('orders_with_customer_creator')
-      .select(
-        `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
-         created_by, creator_name, status, items, notes, total, paid_amount, created_at,
-         carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`
+  const mapped = await queryAllRows<Order>(
+    (from, to) =>
+      applyOrderReadScope(
+        supabase
+          .from('orders_with_customer_creator')
+          .select(
+            `id, order_number, order_date, customer_id, customer_name, customer_phone, customer_address,
+             created_by, creator_name, status, items, notes, total, paid_amount, created_at,
+             carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`
+          )
+          .order('created_at', { ascending: false })
+          .range(from, to)
       )
-      .order('created_at', { ascending: false })
   );
   return mapped.map(mapOrder);
 }
@@ -329,18 +363,19 @@ export async function fetchOrdersPage(
   // Determine if we're in search mode
   const searchTerm = filters?.search?.trim();
   const isSearching = !!searchTerm;
+  const scopedCreatedByIds = getScopedOrderCreatedByIds(filters?.createdByIds);
 
   // Start with the view that includes joined customer/creator data
   // Select only the columns required for the orders table UI to keep payload lean
-  let query: any = supabase
+  let query: any = applyOrderReadScope(supabase
     .from('orders_with_customer_creator')
     .select(
       `id, order_number, order_date, status, total, created_at, 
        history, notes,
        customer_id, customer_name, customer_phone, customer_address, 
        created_by, creator_name, carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number`,
-      { count: 'estimated' }
-    );
+      { count: 'exact' }
+    ));
 
   // Apply non-search filters BEFORE ordering and range
   if (filters) {
@@ -353,8 +388,8 @@ export async function fetchOrdersPage(
     if (filters.to) {
       query = query.lte('order_date', filters.to);
     }
-    if (filters.createdByIds && filters.createdByIds.length > 0) {
-      query = query.in('created_by', filters.createdByIds);
+    if (scopedCreatedByIds && scopedCreatedByIds.length > 0) {
+      query = query.in('created_by', scopedCreatedByIds);
     }
 
     // CRITICAL: Search filtering is database-driven and always runs against current data.
@@ -396,12 +431,37 @@ export async function fetchOrdersPage(
   }
 }
 
+const SUPABASE_BATCH_SIZE = 1000;
+
+async function queryAllRows<T>(
+  buildQuery: (from: number, to: number) => any,
+  batchSize: number = SUPABASE_BATCH_SIZE,
+  maxBatches: number = 100
+): Promise<T[]> {
+  const results: T[] = [];
+
+  for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+    const from = batchIndex * batchSize;
+    const to = from + batchSize - 1;
+    const batch = await queryWithTimeout<T>(buildQuery(from, to));
+
+    if (!batch.length) break;
+
+    results.push(...batch);
+
+    if (batch.length < batchSize) break;
+  }
+
+  return results;
+}
+
 export async function fetchOrderById(id: string) {
-  const { data, error } = await supabase
+  const { data, error } = await applyOrderReadScope(
+    supabase
     .from('orders_with_customer_creator')
     .select('*')
     .eq('id', id)
-    .single();
+  ).single();
   
   if (error) {
     console.error('[supabaseQueries] fetchOrderById error:', error);
@@ -411,14 +471,52 @@ export async function fetchOrderById(id: string) {
 }
 
 export async function fetchOrdersByCustomerId(customerId: string) {
-  const mapped = await queryWithTimeout<Order>(
-    supabase
-      .from('orders_with_customer_creator')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('order_date', { ascending: false })
+  const mapped = await queryAllRows<Order>(
+    (from, to) =>
+      applyOrderReadScope(
+        supabase
+          .from('orders_with_customer_creator')
+          .select('*')
+          .eq('customer_id', customerId)
+          .order('order_date', { ascending: false })
+          .range(from, to)
+      )
   );
   return mapped.map(mapOrder);
+}
+
+/**
+ * Aggregate-only helper for the employee dashboard comparison widget.
+ * This returns order counts per employee without exposing order details.
+ */
+export async function fetchEmployeeOrderCounts(
+  createdByIds: string[],
+  filters?: { from?: string; to?: string }
+): Promise<Array<{ userId: string; orderCount: number }>> {
+  const uniqueIds = Array.from(new Set((createdByIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  return Promise.all(uniqueIds.map(async (userId) => {
+    let query: any = supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('created_by', userId);
+
+    if (filters?.from) {
+      query = query.gte('created_at', filters.from);
+    }
+    if (filters?.to) {
+      query = query.lte('created_at', filters.to);
+    }
+
+    const { count, error } = await query;
+    if (error) {
+      console.error('[supabaseQueries] fetchEmployeeOrderCounts error:', error);
+      return { userId, orderCount: 0 };
+    }
+
+    return { userId, orderCount: count ?? 0 };
+  }));
 }
 
 /**
@@ -657,7 +755,7 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
   await ensureAuthenticated();
   const { data: existingOrderRow, error: existingOrderError } = await supabase
     .from('orders')
-    .select('status, items')
+    .select('status, items, created_by')
     .eq('id', id)
     .single();
 
@@ -665,6 +763,8 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
     console.error('[supabaseQueries] updateOrder existing row fetch error:', existingOrderError);
     throw existingOrderError;
   }
+
+  assertEmployeeCanAccessOrder(existingOrderRow, 'update');
 
   const previousStatus = String(existingOrderRow?.status || '');
   const previousItems = Array.isArray(existingOrderRow?.items) ? existingOrderRow.items : [];
@@ -748,6 +848,19 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
 export async function deleteOrder(id: string) {
   // Ensure we have a valid session for RLS-protected deletes
   await ensureAuthenticated();
+
+  const { data: existingOrderRow, error: existingOrderError } = await supabase
+    .from('orders')
+    .select('id, created_by')
+    .eq('id', id)
+    .single();
+
+  if (existingOrderError) {
+    console.error('[supabaseQueries] deleteOrder existing row fetch error:', existingOrderError);
+    throw existingOrderError;
+  }
+
+  assertEmployeeCanAccessOrder(existingOrderRow, 'delete');
 
   // Delete related transactions for this order:
   // - Sale Income transactions (type = 'Income')
@@ -957,14 +1070,16 @@ function mapAccount(row: any): Account {
 // ========== TRANSACTIONS ==========
 
 export async function fetchTransactions() {
-  const mapped = await queryWithTimeout<Transaction>(
-    supabase
-      .from('transactions_with_relations')
-      .select(
-        `id, date, type, category, account_id, account_name, to_account_id, amount, description,
-         reference_id, contact_id, contact_name, contact_type, payment_method, created_by, creator_name, created_at`
-      )
-      .order('created_at', { ascending: false })
+  const mapped = await queryAllRows<Transaction>(
+    (from, to) =>
+      supabase
+        .from('transactions_with_relations')
+        .select(
+          `id, date, type, category, account_id, account_name, to_account_id, amount, description,
+           reference_id, contact_id, contact_name, contact_type, payment_method, created_by, creator_name, created_at`
+        )
+        .order('created_at', { ascending: false })
+        .range(from, to)
   );
   return mapped.map(mapTransaction);
 }
@@ -1607,27 +1722,31 @@ export async function fetchBillsPage(
 // ========== BILLS ==========
 
 export async function fetchBills() {
-  const mapped = await queryWithTimeout<Bill>(
-    supabase
-      .from('bills_with_vendor_creator')
-      .select(
-        'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
-      )
-      .order('created_at', { ascending: false })
+  const mapped = await queryAllRows<Bill>(
+    (from, to) =>
+      supabase
+        .from('bills_with_vendor_creator')
+        .select(
+          'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
+        )
+        .order('created_at', { ascending: false })
+        .range(from, to)
   );
   return mapped.map(mapBill);
 }
 
 export async function fetchBillsByVendorId(vendorId: string) {
   if (!vendorId) return [] as Bill[];
-  const mapped = await queryWithTimeout<Bill>(
-    supabase
-      .from('bills_with_vendor_creator')
-      .select(
-        'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
-      )
-      .eq('vendor_id', vendorId)
-      .order('created_at', { ascending: false })
+  const mapped = await queryAllRows<Bill>(
+    (from, to) =>
+      supabase
+        .from('bills_with_vendor_creator')
+        .select(
+          'id, bill_number, bill_date, vendor_id, vendor_name, vendor_phone, vendor_address, created_by, creator_name, status, total, paid_amount, created_at'
+        )
+        .eq('vendor_id', vendorId)
+        .order('created_at', { ascending: false })
+        .range(from, to)
   );
   return mapped.map(mapBill);
 }
@@ -1811,6 +1930,7 @@ function mapBill(row: any): Bill {
     id: row.id,
     billNumber: row.bill_number ?? row.billNumber,
     billDate: row.bill_date ?? row.billDate,
+    createdAt: row.created_at ?? row.createdAt,
     vendorId: row.vendor_id ?? row.vendorId,
     createdBy: row.created_by ?? row.createdBy,
     status: row.status,

@@ -119,6 +119,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: { message: loginError || 'Login failed' } };
       }
 
+      await queryClient.cancelQueries();
+      queryClient.clear();
+
       // Sign in succeeded
       console.log('[Auth] signIn successful for:', dbUser.phone);
       setUser(dbUser);
@@ -148,6 +151,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     console.log('[Auth] signOut called');
+    await queryClient.cancelQueries();
+    queryClient.clear();
     setUser(null);
     db.currentUser = null as any;
     saveDb();

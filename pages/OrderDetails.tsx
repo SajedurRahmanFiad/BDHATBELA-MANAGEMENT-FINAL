@@ -46,6 +46,7 @@ const OrderDetails: React.FC = () => {
   const [showPaperfly, setShowPaperfly] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: db.settings.defaults.accountId || '',
     amount: 0
   });
@@ -117,8 +118,11 @@ const OrderDetails: React.FC = () => {
     }
 
     const updatedPaid = order.paidAmount + paymentForm.amount;
-    const paymentDate = new Date(paymentForm.date);
-    const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
+    const [hours, minutes] = paymentForm.time.split(':').map(Number);
+    const fullDatetime = new Date(paymentForm.date);
+    fullDatetime.setHours(hours, minutes, 0, 0);
+    const isoDatetime = fullDatetime.toISOString();
+    const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${fullDatetime.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${fullDatetime.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     
     // Check if this is a partial payment (indicates order has remaining balance to track)
     const shouldCreateShippingExpense = paymentForm.amount < order.total;
@@ -130,7 +134,8 @@ const OrderDetails: React.FC = () => {
       ...order, 
       paidAmount: updatedPaid,
       status,
-      history: { ...order.history, payment: historyText }
+      history: { ...order.history, payment: historyText },
+      paidAt: isoDatetime,
     };
 
     // Use mutations with sequential flow
@@ -138,7 +143,7 @@ const OrderDetails: React.FC = () => {
       // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
       const incomeTxn: Transaction = {
         id: Math.random().toString(36).substr(2, 9),
-        date: paymentForm.date,
+        date: isoDatetime,
         type: 'Income',
         category: db.settings.defaults.incomeCategoryId || 'income_sales',
         accountId: paymentForm.accountId,
@@ -156,7 +161,7 @@ const OrderDetails: React.FC = () => {
         const remainingAmount = order.total - paymentForm.amount;
         const shippingExpenseTxn: Transaction = {
           id: Math.random().toString(36).substr(2, 9),
-          date: paymentForm.date,
+          date: isoDatetime,
           type: 'Expense',
           category: 'expense_shipping',
           accountId: paymentForm.accountId,
@@ -196,6 +201,7 @@ const OrderDetails: React.FC = () => {
   const openPayment = () => {
     setPaymentForm({
       date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: order.total - order.paidAmount
     });

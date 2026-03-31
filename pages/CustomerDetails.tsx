@@ -1,23 +1,17 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Order, OrderStatus, UserRole, isEmployeeRole } from '../types';
+import { Order, OrderStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
-import { Button } from '../components';
 import { useCustomer, useOrdersByCustomerId, useOrderSettings } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { db } from '../db';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  
-  // Get user role from current context
-  const currentUser = db.currentUser;
-  const userRole = currentUser?.role || null;
   
   // Query data - ALL HOOKS MUST BE AT TOP, CALLED UNCONDITIONALLY
   const { data: customer } = useCustomer(id || '');
@@ -89,17 +83,6 @@ const CustomerDetails: React.FC = () => {
       toast.error('Failed to duplicate order: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
-
-  // CONDITIONAL RENDERING - moved to JSX level, all hooks called before
-  if (isEmployeeRole(userRole)) {
-    return (
-      <div className="p-8 text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
-        <p className="text-gray-500 mb-6">Employees cannot view customer details. Contact an administrator for assistance.</p>
-        <Button onClick={() => navigate('/customers')} variant="primary">Back to Customers</Button>
-      </div>
-    );
-  }
 
   if (!customer) {
     return <div className="p-8 text-center text-gray-500">Customer not found.</div>;

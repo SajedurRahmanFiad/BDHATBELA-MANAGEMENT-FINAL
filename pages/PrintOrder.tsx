@@ -209,8 +209,12 @@ const PrintOrder: React.FC = () => {
     }
   }, [order, orderLoading]);
 
-  if (orderLoading || !order) {
+  if (orderLoading) {
     return <div className="p-8 text-center text-gray-500">Loading details...</div>;
+  }
+
+  if (!order) {
+    return <div className="p-8 text-center text-gray-500">Order not found.</div>;
   }
 
   return (

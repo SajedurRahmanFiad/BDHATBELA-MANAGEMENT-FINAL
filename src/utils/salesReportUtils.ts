@@ -2,8 +2,6 @@ import { Order, OrderStatus } from '../../types';
 import { FilterRange, isWithinDateRange } from '../../utils';
 
 export const SALES_REPORT_STATUSES = new Set<OrderStatus>([
-  OrderStatus.PROCESSING,
-  OrderStatus.PICKED,
   OrderStatus.COMPLETED,
 ]);
 
@@ -84,4 +82,3 @@ export function buildCustomerSalesRows(
   if (!query) return rows;
   return rows.filter((r) => normalize(r.name).includes(query));
 }
-

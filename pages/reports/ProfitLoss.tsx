@@ -33,7 +33,9 @@ const ProfitLoss: React.FC = () => {
 
   // Helper to check if date is within selected range
   const isWithinRange = (dateStr: string) => {
+    if (!dateStr) return false;
     const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return false;
     const now = new Date();
     
     if (dateRange === 'currentYear') {
@@ -41,8 +43,20 @@ const ProfitLoss: React.FC = () => {
     } else if (dateRange === 'currentMonth') {
       return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
     } else if (dateRange === 'custom') {
-      if (!customFrom || !customTo) return true;
-      return date >= new Date(customFrom) && date <= new Date(customTo);
+      const fromDate = customFrom ? new Date(customFrom) : null;
+      const toDate = customTo ? new Date(customTo) : null;
+
+      if (fromDate && !Number.isNaN(fromDate.getTime())) {
+        fromDate.setHours(0, 0, 0, 0);
+        if (date < fromDate) return false;
+      }
+
+      if (toDate && !Number.isNaN(toDate.getTime())) {
+        toDate.setHours(23, 59, 59, 999);
+        if (date > toDate) return false;
+      }
+
+      return true;
     }
     return true;
   };

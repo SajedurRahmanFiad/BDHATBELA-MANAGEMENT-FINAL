@@ -57,6 +57,8 @@ const OrderDetails: React.FC = () => {
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
   const isEmployee = isEmployeeRole(user.role);
   const isOwner = order ? order.createdBy === user.id : false;
+  const canEmployeeEditDraft = isEmployee && isOwner && order?.status === OrderStatus.ON_HOLD;
+  const canManageProcessing = isAdmin || (user.role === UserRole.EMPLOYEE1 && isOwner);
   
   const loading = orderLoading;
 
@@ -335,7 +337,7 @@ const OrderDetails: React.FC = () => {
                     {ICONS.Print} Print
                   </button>
                   <div className="md:hidden border-t my-1"></div>
-                  {(isAdmin || isOwner || (isEmployee && order.status === OrderStatus.ON_HOLD)) && (
+                  {(isAdmin || canEmployeeEditDraft) && (
                     <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
                       {ICONS.Edit} Edit Order
                     </button>
@@ -500,7 +502,7 @@ const OrderDetails: React.FC = () => {
           </div>
 
           {/* Process Section */}
-          {order.history?.processing || (isAdmin || user.role === UserRole.EMPLOYEE1) ? (
+          {order.history?.processing || canManageProcessing ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
@@ -514,7 +516,7 @@ const OrderDetails: React.FC = () => {
                     {order.history.processing}
                   </p>
                 ) : (
-                  (isAdmin || user.role === UserRole.EMPLOYEE1) && (
+                  canManageProcessing && (
                     <button 
                       disabled={order.status !== OrderStatus.ON_HOLD}
                       onClick={markProcessing}

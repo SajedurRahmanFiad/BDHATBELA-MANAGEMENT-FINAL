@@ -60,31 +60,25 @@ function getCurrentUserId(): string {
   return user.id;
 }
 
-function getCurrentOrderAccessContext(): { userId: string | null; restrictToOwnOrders: boolean } {
+function getCurrentOrderAccessContext(): { userId: string | null; restrictOrderMutationsToOwn: boolean } {
   const user = (db as any).currentUser;
   return {
     userId: user?.id ?? null,
-    restrictToOwnOrders: isEmployeeRole(user?.role),
+    restrictOrderMutationsToOwn: isEmployeeRole(user?.role),
   };
 }
 
 function applyOrderReadScope<T>(query: T): T {
-  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
-  if (!restrictToOwnOrders || !userId) return query;
-  return (query as any).eq('created_by', userId);
+  return query;
 }
 
 function getScopedOrderCreatedByIds(createdByIds?: string[]): string[] | undefined {
-  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
-  if (restrictToOwnOrders) {
-    return userId ? [userId] : [];
-  }
   return createdByIds;
 }
 
 function assertEmployeeCanAccessOrder(row: { created_by?: string | null } | null | undefined, action: string) {
-  const { userId, restrictToOwnOrders } = getCurrentOrderAccessContext();
-  if (!restrictToOwnOrders || !userId) return;
+  const { userId, restrictOrderMutationsToOwn } = getCurrentOrderAccessContext();
+  if (!restrictOrderMutationsToOwn || !userId) return;
   if (!row || !row.created_by || row.created_by !== userId) {
     throw new Error(`Employees can only ${action} their own orders.`);
   }

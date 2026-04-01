@@ -1,26 +1,32 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Order, OrderStatus } from '../types';
+import { Order, OrderStatus, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
-import { theme } from '../theme';
-import { useCustomer, useOrdersByCustomerId, useOrderSettings } from '../src/hooks/useQueries';
+import { useCustomer, useOrdersByCustomerId, useOrderSettings, useUsers } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useAuth } from '../src/contexts/AuthProvider';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const { user } = useAuth();
   
   // Query data - ALL HOOKS MUST BE AT TOP, CALLED UNCONDITIONALLY
   const { data: customer } = useCustomer(id || '');
   const { data: customerOrders = [] } = useOrdersByCustomerId(id || '');
   const { data: orderSettings } = useOrderSettings();
+  const { data: users = [] } = useUsers();
   
   // Mutations
   const createMutation = useCreateOrder();
   const toast = useToastNotifications();
+
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isEmployee = isEmployeeRole(user?.role);
+  const userMap = useMemo(() => new Map(users.map((entry) => [entry.id, entry.name])), [users]);
 
   // Calculate totals from orders - MOVED TO TOP BEFORE CONDITIONALS
   const { totalRevenue, dueAmount } = useMemo(() => {
@@ -36,9 +42,9 @@ const CustomerDetails: React.FC = () => {
   const getStatusColor = (status: OrderStatus) => {
     switch (status) {
       case OrderStatus.ON_HOLD: return 'bg-gray-100 text-gray-600';
-      case OrderStatus.PROCESSING: return 'bg-[#e6f0ff] ${theme.colors.secondary[600]}';
+      case OrderStatus.PROCESSING: return 'bg-[#e6f0ff] text-[#3c5a82]';
       case OrderStatus.PICKED: return 'bg-purple-100 text-purple-600';
-      case OrderStatus.COMPLETED: return 'bg-green-100 ${theme.colors.primary[600]}';
+      case OrderStatus.COMPLETED: return 'bg-green-100 text-green-600';
       case OrderStatus.CANCELLED: return 'bg-red-100 text-red-600';
       default: return 'bg-gray-100 text-gray-600';
     }
@@ -106,7 +112,7 @@ const CustomerDetails: React.FC = () => {
         {/* Left Profile Info */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 text-center">
-            <div className="w-24 h-24 rounded-full bg-[#ebf4ff] ${theme.colors.primary[600]} flex items-center justify-center font-black text-4xl mx-auto mb-4 border-2 border-[#c7dff5]">
+            <div className="w-24 h-24 rounded-full bg-[#ebf4ff] text-[#0f2f57] flex items-center justify-center font-black text-4xl mx-auto mb-4 border-2 border-[#c7dff5]">
               {customer.name.charAt(0)}
             </div>
             <h3 className="text-xl font-bold text-gray-900">{customer.name}</h3>
@@ -124,9 +130,9 @@ const CustomerDetails: React.FC = () => {
             </div>
           </div>
 
-          <div className={`bg-white p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20/50 border border-gray-100 text-white`}>
+          <div className="bg-[#0f2f57] p-6 rounded-lg shadow-lg shadow-[#0f2f57]/20 border border-[#0f2f57] text-white">
             <p className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1">Due Amount</p>
-            <h4 className="text-lg font-black text-green-600">{formatCurrency(dueAmount)}</h4>
+            <h4 className="text-lg font-black text-white">{formatCurrency(dueAmount)}</h4>
           </div>
         </div>
 
@@ -143,6 +149,7 @@ const CustomerDetails: React.FC = () => {
                   <tr className="bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
                     <th className="px-6 py-4">Order Number</th>
                     <th className="px-6 py-4">Order Date</th>
+                    <th className="px-6 py-4">Created By</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Amount</th>
                   </tr>
@@ -150,43 +157,53 @@ const CustomerDetails: React.FC = () => {
                 <tbody className="divide-y divide-gray-50">
                   {customerOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No orders found for this customer.</td>
+                      <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic">No orders found for this customer.</td>
                     </tr>
                   ) : (
                     customerOrders.map((order) => (
-                      <tr 
-                        key={order.id}
-                        onMouseEnter={() => setHoveredRow(order.id)}
-                        onMouseLeave={() => setHoveredRow(null)}
-                        onClick={() => navigate(`/orders/${order.id}`)}
-                        className="group relative hover:bg-[#ebf4ff]/30 cursor-pointer transition-colors"
-                      >
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-gray-900">#{order.orderNumber}</span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{order.orderDate}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${getStatusColor(order.status)}`}>
-                            {order.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="font-black text-gray-900">{formatCurrency(order.total)}</span>
-                        </td>
+                      (() => {
+                        const creatorName = order.creatorName || userMap.get(order.createdBy) || '—';
+                        const canEditOrder = isAdmin || (isEmployee && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD);
 
-                        {hoveredRow === order.id && (
-                          <td className="absolute inset-y-0 right-0 flex items-center pr-6 bg-gradient-to-l from-emerald-50 via-emerald-50 to-transparent">
-                            <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-[#c7dff5] animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
-                              <button title="Edit" onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2 text-gray-500 hover:${theme.colors.primary[600]} hover:bg-[#ebf4ff] rounded-md transition-colors">
-                                {ICONS.Edit}
-                              </button>
-                              <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:${theme.colors.primary[600]} hover:bg-[#ebf4ff] rounded-md transition-colors">
-                                {ICONS.Duplicate}
-                              </button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
+                        return (
+                          <tr 
+                            key={order.id}
+                            onMouseEnter={() => setHoveredRow(order.id)}
+                            onMouseLeave={() => setHoveredRow(null)}
+                            onClick={() => navigate(`/orders/${order.id}`)}
+                            className="group relative hover:bg-[#ebf4ff]/30 cursor-pointer transition-colors"
+                          >
+                            <td className="px-6 py-4">
+                              <span className="font-bold text-gray-900">#{order.orderNumber}</span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">{order.orderDate}</td>
+                            <td className="px-6 py-4 text-sm font-semibold text-gray-600">{creatorName}</td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${getStatusColor(order.status)}`}>
+                                {order.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="font-black text-gray-900">{formatCurrency(order.total)}</span>
+                            </td>
+
+                            {hoveredRow === order.id && (
+                              <td className="absolute inset-y-0 right-0 flex items-center pr-6 bg-gradient-to-l from-emerald-50 via-emerald-50 to-transparent">
+                                <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-[#c7dff5] animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
+                                  {canEditOrder && (
+                                    <button title="Edit" onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2 text-gray-500 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-md transition-colors">
+                                      {ICONS.Edit}
+                                    </button>
+                                  )}
+                                  <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-md transition-colors">
+                                    {ICONS.Duplicate}
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })()
                     ))
                   )}
                 </tbody>

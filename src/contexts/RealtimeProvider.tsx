@@ -50,8 +50,8 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const changedOrderId = payload.new?.id || payload.old?.id;
           console.log('[Realtime] Orders change detected:', payload.eventType, changedOrderId);
 
-          // Always refetch through the scoped query layer so employees only receive
-          // their own mapped orders and joined fields stay consistent.
+          // Always refetch through the shared query layer so joined order data stays
+          // consistent across list, detail, and customer-linked views.
           queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
           queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'], exact: false });
           if (changedOrderId) {

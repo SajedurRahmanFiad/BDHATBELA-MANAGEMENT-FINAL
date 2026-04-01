@@ -162,9 +162,12 @@ const OrderForm: React.FC = () => {
     // user input while editing.
     if (existingOrderData && !initializedRef.current) {
       if (isEdit && isEmployee) {
-        // Employees are allowed to edit any order that is in draft (On Hold).
-        if (existingOrderData.status !== OrderStatus.ON_HOLD) {
-          toast.warning('Employees can only edit orders that are currently "On Hold".');
+        const canEditOwnDraftOrder =
+          existingOrderData.createdBy === user.id &&
+          existingOrderData.status === OrderStatus.ON_HOLD;
+
+        if (!canEditOwnDraftOrder) {
+          toast.warning('Employees can only edit their own orders while they are On Hold.');
           navigate('/orders');
           return;
         }
@@ -376,7 +379,7 @@ const OrderForm: React.FC = () => {
     return (
       <div className="p-8 text-center">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Order Unavailable</h2>
-        <p className="text-gray-500 mb-6">You can only open orders that are available to your account.</p>
+        <p className="text-gray-500 mb-6">This order could not be found or is no longer available.</p>
         <Button onClick={() => navigate('/orders')} variant="primary">Back to Orders</Button>
       </div>
     );

@@ -96,7 +96,6 @@ const Orders: React.FC = () => {
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
-    if (isEmployee) return undefined;
     if (createdByFilter === 'all') return undefined;
     if (createdByFilter === 'admins') {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
@@ -417,31 +416,30 @@ const Orders: React.FC = () => {
         statusOptions={Object.values(OrderStatus)}
       />
 
-      {!isEmployee ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <label className="text-sm font-bold text-gray-700">Created By:</label>
-            <select
-              value={createdByFilter}
-              onChange={(e) => handleCreatedByFilterChange(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Users</option>
-              {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
-              {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
-              <optgroup label="Specific Users">
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
-                ))}
-              </optgroup>
-            </select>
-          </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="text-sm font-bold text-gray-700">Created By:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Users</option>
+            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
+            <optgroup label="Specific Users">
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+              ))}
+            </optgroup>
+          </select>
+          {isEmployee && (
+            <p className="text-xs font-semibold text-gray-500">
+              You can review all team orders here. Edit and delete remain limited to your own draft orders.
+            </p>
+          )}
         </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-sm font-bold text-gray-700">Employees only see the orders they created.</p>
-        </div>
-      )}
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="overflow-x-auto">
@@ -470,6 +468,7 @@ const Orders: React.FC = () => {
                 const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
                 const sentToPaperfly = courierHistory.includes('paperfly') || !!order.paperflyTrackingNumber;
                 const sentToAnyCourier = sentToSteadfast || sentToCarryBee || sentToPaperfly;
+                const hasEmployeeActions = sentToAnyCourier || (isOwner && order.status === OrderStatus.ON_HOLD);
                 return (
                   <tr 
                     key={order.id} 
@@ -510,82 +509,84 @@ const Orders: React.FC = () => {
 
                     {/* Mobile Actions Dropdown */}
                     <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={e => e.stopPropagation()}>
-                      <div className="relative z-[999]">
-                        <button 
-                          onClick={(e) => {
-                            const target = e.currentTarget as HTMLElement;
-                            if (openActionsMenu === order.id) {
-                              setOpenActionsMenu(null);
-                              setAnchorEl(null);
-                            } else {
-                              setOpenActionsMenu(order.id);
-                              setAnchorEl(target);
-                            }
-                          }}
-                          className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
-                        >
-                          {ICONS.More}
-                        </button>
-                        <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
-                          {isEmployee ? (
-                            <>
-                              {order.status === OrderStatus.ON_HOLD && (
-                                <>
-                                  <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                  <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                                </>
-                              )}
-                              {sentToAnyCourier && (
-                                <>
-                                  <div className="border-t my-1"></div>
+                      {(!isEmployee || hasEmployeeActions) && (
+                        <div className="relative z-[999]">
+                          <button 
+                            onClick={(e) => {
+                              const target = e.currentTarget as HTMLElement;
+                              if (openActionsMenu === order.id) {
+                                setOpenActionsMenu(null);
+                                setAnchorEl(null);
+                              } else {
+                                setOpenActionsMenu(order.id);
+                                setAnchorEl(target);
+                              }
+                            }}
+                            className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
+                          >
+                            {ICONS.More}
+                          </button>
+                          <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
+                            {isEmployee ? (
+                              <>
+                                {isOwner && order.status === OrderStatus.ON_HOLD && (
+                                  <>
+                                    <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                                    <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                                  </>
+                                )}
+                                {sentToAnyCourier && (
+                                  <>
+                                    <div className="border-t my-1"></div>
+                                    <button
+                                      onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
+                                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                                    >
+                                      {ICONS.Courier} Tracking
+                                    </button>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
+                                {order.status !== OrderStatus.COMPLETED && (
+                                  <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
+                                )}
+                                <div className="border-t my-1"></div>
+                                <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
+                                {sentToAnyCourier && (
                                   <button
                                     onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
                                     className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
                                   >
                                     {ICONS.Courier} Tracking
                                   </button>
-                                </>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                              {order.status !== OrderStatus.COMPLETED && (
-                                <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
-                              )}
-                              <div className="border-t my-1"></div>
-                              <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
-                              {sentToAnyCourier && (
-                                <button
-                                  onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
-                                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
-                                >
-                                  {ICONS.Courier} Tracking
-                                </button>
-                              )}
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
-                                <>
-                                  <div className="border-t my-1"></div>
-                                  <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
-                                  <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
-                                  <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
-                                </>
-                              )}
-                              <div className="border-t my-1"></div>
-                              <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                            </>
-                          )}
-                        </PortalMenu>
-                      </div>
+                                )}
+                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
+                                  <>
+                                    <div className="border-t my-1"></div>
+                                    <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
+                                    <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
+                                    <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
+                                  </>
+                                )}
+                                <div className="border-t my-1"></div>
+                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                              </>
+                            )}
+                          </PortalMenu>
+                        </div>
+                      )}
                     </td>
 
                     {/* Desktop Hover Actions: admins keep full actions; employees see Edit/Delete when order is draft, otherwise N/A */}
-                    {hoveredRow === order.id && (isAdmin || (isEmployee && (order.status === OrderStatus.ON_HOLD || sentToAnyCourier))) && (
+                    {hoveredRow === order.id && (isAdmin || (isEmployee && (sentToAnyCourier || (isOwner && order.status === OrderStatus.ON_HOLD)))) && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
                           {isEmployee ? (
                             <>
-                              {order.status === OrderStatus.ON_HOLD && (
+                              {isOwner && order.status === OrderStatus.ON_HOLD && (
                                 <>
                                   <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
                                   <button onClick={() => handleDelete(order.id)} className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>

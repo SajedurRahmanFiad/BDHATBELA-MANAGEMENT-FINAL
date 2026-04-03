@@ -1,20 +1,33 @@
 
 import React, { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { User, UserRole } from '../types';
 import { ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useUsers } from '../src/hooks/useQueries';
-import { useSearch } from '../src/contexts/SearchContext';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
+import { buildHistoryBackState } from '../src/utils/navigation';
 
 const Users: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { searchQuery } = useSearch();
+  const currentSearchParams = searchParams.toString();
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
   const { data: users = [], isPending: loading } = useUsers();
   const isAdmin = user?.role === UserRole.ADMIN;
+
+  React.useEffect(() => {
+    const params: Record<string, string> = {};
+    if (searchQuery) params.search = searchQuery;
+
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchQuery, currentSearchParams, setSearchParams]);
 
   const filteredUsers = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -99,7 +112,7 @@ const Users: React.FC = () => {
           },
         ]}
         data={filteredUsers}
-        onRowClick={(user) => navigate(`/users/${user.id}`)}
+        onRowClick={(user) => navigate(`/users/${user.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No users found"
         loading={loading}
       />

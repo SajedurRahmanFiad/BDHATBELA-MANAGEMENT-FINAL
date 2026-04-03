@@ -11,16 +11,17 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.35.0",
     "@tanstack/react-query": "^5.90.20",
+    "bcryptjs": "^2.4.3",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0"
-    ,
-    "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
+    "@types/node": "^22.19.16",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
     "supabase": "^2.76.13",
     "typescript": "~5.8.2",

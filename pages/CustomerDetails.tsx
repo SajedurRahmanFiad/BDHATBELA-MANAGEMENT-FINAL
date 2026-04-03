@@ -1,16 +1,18 @@
 
 import React, { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Order, OrderStatus, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { useCustomer, useOrdersByCustomerId, useOrderSettings, useUsers } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { buildHistoryBackState, getPreservedRouteState } from '../src/utils/navigation';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const { user } = useAuth();
   
@@ -98,7 +100,20 @@ const CustomerDetails: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/customers')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500">
+          <button onClick={() => {
+            const navState = getPreservedRouteState(location.state);
+            if (navState.backMode === 'history' && window.history.length > 1) {
+              navigate(-1);
+              return;
+            }
+
+            if (navState.from) {
+              navigate(navState.from);
+              return;
+            }
+
+            navigate('/customers');
+          }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Customer Profile</h2>
@@ -170,7 +185,7 @@ const CustomerDetails: React.FC = () => {
                             key={order.id}
                             onMouseEnter={() => setHoveredRow(order.id)}
                             onMouseLeave={() => setHoveredRow(null)}
-                            onClick={() => navigate(`/orders/${order.id}`)}
+                            onClick={() => navigate(`/orders/${order.id}`, { state: buildHistoryBackState(location) })}
                             className="group relative hover:bg-[#ebf4ff]/30 cursor-pointer transition-colors"
                           >
                             <td className="px-6 py-4">

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Transaction, UserRole, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
@@ -11,47 +11,101 @@ import { useTransactionsPage, useUsers, useCategories, useSystemDefaults } from 
 import Pagination from '../src/components/Pagination';
 import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
-import { useResettablePage } from '../src/hooks/useResettablePage';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 import { getDateTimeFilters } from '../utils';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { searchQuery } = useSearch();
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
-  const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
-  const [customDates, setCustomDates] = useState({ from: '', to: '' });
-  const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>('All');
-  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
-  const [page, setPage] = useState<number>(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
+  const urlFilterRange = (searchParams.get('range') as FilterRange | null) || 'All Time';
+  const urlCustomDates = {
+    from: searchParams.get('from') || '',
+    to: searchParams.get('to') || '',
+  };
+  const urlTypeTab = (searchParams.get('type') as 'All' | 'Income' | 'Expense' | 'Transfer' | null) || 'All';
+  const urlCreatedByFilter = searchParams.get('createdBy') || 'all';
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
+  const [filterRange, setFilterRange] = useState<FilterRange>(urlFilterRange);
+  const [customDates, setCustomDates] = useState(urlCustomDates);
+  const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>(urlTypeTab);
+  const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
+  const [page, setPage] = useState<number>(urlPage);
+  const previousSearchQueryRef = React.useRef(searchQuery);
   
   const { data: users = [] } = useUsers();
-  const timeFilters = useMemo(() => getDateTimeFilters(filterRange, customDates), [filterRange, customDates]);
+
+  useEffect(() => {
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setFilterRange(urlFilterRange);
+    setCustomDates(urlCustomDates);
+    setTypeTab(urlTypeTab);
+    setCreatedByFilter(urlCreatedByFilter);
+    setSyncedSearchParams(currentSearchParams);
+  }, [
+    shouldHydrateFromUrl,
+    urlPage,
+    urlFilterRange,
+    urlCustomDates,
+    urlTypeTab,
+    urlCreatedByFilter,
+    currentSearchParams,
+  ]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, shouldHydrateFromUrl]);
+
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
+  const effectiveFilterRange = shouldHydrateFromUrl ? urlFilterRange : filterRange;
+  const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
+  const effectiveTypeTab = shouldHydrateFromUrl ? urlTypeTab : typeTab;
+  const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
+  const timeFilters = useMemo(
+    () => getDateTimeFilters(effectiveFilterRange, effectiveCustomDates),
+    [effectiveFilterRange, effectiveCustomDates]
+  );
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
-    if (createdByFilter === 'all') return undefined;
-    if (createdByFilter === 'admins') {
+    if (effectiveCreatedByFilter === 'all') return undefined;
+    if (effectiveCreatedByFilter === 'admins') {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
     }
-    if (createdByFilter === 'employees') {
+    if (effectiveCreatedByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     // Specific user ID
-    return [createdByFilter];
-  }, [createdByFilter, users]);
+    return [effectiveCreatedByFilter];
+  }, [effectiveCreatedByFilter, users]);
 
-  const pageResetKey = useMemo(
-    () => JSON.stringify({ searchQuery, typeTab, filterRange, from: customDates.from, to: customDates.to, createdByFilter, createdByIds }),
-    [searchQuery, typeTab, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
-  );
-  const effectivePage = useResettablePage(page, setPage, pageResetKey);
-
-  const { data: transactionsPage, isFetching: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, { type: typeTab === 'All' ? undefined : typeTab, from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const { data: transactionsPage, isFetching: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, {
+    type: effectiveTypeTab === 'All' ? undefined : effectiveTypeTab,
+    from: timeFilters.from,
+    to: timeFilters.to,
+    search: searchQuery,
+    createdByIds,
+  });
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
@@ -60,10 +114,33 @@ const Transactions: React.FC = () => {
   const { data: allCategories = [] } = useCategories();
   const deleteTransactionMutation = useDeleteTransaction();
 
-  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
   useEffect(() => {
-    setPage(1);
-  }, [searchQuery, typeTab, filterRange, customDates.from, customDates.to, createdByFilter]);
+    if (shouldHydrateFromUrl) return;
+
+    const params: Record<string, string> = {};
+    if (effectivePage > 1) params.page = String(effectivePage);
+    if (effectiveTypeTab !== 'All') params.type = effectiveTypeTab;
+    if (effectiveFilterRange !== 'All Time') params.range = effectiveFilterRange;
+    if (effectiveCustomDates.from) params.from = effectiveCustomDates.from;
+    if (effectiveCustomDates.to) params.to = effectiveCustomDates.to;
+    if (effectiveCreatedByFilter !== 'all') params.createdBy = effectiveCreatedByFilter;
+    if (searchQuery) params.search = searchQuery;
+
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [
+    shouldHydrateFromUrl,
+    effectivePage,
+    effectiveTypeTab,
+    effectiveFilterRange,
+    effectiveCustomDates.from,
+    effectiveCustomDates.to,
+    effectiveCreatedByFilter,
+    searchQuery,
+    currentSearchParams,
+    setSearchParams,
+  ]);
 
   // Wrapper functions that reset page AND apply filter (atomic operation)
   const handleTypeTabChange = (type: 'All' | 'Income' | 'Expense' | 'Transfer') => {
@@ -140,7 +217,7 @@ const Transactions: React.FC = () => {
 
   const filteredTransactions = useMemo(() => {
     let results = transactions
-      .filter(t => typeTab === 'All' || t.type === typeTab);
+      .filter(t => effectiveTypeTab === 'All' || t.type === effectiveTypeTab);
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -162,7 +239,7 @@ const Transactions: React.FC = () => {
     }
 
     return results;
-  }, [transactions, typeTab, searchQuery, allCategories, users]);
+  }, [transactions, effectiveTypeTab, searchQuery, allCategories, users]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     try {
@@ -186,12 +263,12 @@ const Transactions: React.FC = () => {
 
     // Reference routing is deterministic by transaction type/category in this app.
     if (transaction.type === 'Income') {
-      navigate(`/orders/${transaction.referenceId}`);
+      navigate(`/orders/${transaction.referenceId}`, { state: buildHistoryBackState(location) });
       return;
     }
 
     if (transaction.type === 'Expense' && transaction.category === 'expense_purchases') {
-      navigate(`/bills/${transaction.referenceId}`);
+      navigate(`/bills/${transaction.referenceId}`, { state: buildHistoryBackState(location) });
     }
   };
 
@@ -209,11 +286,11 @@ const Transactions: React.FC = () => {
 
       <FilterBar 
         title="Transactions"
-        filterRange={filterRange}
+        filterRange={effectiveFilterRange}
         setFilterRange={handleFilterRangeChange}
-        customDates={customDates}
+        customDates={effectiveCustomDates}
         setCustomDates={handleCustomDatesChange}
-        statusTab={typeTab}
+        statusTab={effectiveTypeTab}
         setStatusTab={handleTypeTabChange}
         statusOptions={['Income', 'Expense', 'Transfer']}
       />
@@ -223,7 +300,7 @@ const Transactions: React.FC = () => {
         <div className="flex items-center gap-4 flex-wrap">
           <label className="text-sm font-bold text-gray-700">Created By:</label>
           <select
-            value={createdByFilter}
+            value={effectiveCreatedByFilter}
             onChange={(e) => handleCreatedByFilterChange(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >

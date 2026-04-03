@@ -11,6 +11,7 @@ import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount 
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
+import { getPreservedRouteState } from '../src/utils/navigation';
 
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
@@ -293,8 +294,14 @@ const OrderDetails: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => {
-            const from = (location.state as any)?.from;
-            const refreshOrdersOnBack = !!(location.state as any)?.refreshOrdersOnBack;
+            const navState = getPreservedRouteState(location.state);
+            const refreshOrdersOnBack = !!navState.refreshOrdersOnBack;
+            if (navState.backMode === 'history' && window.history.length > 1) {
+              navigate(-1);
+              return;
+            }
+
+            const from = navState.from;
             if (from) {
               navigate(from, { state: { refreshOrders: refreshOrdersOnBack } });
             } else {

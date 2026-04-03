@@ -15,9 +15,9 @@ import Pagination from '../src/components/Pagination';
 import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { useSearch } from '../src/contexts/SearchContext';
-import { useResettablePage } from '../src/hooks/useResettablePage';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { handlePrintOrder } from '../src/utils/printUtils';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 import { getDateOnlyFilters } from '../utils';
 
 const Orders: React.FC = () => {
@@ -25,7 +25,6 @@ const Orders: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { searchQuery } = useSearch();
   const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === UserRole.ADMIN;
   const isEmployee = isEmployeeRole(user?.role);
@@ -34,16 +33,28 @@ const Orders: React.FC = () => {
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
+  const urlStatusTab = (searchParams.get('status') as OrderStatus | null) || 'All';
+  const urlFilterRange = (searchParams.get('range') as FilterRange | null) || 'All Time';
+  const urlCreatedByFilter = searchParams.get('createdBy') || 'all';
+  const urlCustomDates = {
+    from: searchParams.get('from') || '',
+    to: searchParams.get('to') || '',
+  };
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
 
-  // Initialize state from URL params, but will be synced by useEffect below
-  const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
-  const [customDates, setCustomDates] = useState({ from: '', to: '' });
-  const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>('All');
-  const [createdByFilter, setCreatedByFilter] = useState<string>('all');
-  const [page, setPage] = useState<number>(1);
+  const [filterRange, setFilterRange] = useState<FilterRange>(urlFilterRange);
+  const [customDates, setCustomDates] = useState(urlCustomDates);
+  const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>(urlStatusTab);
+  const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
+  const [page, setPage] = useState<number>(urlPage);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const previousSearchQueryRef = React.useRef(searchQuery);
 
   const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
   const [showSteadfast, setShowSteadfast] = useState<string | null>(null);
@@ -58,27 +69,24 @@ const Orders: React.FC = () => {
 
   const { data: users = [] } = useUsers();
 
-  // Sync state FROM URL params whenever URL changes (on mount and when navigating back)
   useEffect(() => {
-    const pageParam = Number(searchParams.get('page'));
-    if (Number.isFinite(pageParam) && pageParam > 0) {
-      setPage(pageParam);
-    }
-    
-    const statusParam = searchParams.get('status') as OrderStatus | null;
-    setStatusTab(statusParam || 'All');
-    
-    const rangeParam = searchParams.get('range') as FilterRange | null;
-    setFilterRange(rangeParam || 'All Time');
-    
-    const createdByParam = searchParams.get('createdBy');
-    setCreatedByFilter(createdByParam || 'all');
-    
-    setCustomDates({
-      from: searchParams.get('from') || '',
-      to: searchParams.get('to') || ''
-    });
-  }, [searchParams]);
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setStatusTab(urlStatusTab);
+    setFilterRange(urlFilterRange);
+    setCreatedByFilter(urlCreatedByFilter);
+    setCustomDates(urlCustomDates);
+    setSyncedSearchParams(currentSearchParams);
+  }, [
+    shouldHydrateFromUrl,
+    urlPage,
+    urlStatusTab,
+    urlFilterRange,
+    urlCreatedByFilter,
+    urlCustomDates,
+    currentSearchParams,
+  ]);
 
   // Force-refresh orders list when returning from OrderDetails after creating a new order.
   useEffect(() => {
@@ -89,38 +97,48 @@ const Orders: React.FC = () => {
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [location.state, location.pathname, location.search, queryClient, navigate]);
 
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, shouldHydrateFromUrl]);
+
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
+  const effectiveStatusTab = shouldHydrateFromUrl ? urlStatusTab : statusTab;
+  const effectiveFilterRange = shouldHydrateFromUrl ? urlFilterRange : filterRange;
+  const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
+  const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
+
   // Compute server-side order_date range based on selected filter
   const dateFilters = useMemo(() => {
-    return getDateOnlyFilters(filterRange, customDates);
-  }, [filterRange, customDates]);
+    return getDateOnlyFilters(effectiveFilterRange, effectiveCustomDates);
+  }, [effectiveFilterRange, effectiveCustomDates]);
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
-    if (createdByFilter === 'all') return undefined;
-    if (createdByFilter === 'admins') {
+    if (effectiveCreatedByFilter === 'all') return undefined;
+    if (effectiveCreatedByFilter === 'admins') {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
     }
-    if (createdByFilter === 'employees') {
+    if (effectiveCreatedByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
-    return [createdByFilter];
-  }, [createdByFilter, users, isEmployee]);
+    return [effectiveCreatedByFilter];
+  }, [effectiveCreatedByFilter, users, isEmployee]);
 
-  const pageResetKey = useMemo(
-    () => JSON.stringify({
-      searchQuery,
-      statusTab,
-      filterRange,
-      from: customDates.from,
-      to: customDates.to,
-      createdByFilter,
-      createdByIds,
-    }),
-    [searchQuery, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
-  );
-  const effectivePage = useResettablePage(page, setPage, pageResetKey);
-
-  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(effectivePage, pageSize, { status: statusTab === 'All' ? undefined : statusTab, from: dateFilters.from, to: dateFilters.to, search: searchQuery, createdByIds });
+  const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(effectivePage, pageSize, {
+    status: effectiveStatusTab === 'All' ? undefined : effectiveStatusTab,
+    from: dateFilters.from,
+    to: dateFilters.to,
+    search: searchQuery,
+    createdByIds,
+  });
   const orders = ordersPage?.data ?? [];
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
@@ -128,19 +146,33 @@ const Orders: React.FC = () => {
   const { data: accounts = [] } = useAccounts();
   const { data: orderSettings } = useOrderSettings();
 
-  // When user explicitly changes filters via UI (not from URL), reset page to 1 and update URL
   useEffect(() => {
+    if (shouldHydrateFromUrl) return;
+
     const params: Record<string, string> = {};
     if (effectivePage && effectivePage > 1) params.page = String(effectivePage);
-    if (statusTab && statusTab !== 'All') params.status = String(statusTab);
-    if (filterRange && filterRange !== 'All Time') params.range = filterRange;
-    if (customDates.from) params.from = customDates.from;
-    if (customDates.to) params.to = customDates.to;
-    if (createdByFilter && createdByFilter !== 'all') params.createdBy = createdByFilter;
+    if (effectiveStatusTab && effectiveStatusTab !== 'All') params.status = String(effectiveStatusTab);
+    if (effectiveFilterRange && effectiveFilterRange !== 'All Time') params.range = effectiveFilterRange;
+    if (effectiveCustomDates.from) params.from = effectiveCustomDates.from;
+    if (effectiveCustomDates.to) params.to = effectiveCustomDates.to;
+    if (effectiveCreatedByFilter && effectiveCreatedByFilter !== 'all') params.createdBy = effectiveCreatedByFilter;
     if (searchQuery) params.search = searchQuery;
 
-    setSearchParams(params, { replace: true });
-  }, [effectivePage, statusTab, filterRange, customDates.from, customDates.to, createdByFilter, searchQuery, setSearchParams]);
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [
+    shouldHydrateFromUrl,
+    currentSearchParams,
+    effectivePage,
+    effectiveStatusTab,
+    effectiveFilterRange,
+    effectiveCustomDates.from,
+    effectiveCustomDates.to,
+    effectiveCreatedByFilter,
+    searchQuery,
+    setSearchParams,
+  ]);
 
   // Wrapper functions that reset page AND apply filter (atomic operation)
   const handleStatusTabChange = (newStatus: OrderStatus | 'All') => {
@@ -407,11 +439,11 @@ const Orders: React.FC = () => {
 
       <FilterBar 
         title="Orders"
-        filterRange={filterRange}
+        filterRange={effectiveFilterRange}
         setFilterRange={handleFilterRangeChange}
-        customDates={customDates}
+        customDates={effectiveCustomDates}
         setCustomDates={handleCustomDatesChange}
-        statusTab={statusTab}
+        statusTab={effectiveStatusTab}
         setStatusTab={handleStatusTabChange}
         statusOptions={Object.values(OrderStatus)}
       />
@@ -420,7 +452,7 @@ const Orders: React.FC = () => {
         <div className="flex items-center gap-4 flex-wrap">
           <label className="text-sm font-bold text-gray-700">Created By:</label>
           <select
-            value={createdByFilter}
+            value={effectiveCreatedByFilter}
             onChange={(e) => handleCreatedByFilterChange(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
@@ -474,7 +506,7 @@ const Orders: React.FC = () => {
                     key={order.id} 
                     onMouseEnter={() => setHoveredRow(order.id)} 
                     onMouseLeave={() => setHoveredRow(null)} 
-                    onClick={() => navigate(`/orders/${order.id}`, { state: { from: `${location.pathname}${location.search}` } })} 
+                    onClick={() => navigate(`/orders/${order.id}`, { state: buildHistoryBackState(location) })} 
                     className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
                   >
                     <td className="px-6 py-5">

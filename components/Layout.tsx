@@ -9,6 +9,7 @@ import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
 import { fetchCompanySettings } from '../src/services/supabaseQueries';
 import { useOrders } from '../src/hooks/useQueries';
+import { buildHistoryBackState } from '../src/utils/navigation';
 
 interface SidebarItemProps {
   to?: string;
@@ -323,6 +324,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       <Link
                         key={o.id}
                         to={`/orders/${o.id}`}
+                        state={buildHistoryBackState(location)}
                         onClick={() => setSearchQuery('')}
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       >
@@ -392,7 +394,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <div className={`absolute right-0 mt-3 w-48 ${theme.colors.bg.primary} border ${theme.colors.border.primary} rounded-xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in slide-in-from-top-2 duration-200 origin-top-right`}>
                     <button
                       onClick={() => {
-                        navigate(`/users/${user.id}`);
+                        navigate(`/users/${user.id}`, { state: buildHistoryBackState(location) });
                         setIsProfileOpen(false);
                       }}
                       className={`flex items-center gap-3 w-full px-4 py-3 text-sm font-bold ${theme.colors.primary.text} hover:${theme.colors.primary[50]} ${theme.transitions.normal}`}

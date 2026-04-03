@@ -1,6 +1,6 @@
 
 import React, { useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { Vendor } from '../types';
@@ -11,30 +11,62 @@ import { theme } from '../theme';
 import { useVendorsPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { useSearch } from '../src/contexts/SearchContext';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
-import { useResettablePage } from '../src/hooks/useResettablePage';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 
 const Vendors: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { searchQuery } = useSearch();
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
-  const [page, setPage] = React.useState<number>(1);
-  const pageResetKey = useMemo(() => JSON.stringify({ searchQuery }), [searchQuery]);
-  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = React.useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
+  const [page, setPage] = React.useState<number>(urlPage);
+  const previousSearchQueryRef = React.useRef(searchQuery);
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
   const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(effectivePage, pageSize, searchQuery);
   const vendors = vendorsPage.data || [];
   const total = vendorsPage.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteVendorMutation = useDeleteVendor();
 
-  // Reset page to 1 when search query changes to avoid 416 Range Not Satisfiable errors
   useEffect(() => {
-    setPage(1);
-  }, [searchQuery]);
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setSyncedSearchParams(currentSearchParams);
+  }, [shouldHydrateFromUrl, urlPage, currentSearchParams]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, shouldHydrateFromUrl]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) return;
+
+    const params: Record<string, string> = {};
+    if (effectivePage > 1) params.page = String(effectivePage);
+    if (searchQuery) params.search = searchQuery;
+
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [shouldHydrateFromUrl, effectivePage, searchQuery, currentSearchParams, setSearchParams]);
 
   const filteredVendors = vendors;
 
@@ -143,7 +175,7 @@ const Vendors: React.FC = () => {
         ]}
         data={filteredVendors}
         loading={isFetching}
-        onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`)}
+        onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No vendors found"
       />
       <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />

@@ -1,14 +1,16 @@
 
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Bill, BillStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { useVendor, useBillsByVendorId } from '../src/hooks/useQueries';
+import { buildHistoryBackState, getPreservedRouteState } from '../src/utils/navigation';
 
 const VendorDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: vendor, isPending: loading } = useVendor(id || '');
   const { data: vendorBills = [] } = useBillsByVendorId(vendor?.id);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
@@ -29,7 +31,20 @@ const VendorDetails: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/vendors')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500">
+          <button onClick={() => {
+            const navState = getPreservedRouteState(location.state);
+            if (navState.backMode === 'history' && window.history.length > 1) {
+              navigate(-1);
+              return;
+            }
+
+            if (navState.from) {
+              navigate(navState.from);
+              return;
+            }
+
+            navigate('/vendors');
+          }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
           <h2 className="text-2xl font-bold text-gray-900">Vendor Profile</h2>
@@ -96,7 +111,7 @@ const VendorDetails: React.FC = () => {
                         key={bill.id}
                         onMouseEnter={() => setHoveredRow(bill.id)}
                         onMouseLeave={() => setHoveredRow(null)}
-                        onClick={() => navigate(`/bills/${bill.id}`)}
+                        onClick={() => navigate(`/bills/${bill.id}`, { state: buildHistoryBackState(location) })}
                         className="group relative hover:bg-blue-50/30 cursor-pointer transition-colors"
                       >
                         <td className="px-6 py-4">

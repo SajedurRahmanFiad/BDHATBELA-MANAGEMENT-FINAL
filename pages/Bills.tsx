@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import PortalMenu from '../components/PortalMenu';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { Bill, BillStatus, UserRole, isEmployeeRole } from '../types';
@@ -13,46 +13,94 @@ import { useBillsPage, useVendors, useUsers, useSystemDefaults } from '../src/ho
 import Pagination from '../src/components/Pagination';
 import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { useSearch } from '../src/contexts/SearchContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
-import { useResettablePage } from '../src/hooks/useResettablePage';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 import { getDateOnlyFilters } from '../utils';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { searchQuery } = useSearch();
   const user = db.currentUser;
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
-  const [page, setPage] = useState<number>(1);
-  const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
-  const [customDates, setCustomDates] = useState({ from: '', to: '' });
-  const [statusTab, setStatusTab] = useState<BillStatus | 'All'>('All');
-  const [createdByFilter, setCreatedByFilter] = useState<string>('all'); // 'all', 'admins', 'employees', or specific user ID
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
+  const urlFilterRange = (searchParams.get('range') as FilterRange | null) || 'All Time';
+  const urlCustomDates = {
+    from: searchParams.get('from') || '',
+    to: searchParams.get('to') || '',
+  };
+  const urlStatusTab = (searchParams.get('status') as BillStatus | null) || 'All';
+  const urlCreatedByFilter = searchParams.get('createdBy') || 'all';
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
+  const [page, setPage] = useState<number>(urlPage);
+  const [filterRange, setFilterRange] = useState<FilterRange>(urlFilterRange);
+  const [customDates, setCustomDates] = useState(urlCustomDates);
+  const [statusTab, setStatusTab] = useState<BillStatus | 'All'>(urlStatusTab);
+  const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
+  const previousSearchQueryRef = React.useRef(searchQuery);
   
   const { data: users = [] } = useUsers();
-  const timeFilters = useMemo(() => getDateOnlyFilters(filterRange, customDates), [filterRange, customDates]);
+
+  useEffect(() => {
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setFilterRange(urlFilterRange);
+    setCustomDates(urlCustomDates);
+    setStatusTab(urlStatusTab);
+    setCreatedByFilter(urlCreatedByFilter);
+    setSyncedSearchParams(currentSearchParams);
+  }, [
+    shouldHydrateFromUrl,
+    urlPage,
+    urlFilterRange,
+    urlCustomDates,
+    urlStatusTab,
+    urlCreatedByFilter,
+    currentSearchParams,
+  ]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, shouldHydrateFromUrl]);
+
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
+  const effectiveFilterRange = shouldHydrateFromUrl ? urlFilterRange : filterRange;
+  const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
+  const effectiveStatusTab = shouldHydrateFromUrl ? urlStatusTab : statusTab;
+  const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
+  const timeFilters = useMemo(
+    () => getDateOnlyFilters(effectiveFilterRange, effectiveCustomDates),
+    [effectiveFilterRange, effectiveCustomDates]
+  );
 
   // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
-    if (createdByFilter === 'all') return undefined;
-    if (createdByFilter === 'admins') {
+    if (effectiveCreatedByFilter === 'all') return undefined;
+    if (effectiveCreatedByFilter === 'admins') {
       return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
     }
-    if (createdByFilter === 'employees') {
+    if (effectiveCreatedByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     // Specific user ID
-    return [createdByFilter];
-  }, [createdByFilter, users]);
-
-  const pageResetKey = useMemo(
-    () => JSON.stringify({ searchQuery, filterRange, from: customDates.from, to: customDates.to, createdByFilter, createdByIds }),
-    [searchQuery, filterRange, customDates.from, customDates.to, createdByFilter, createdByIds]
-  );
-  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+    return [effectiveCreatedByFilter];
+  }, [effectiveCreatedByFilter, users]);
 
   const { data: billsPage, isFetching: billsLoading } = useBillsPage(effectivePage, pageSize, { from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
   const bills = billsPage?.data ?? [];
@@ -60,12 +108,40 @@ const Bills: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const { data: vendors = [] } = useVendors();
 
-  // Reset page to 1 when any filter changes to avoid 416 Range Not Satisfiable errors
   useEffect(() => {
-    setPage(1);
-  }, [searchQuery, filterRange, customDates.from, customDates.to, createdByFilter]);
+    if (shouldHydrateFromUrl) return;
+
+    const params: Record<string, string> = {};
+    if (effectivePage > 1) params.page = String(effectivePage);
+    if (effectiveFilterRange !== 'All Time') params.range = effectiveFilterRange;
+    if (effectiveCustomDates.from) params.from = effectiveCustomDates.from;
+    if (effectiveCustomDates.to) params.to = effectiveCustomDates.to;
+    if (effectiveStatusTab !== 'All') params.status = effectiveStatusTab;
+    if (effectiveCreatedByFilter !== 'all') params.createdBy = effectiveCreatedByFilter;
+    if (searchQuery) params.search = searchQuery;
+
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [
+    shouldHydrateFromUrl,
+    effectivePage,
+    effectiveFilterRange,
+    effectiveCustomDates.from,
+    effectiveCustomDates.to,
+    effectiveStatusTab,
+    effectiveCreatedByFilter,
+    searchQuery,
+    currentSearchParams,
+    setSearchParams,
+  ]);
 
   // Wrapper functions that reset page AND apply filter (atomic operation)
+  const handleStatusTabChange = (newStatus: BillStatus | 'All') => {
+    setPage(1);
+    setStatusTab(newStatus);
+  };
+
   const handleFilterRangeChange = (range: FilterRange) => {
     setPage(1);
     setFilterRange(range);
@@ -116,7 +192,7 @@ const Bills: React.FC = () => {
   };
 
   // Server-side filtering applied; keep client-side logic minimal
-  const filteredBills = bills.filter(b => statusTab === 'All' || b.status === statusTab);
+  const filteredBills = bills.filter(b => effectiveStatusTab === 'All' || b.status === effectiveStatusTab);
 
   const handleDuplicate = async (bill: Bill) => {
     try {
@@ -180,12 +256,12 @@ const Bills: React.FC = () => {
 
       <FilterBar 
         title="Bills"
-        filterRange={filterRange}
+        filterRange={effectiveFilterRange}
         setFilterRange={handleFilterRangeChange}
-        customDates={customDates}
+        customDates={effectiveCustomDates}
         setCustomDates={handleCustomDatesChange}
-        statusTab={statusTab}
-        setStatusTab={setStatusTab}
+        statusTab={effectiveStatusTab}
+        setStatusTab={handleStatusTabChange}
         statusOptions={Object.values(BillStatus)}
       />
 
@@ -194,7 +270,7 @@ const Bills: React.FC = () => {
         <div className="flex items-center gap-4 flex-wrap">
           <label className="text-sm font-bold text-gray-700">Created By:</label>
           <select
-            value={createdByFilter}
+            value={effectiveCreatedByFilter}
             onChange={(e) => handleCreatedByFilterChange(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
@@ -233,7 +309,7 @@ const Bills: React.FC = () => {
                   key={bill.id} 
                   onMouseEnter={() => setHoveredRow(bill.id)} 
                   onMouseLeave={() => setHoveredRow(null)} 
-                  onClick={() => navigate(`/bills/${bill.id}`)} 
+                  onClick={() => navigate(`/bills/${bill.id}`, { state: buildHistoryBackState(location) })} 
                   className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
                 >
                   <td className="px-6 py-5">

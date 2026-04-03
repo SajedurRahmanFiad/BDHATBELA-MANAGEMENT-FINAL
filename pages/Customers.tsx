@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Customer, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
@@ -11,24 +11,30 @@ import { theme } from '../theme';
 import { useCustomersPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteCustomer } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { useSearch } from '../src/contexts/SearchContext';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
-import { useResettablePage } from '../src/hooks/useResettablePage';
 import { useMemo, useEffect } from 'react';
 import { isTempId } from '../src/utils/optimisticIdMap';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 
 const Customers: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { searchQuery } = useSearch();
   const { user } = useAuth();
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
-  const [page, setPage] = React.useState<number>(1);
-  const pageResetKey = useMemo(() => JSON.stringify({ searchQuery }), [searchQuery]);
-  const effectivePage = useResettablePage(page, setPage, pageResetKey);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
+  const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = React.useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
+  const [page, setPage] = React.useState<number>(urlPage);
+  const previousSearchQueryRef = React.useRef(searchQuery);
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
   const { data: customersPage, isFetching, error } = useCustomersPage(effectivePage, pageSize, searchQuery);
   const customers = customersPage?.data ?? [];
   const total = customersPage?.count ?? 0;
@@ -36,10 +42,36 @@ const Customers: React.FC = () => {
   const deleteCustomerMutation = useDeleteCustomer();
   const isAdmin = user?.role === UserRole.ADMIN;
 
-  // Reset page to 1 when search query changes to avoid 416 Range Not Satisfiable errors
   useEffect(() => {
-    setPage(1);
-  }, [searchQuery]);
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setSyncedSearchParams(currentSearchParams);
+  }, [shouldHydrateFromUrl, urlPage, currentSearchParams]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+    }
+  }, [searchQuery, shouldHydrateFromUrl]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) return;
+
+    const params: Record<string, string> = {};
+    if (effectivePage > 1) params.page = String(effectivePage);
+    if (searchQuery) params.search = searchQuery;
+
+    if (new URLSearchParams(params).toString() !== currentSearchParams) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [shouldHydrateFromUrl, effectivePage, searchQuery, currentSearchParams, setSearchParams]);
 
   // Server-side search is applied via the paginated hook. Keep client-side memo only for derived formatting.
   const filteredCustomers = customers;
@@ -168,7 +200,7 @@ const Customers: React.FC = () => {
         ]}
         data={filteredCustomers}
         loading={isFetching}
-        onRowClick={(customer) => navigate(`/customers/${customer.id}`)}
+        onRowClick={(customer) => navigate(`/customers/${customer.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No customers found"
       />
       <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />

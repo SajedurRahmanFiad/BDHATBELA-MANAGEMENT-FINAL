@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
 import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
@@ -9,10 +9,12 @@ import { useBill, useVendors, useUsers, useAccounts, useCompanySettings, useInvo
 import { useUpdateBill, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
+import { getPreservedRouteState } from '../src/utils/navigation';
 
 const BillDetails: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const user = db.currentUser;
   
   // Query data
@@ -185,7 +187,20 @@ const BillDetails: React.FC = () => {
       <LoadingOverlay isLoading={loading && !bill} message="Loading bill details..." />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/bills')} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
+          <button onClick={() => {
+            const navState = getPreservedRouteState(location.state);
+            if (navState.backMode === 'history' && window.history.length > 1) {
+              navigate(-1);
+              return;
+            }
+
+            if (navState.from) {
+              navigate(navState.from);
+              return;
+            }
+
+            navigate('/bills');
+          }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
           <h2 className="text-md md:text-2xl font-bold text-gray-900">#{bill.billNumber}</h2>

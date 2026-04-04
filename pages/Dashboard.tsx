@@ -4,7 +4,7 @@ import { UserRole, OrderStatus, Order, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
-import { getOrderActivityDate, isWithinDateRange, FilterRange } from '../utils';
+import { getBillActivityDate, getOrderActivityDate, getTransactionActivityDate, isWithinDateRange, FilterRange } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { 
   useOrders, useBills, useTransactions, useCategories, useUsers
@@ -159,12 +159,21 @@ const Dashboard: React.FC = () => {
   
   const loading = ordersLoading || billsLoading || transactionsLoading;
 
-  const filteredOrders = useMemo(() => orders.filter(o => isWithinDateRange(o.orderDate, filterRange, customDates)), [orders, filterRange, customDates]);
-  const filteredBills = useMemo(() => bills.filter(b => isWithinDateRange(b.billDate, filterRange, customDates)), [bills, filterRange, customDates]);
-  const filteredTransactions = useMemo(() => transactions.filter(t => isWithinDateRange(t.date, filterRange, customDates)), [transactions, filterRange, customDates]);
-  const filteredEmployeeComparisonOrders = useMemo(
+  const filteredOrders = useMemo(
     () => orders.filter((order) => isWithinDateRange(getOrderActivityDate(order), filterRange, customDates)),
     [orders, filterRange, customDates]
+  );
+  const filteredBills = useMemo(
+    () => bills.filter((bill) => isWithinDateRange(getBillActivityDate(bill), filterRange, customDates)),
+    [bills, filterRange, customDates]
+  );
+  const filteredTransactions = useMemo(
+    () => transactions.filter((transaction) => isWithinDateRange(getTransactionActivityDate(transaction), filterRange, customDates)),
+    [transactions, filterRange, customDates]
+  );
+  const filteredEmployeeComparisonOrders = useMemo(
+    () => filteredOrders,
+    [filteredOrders]
   );
 
   // --- ADMIN CALCULATIONS ---

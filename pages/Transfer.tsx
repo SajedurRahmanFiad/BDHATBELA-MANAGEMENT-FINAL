@@ -11,6 +11,7 @@ import { theme } from '../theme';
 import { useAccounts } from '../src/hooks/useQueries';
 import { useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { buildLocalDateTime, getTodayDate } from '../utils';
 
 const Transfer: React.FC = () => {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ const Transfer: React.FC = () => {
   const toast = useToastNotifications();
   
   const [form, setForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     fromAccountId: '',
     toAccountId: '',
@@ -51,9 +52,11 @@ const Transfer: React.FC = () => {
 
       try {
         // Create full ISO datetime from date and time
-        const [hours, minutes] = form.time.split(':').map(Number);
-        const fullDatetime = new Date(form.date);
-        fullDatetime.setHours(hours, minutes, 0, 0);
+        const fullDatetime = buildLocalDateTime(form.date, form.time);
+        if (!fullDatetime) {
+          toast.warning('Please enter a valid date and time.');
+          return;
+        }
         const isoDatetime = fullDatetime.toISOString();
 
         // Create transaction and update both accounts in parallel
@@ -86,7 +89,7 @@ const Transfer: React.FC = () => {
         // Invalidate to refresh data instead of navigating away
         queryClient.invalidateQueries({ queryKey: ['accounts'] });
         setForm({
-          date: new Date().toISOString().split('T')[0],
+          date: getTodayDate(),
           time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
           fromAccountId: '',
           toAccountId: '',

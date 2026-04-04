@@ -12,6 +12,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
+import { buildLocalDateTime, getTodayDate } from '../utils';
 
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
@@ -46,7 +47,7 @@ const OrderDetails: React.FC = () => {
   const [showCarryBee, setShowCarryBee] = useState(false);
   const [showPaperfly, setShowPaperfly] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: db.settings.defaults.accountId || '',
     amount: 0
@@ -121,9 +122,11 @@ const OrderDetails: React.FC = () => {
     }
 
     const updatedPaid = order.paidAmount + paymentForm.amount;
-    const [hours, minutes] = paymentForm.time.split(':').map(Number);
-    const fullDatetime = new Date(paymentForm.date);
-    fullDatetime.setHours(hours, minutes, 0, 0);
+    const fullDatetime = buildLocalDateTime(paymentForm.date, paymentForm.time);
+    if (!fullDatetime) {
+      toast.error('Please enter a valid payment date and time');
+      return;
+    }
     const isoDatetime = fullDatetime.toISOString();
     const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${fullDatetime.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${fullDatetime.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     
@@ -203,7 +206,7 @@ const OrderDetails: React.FC = () => {
 
   const openPayment = () => {
     setPaymentForm({
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayDate(),
       time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: order.total - order.paidAmount

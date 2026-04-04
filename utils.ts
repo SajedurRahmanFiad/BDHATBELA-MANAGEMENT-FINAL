@@ -3,7 +3,16 @@
  * These functions are reused across many components to avoid repetition
  */
 
+import type { Bill, Order, Transaction } from './types';
+
 export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
+
+const APP_TIME_ZONE = 'Asia/Dhaka';
+const UTC_OFFSET_SUFFIX_PATTERN = /(?:[zZ]|[+-]\d{2}(?::?\d{2})?)$/;
+const HISTORY_CREATED_PATTERNS = [
+  /\bon\s+([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}),\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
+  /\bon\s+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}),\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
+];
 
 const isValidDate = (value: Date): boolean => !Number.isNaN(value.getTime());
 
@@ -29,6 +38,84 @@ const parseDateInput = (value: string): Date | null => {
   if (ymd) return ymd;
   const date = new Date(value);
   return isValidDate(date) ? date : null;
+};
+
+export const normalizeUtcTimestamp = (value?: string | null): string => {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const normalized = UTC_OFFSET_SUFFIX_PATTERN.test(raw) ? raw : `${raw}Z`;
+  const date = new Date(normalized);
+  return isValidDate(date) ? date.toISOString() : raw;
+};
+
+export const buildLocalDateTime = (dateValue: string, timeValue: string = '00:00'): Date | null => {
+  const baseDate = parseYmd(dateValue, false) || parseDateInput(dateValue);
+  if (!baseDate) return null;
+
+  const [hoursStr = '0', minutesStr = '0'] = String(timeValue || '').split(':');
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+
+  baseDate.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  return baseDate;
+};
+
+export const combineDateAndTimeToIso = (dateValue: string, timeValue: string = '00:00'): string => {
+  const localDateTime = buildLocalDateTime(dateValue, timeValue);
+  return localDateTime ? localDateTime.toISOString() : '';
+};
+
+export const parseCreatedHistoryTimestamp = (value?: string | null): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  for (const pattern of HISTORY_CREATED_PATTERNS) {
+    const match = raw.match(pattern);
+    if (!match?.[1] || !match?.[2]) continue;
+
+    const parsed = new Date(`${match[1]} ${match[2]} +06:00`);
+    if (isValidDate(parsed)) {
+      return parsed.toISOString();
+    }
+  }
+
+  return '';
+};
+
+const resolveActivityDate = (
+  timestampValue?: string | null,
+  dateOnlyValue?: string | null,
+  historyCreatedValue?: string | null
+): string => {
+  return (
+    normalizeUtcTimestamp(timestampValue) ||
+    parseCreatedHistoryTimestamp(historyCreatedValue) ||
+    String(dateOnlyValue || '').trim()
+  );
+};
+
+export const getOrderActivityDate = (order: Pick<Order, 'createdAt' | 'orderDate' | 'history'>): string =>
+  resolveActivityDate(order.createdAt, order.orderDate, order.history?.created);
+
+export const getBillActivityDate = (bill: Pick<Bill, 'createdAt' | 'billDate' | 'history'>): string =>
+  resolveActivityDate(bill.createdAt, bill.billDate, bill.history?.created);
+
+export const getTransactionActivityDate = (
+  transaction: Pick<Transaction, 'createdAt' | 'date' | 'history'>
+): string => {
+  const timeAwareDate = transaction.date && String(transaction.date).trim().length > 10
+    ? normalizeUtcTimestamp(transaction.date)
+    : '';
+
+  return (
+    normalizeUtcTimestamp(transaction.createdAt) ||
+    timeAwareDate ||
+    parseCreatedHistoryTimestamp(transaction.history?.created) ||
+    String(transaction.date || '').trim()
+  );
 };
 
 const startOfToday = (now: Date): Date => {
@@ -126,11 +213,58 @@ export const isWithinDateRange = (
  * Format a date string to readable format
  */
 export const formatDate = (dateStr: string, locale: string = 'en-BD'): string => {
-  return new Date(dateStr).toLocaleDateString(locale, {
+  const raw = String(dateStr || '').trim();
+  if (!raw) return '';
+
+  const normalized = raw.length > 10 ? normalizeUtcTimestamp(raw) || raw : raw;
+  const date = parseDateInput(normalized);
+
+  if (!date) return raw;
+
+  return date.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    ...(raw.length > 10 ? { timeZone: APP_TIME_ZONE } : {}),
   });
+};
+
+export const formatDateTimeParts = (
+  value?: string | null,
+  locale: string = 'en-BD'
+): { date: string; time: string } => {
+  const raw = String(value || '').trim();
+  if (!raw) return { date: '', time: '' };
+
+  const normalized = raw.length > 10 ? normalizeUtcTimestamp(raw) || raw : raw;
+  const date = parseDateInput(normalized);
+  if (!date) return { date: raw, time: '' };
+
+  if (raw.length <= 10) {
+    return {
+      date: date.toLocaleDateString(locale, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+      time: '',
+    };
+  }
+
+  return {
+    date: date.toLocaleDateString(locale, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: APP_TIME_ZONE,
+    }),
+    time: date.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: APP_TIME_ZONE,
+    }),
+  };
 };
 
 /**

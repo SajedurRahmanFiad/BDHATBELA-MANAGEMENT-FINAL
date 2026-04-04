@@ -10,6 +10,7 @@ import { useUpdateBill, useCreateTransaction, useUpdateAccount } from '../src/ho
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
 import { getPreservedRouteState } from '../src/utils/navigation';
+import { buildLocalDateTime, getTodayDate } from '../utils';
 
 const BillDetails: React.FC = () => {
   const { id } = useParams();
@@ -43,7 +44,7 @@ const BillDetails: React.FC = () => {
   const [isActionOpen, setIsActionOpen] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: db.settings.defaults.accountId || '',
     amount: 0
@@ -105,24 +106,26 @@ const BillDetails: React.FC = () => {
       }
 
       const updatedPaid = bill.paidAmount + paymentForm.amount;
-      const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${new Date(paymentForm.date).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
       
       // Determine if bill is fully paid
       const isFullyPaid = updatedPaid >= bill.total;
       const newStatus = isFullyPaid ? BillStatus.PAID : bill.status;
       
       // Compose ISO datetime from date and time
-      const [hours, minutes] = paymentForm.time.split(':').map(Number);
-      const fullDatetime = new Date(paymentForm.date);
-      fullDatetime.setHours(hours, minutes, 0, 0);
+      const fullDatetime = buildLocalDateTime(paymentForm.date, paymentForm.time);
+      if (!fullDatetime) {
+        toast.error('Please enter a valid payment date and time');
+        return;
+      }
       const isoDatetime = fullDatetime.toISOString();
+      const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${fullDatetime.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${fullDatetime.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
       
       const updatedBill = { 
         ...bill, 
         paidAmount: updatedPaid,
         status: newStatus,
         history: { ...bill.history, paid: historyText },
-        paidAt: paymentForm.date // Track payment date
+        paidAt: isoDatetime
       };
 
       // Create expense transaction for the payment
@@ -174,7 +177,7 @@ const BillDetails: React.FC = () => {
   const openPayment = () => {
     if (!bill) return;
     setPaymentForm({
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayDate(),
       time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: bill.total - bill.paidAmount

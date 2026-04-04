@@ -16,7 +16,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
-import { getDateOnlyFilters } from '../utils';
+import { formatDate, getBillActivityDate, getDateTimeFilters, getTodayDate } from '../utils';
 
 const Bills: React.FC = () => {
   const navigate = useNavigate();
@@ -85,7 +85,7 @@ const Bills: React.FC = () => {
   const effectiveStatusTab = shouldHydrateFromUrl ? urlStatusTab : statusTab;
   const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
   const timeFilters = useMemo(
-    () => getDateOnlyFilters(effectiveFilterRange, effectiveCustomDates),
+    () => getDateTimeFilters(effectiveFilterRange, effectiveCustomDates),
     [effectiveFilterRange, effectiveCustomDates]
   );
 
@@ -202,7 +202,7 @@ const Bills: React.FC = () => {
       
       const newBillData: Omit<Bill, 'id'> = {
         billNumber: `PUR-${Math.floor(1000 + Math.random() * 9000)}`,
-        billDate: new Date().toISOString().split('T')[0],
+        billDate: getTodayDate(),
         vendorId: bill.vendorId,
         createdBy: user?.id || bill.createdBy,
         status: BillStatus.ON_HOLD,
@@ -314,7 +314,7 @@ const Bills: React.FC = () => {
                 >
                   <td className="px-6 py-5">
                     <span className="font-black text-gray-900">#{bill.billNumber}</span>
-                    <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{bill.billDate}</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{formatDate(getBillActivityDate(bill))}</p>
                   </td>
                   <td className="px-6 py-5">
                     <span className="text-sm font-bold text-gray-700">{bill.vendorName || vendors.find(v => v.id === bill.vendorId)?.name || 'Unknown Vendor'}</span>

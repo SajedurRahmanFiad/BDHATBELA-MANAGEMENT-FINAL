@@ -14,7 +14,7 @@ import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { sanitizePhoneInput } from '../utils';
+import { getTodayDate, sanitizePhoneInput } from '../utils';
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
@@ -100,7 +100,7 @@ const OrderForm: React.FC = () => {
 
   // Form state
   const [customerId, setCustomerId] = useState('');
-  const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+  const [orderDate, setOrderDate] = useState(getTodayDate());
   const [orderNumber, setOrderNumber] = useState('Generating...');
   const [orderNumberLoading, setOrderNumberLoading] = useState(false);
   const [items, setItems] = useState<OrderItem[]>([]);

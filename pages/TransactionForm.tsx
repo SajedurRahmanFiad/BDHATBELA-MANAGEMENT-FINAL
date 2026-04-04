@@ -9,6 +9,7 @@ import { theme } from '../theme';
 import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults } from '../src/hooks/useQueries';
 import { useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { buildLocalDateTime, formatDate, getTodayDate } from '../utils';
 
 const TransactionForm: React.FC = () => {
   const { type } = useParams<{ type: string }>();
@@ -27,7 +28,7 @@ const TransactionForm: React.FC = () => {
   const categories = useMemo(() => allCategories.filter(c => c.type === (isIncome ? 'Income' : 'Expense')), [allCategories, isIncome]);
 
   const [form, setForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     paymentMethod: systemDefaults?.paymentMethod || 'Cash',
     accountId: systemDefaults?.accountId || accounts[0]?.id || '',
@@ -81,16 +82,15 @@ const TransactionForm: React.FC = () => {
         }
       }
 
-      const dateObj = new Date(form.date);
-      const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const localDateTime = buildLocalDateTime(form.date, form.time);
+      if (!localDateTime) {
+        toast.warning('Please enter a valid date and time');
+        return;
+      }
+
+      const dateStr = formatDate(form.date, 'en-US');
       const timeStr = form.time;
-      
-      // Combine date and time into full ISO datetime string
-      // Parse the time input (HH:mm format) and combine with date
-      const [hours, minutes] = form.time.split(':').map(Number);
-      const fullDatetime = new Date(form.date);
-      fullDatetime.setHours(hours, minutes, 0, 0);
-      const isoDatetime = fullDatetime.toISOString();
+      const isoDatetime = localDateTime.toISOString();
 
       const transaction: Omit<Transaction, 'id'> = {
         type: isIncome ? 'Income' : 'Expense',

@@ -4,7 +4,7 @@ import { UserRole, OrderStatus, Order, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
-import { isWithinDateRange, FilterRange } from '../utils';
+import { getOrderActivityDate, isWithinDateRange, FilterRange } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { 
   useOrders, useBills, useTransactions, useCategories, useUsers
@@ -15,11 +15,10 @@ import {
   Line, PieChart, Pie, Cell, Legend, ComposedChart 
 } from 'recharts';
 
-const getOrderCreationDateValue = (order: Order): string => order.createdAt || order.orderDate;
-
 const isSameLocalCalendarDay = (value: string | undefined, compareDate: Date = new Date()): boolean => {
   if (!value) return false;
-  const date = new Date(value);
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value;
+  const date = new Date(normalizedValue);
   if (Number.isNaN(date.getTime())) return false;
   return (
     date.getFullYear() === compareDate.getFullYear() &&
@@ -163,6 +162,10 @@ const Dashboard: React.FC = () => {
   const filteredOrders = useMemo(() => orders.filter(o => isWithinDateRange(o.orderDate, filterRange, customDates)), [orders, filterRange, customDates]);
   const filteredBills = useMemo(() => bills.filter(b => isWithinDateRange(b.billDate, filterRange, customDates)), [bills, filterRange, customDates]);
   const filteredTransactions = useMemo(() => transactions.filter(t => isWithinDateRange(t.date, filterRange, customDates)), [transactions, filterRange, customDates]);
+  const filteredEmployeeComparisonOrders = useMemo(
+    () => orders.filter((order) => isWithinDateRange(getOrderActivityDate(order), filterRange, customDates)),
+    [orders, filterRange, customDates]
+  );
 
   // --- ADMIN CALCULATIONS ---
   // Prefer transaction-based metrics. Fallback to orders/bills if transactions missing.
@@ -220,11 +223,11 @@ const Dashboard: React.FC = () => {
     [orders, user.id]
   );
   const filteredMyOrders = useMemo(
-    () => myOrders.filter((order) => isWithinDateRange(getOrderCreationDateValue(order), filterRange, customDates)),
+    () => myOrders.filter((order) => isWithinDateRange(getOrderActivityDate(order), filterRange, customDates)),
     [myOrders, filterRange, customDates]
   );
   const myTotalCreated = myOrders.length;
-  const myCreatedToday = myOrders.filter((order) => isSameLocalCalendarDay(getOrderCreationDateValue(order))).length;
+  const myCreatedToday = myOrders.filter((order) => isSameLocalCalendarDay(getOrderActivityDate(order))).length;
   const myPendingOrders = myOrders.filter((order) => order.status === OrderStatus.ON_HOLD).length;
   const employeeStatusSnapshot = useMemo(() => ([
     {
@@ -261,7 +264,7 @@ const Dashboard: React.FC = () => {
     const employeeIdSet = new Set(employeeUsers.map((candidate) => candidate.id));
     const counts = new Map<string, number>();
 
-    filteredOrders.forEach((order) => {
+    filteredEmployeeComparisonOrders.forEach((order) => {
       if (!employeeIdSet.has(order.createdBy)) return;
       counts.set(order.createdBy, (counts.get(order.createdBy) || 0) + 1);
     });
@@ -277,7 +280,7 @@ const Dashboard: React.FC = () => {
     const fallbackRows = Array.from(counts.entries())
       .filter(([userId]) => !employeeIdSet.has(userId))
       .map(([userId, orderCount]) => {
-        const sampleOrder = filteredOrders.find((order) => order.createdBy === userId);
+        const sampleOrder = filteredEmployeeComparisonOrders.find((order) => order.createdBy === userId);
         return {
           userId,
           name: sampleOrder?.creatorName || 'Unknown Employee',
@@ -295,7 +298,7 @@ const Dashboard: React.FC = () => {
         if (right.isCurrentUser) return 1;
         return left.name.localeCompare(right.name);
       });
-  }, [employeeUsers, filteredOrders, user.id]);
+  }, [employeeUsers, filteredEmployeeComparisonOrders, user.id]);
   const employeeComparisonMax = useMemo(
     () => Math.max(0, ...employeeComparisonRows.map((row) => row.orderCount)),
     [employeeComparisonRows]

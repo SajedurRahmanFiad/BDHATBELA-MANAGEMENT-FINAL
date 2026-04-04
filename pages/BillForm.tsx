@@ -11,7 +11,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { sanitizePhoneInput } from '../utils';
+import { getTodayDate, sanitizePhoneInput } from '../utils';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
@@ -83,7 +83,7 @@ const BillForm: React.FC = () => {
 
   // Form state
   const [vendorId, setVendorId] = useState('');
-  const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
+  const [billDate, setBillDate] = useState(getTodayDate());
   const [billNumber, setBillNumber] = useState('');
   const [items, setItems] = useState<OrderItem[]>([]);
   const [discount, setDiscount] = useState(0);

@@ -2,6 +2,7 @@
 import supabase from './supabaseClient';
 import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus, BillStatus, isEmployeeRole } from '../../types';
 import { db } from '../../db';
+import { normalizeUtcTimestamp } from '../../utils';
 
 export const DEFAULT_PAGE_SIZE = 25;
 
@@ -377,10 +378,10 @@ export async function fetchOrdersPage(
       query = query.eq('status', filters.status);
     }
     if (filters.from) {
-      query = query.gte('order_date', filters.from);
+      query = query.gte('created_at', filters.from);
     }
     if (filters.to) {
-      query = query.lte('order_date', filters.to);
+      query = query.lte('created_at', filters.to);
     }
     if (scopedCreatedByIds && scopedCreatedByIds.length > 0) {
       query = query.in('created_by', scopedCreatedByIds);
@@ -919,7 +920,7 @@ function mapOrder(row: any): Order {
     creatorName: row.creator_name,
     // also include address for downstream modals
     customerAddress: row.customer_address,
-    createdAt: row.created_at,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
   };
 }
 
@@ -1232,8 +1233,11 @@ function mapTransaction(row: any): Transaction {
   // date stored as YYYY-MM-DD (no time). In that case prefer Postgres
   // `created_at` which contains the full timestamp inserted by the DB.
   const rawDate = row.date ?? row.date_string ?? null;
-  const createdAt = row.created_at ?? row.createdAt ?? null;
-  const dateValue = rawDate && rawDate.toString().length > 10 ? rawDate : (createdAt || rawDate || '');
+  const createdAt = normalizeUtcTimestamp(row.created_at ?? row.createdAt ?? null) || null;
+  const normalizedRawDate = rawDate && rawDate.toString().length > 10
+    ? (normalizeUtcTimestamp(rawDate) || rawDate)
+    : rawDate;
+  const dateValue = normalizedRawDate || createdAt || rawDate || '';
 
   return {
     id: row.id,
@@ -1610,7 +1614,7 @@ function mapUser(row: any): User {
     // Do not surface raw password hashes as `password` in the
     // client-facing object. Keep the field absent/undefined.
     password: undefined,
-    createdAt: row.created_at,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
   };
 }
 
@@ -1671,8 +1675,8 @@ export async function fetchBillsPage(
 
   // Apply filters BEFORE ordering and range (critical for Supabase pagination)
   if (filters) {
-    if (filters.from) query = query.gte('bill_date', filters.from);
-    if (filters.to) query = query.lte('bill_date', filters.to);
+    if (filters.from) query = query.gte('created_at', filters.from);
+    if (filters.to) query = query.lte('created_at', filters.to);
     if (filters.search && filters.search.trim()) {
       const q = filters.search.trim();
       if (/\d/.test(q)) {
@@ -1924,7 +1928,7 @@ function mapBill(row: any): Bill {
     id: row.id,
     billNumber: row.bill_number ?? row.billNumber,
     billDate: row.bill_date ?? row.billDate,
-    createdAt: row.created_at ?? row.createdAt,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
     vendorId: row.vendor_id ?? row.vendorId,
     createdBy: row.created_by ?? row.createdBy,
     status: row.status,
@@ -2295,7 +2299,7 @@ function mapCategory(row: any): any {
     type: row.type,
     color: row.color,
     parentId: row.parent_id,
-    createdAt: row.created_at,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -2405,7 +2409,7 @@ function mapPaymentMethod(row: any): any {
     name: row.name,
     description: row.description,
     isActive: row.is_active,
-    createdAt: row.created_at,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -2511,7 +2515,7 @@ function mapUnit(row: any): any {
     name: row.name,
     shortName: row.short_name,
     description: row.description,
-    createdAt: row.created_at,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
     updatedAt: row.updated_at,
   };
 }

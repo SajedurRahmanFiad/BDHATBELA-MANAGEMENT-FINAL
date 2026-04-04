@@ -18,7 +18,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
-import { getDateOnlyFilters } from '../utils';
+import { buildLocalDateTime, formatDate, getDateTimeFilters, getOrderActivityDate, getTodayDate } from '../utils';
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
@@ -61,7 +61,7 @@ const Orders: React.FC = () => {
   const [showCarryBee, setShowCarryBee] = useState<string | null>(null);
   const [showPaperfly, setShowPaperfly] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
     accountId: '',
     amount: 0
@@ -115,9 +115,9 @@ const Orders: React.FC = () => {
   const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
   const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
 
-  // Compute server-side order_date range based on selected filter
-  const dateFilters = useMemo(() => {
-    return getDateOnlyFilters(effectiveFilterRange, effectiveCustomDates);
+  // Compute server-side created_at range based on selected filter
+  const timeFilters = useMemo(() => {
+    return getDateTimeFilters(effectiveFilterRange, effectiveCustomDates);
   }, [effectiveFilterRange, effectiveCustomDates]);
 
   // Compute createdByIds based on createdByFilter
@@ -134,8 +134,8 @@ const Orders: React.FC = () => {
 
   const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(effectivePage, pageSize, {
     status: effectiveStatusTab === 'All' ? undefined : effectiveStatusTab,
-    from: dateFilters.from,
-    to: dateFilters.to,
+    from: timeFilters.from,
+    to: timeFilters.to,
     search: searchQuery,
     createdByIds,
   });
@@ -226,7 +226,7 @@ const Orders: React.FC = () => {
     const newOrderNumber = `${orderSettings.prefix}${orderSettings.nextNumber}`;
     const newOrder: Omit<Order, 'id'> = {
       orderNumber: newOrderNumber,
-      orderDate: new Date().toISOString().split('T')[0],
+      orderDate: getTodayDate(),
       customerId: order.customerId,
       createdBy: user?.id || order.createdBy,
       status: OrderStatus.ON_HOLD,
@@ -262,7 +262,7 @@ const Orders: React.FC = () => {
 
   const openPaymentModal = (order: Order) => {
     setPaymentForm({
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayDate(),
       time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
       accountId: '',
       amount: order.total - order.paidAmount
@@ -301,9 +301,11 @@ const Orders: React.FC = () => {
       const shouldCreateShippingExpense = paymentForm.amount < order.total;
 
       // Create full ISO datetime from date and time
-      const [hours, minutes] = paymentForm.time.split(':').map(Number);
-      const fullDatetime = new Date(paymentForm.date);
-      fullDatetime.setHours(hours, minutes, 0, 0);
+      const fullDatetime = buildLocalDateTime(paymentForm.date, paymentForm.time);
+      if (!fullDatetime) {
+        toast.error('Please enter a valid payment date and time');
+        return;
+      }
       const isoDatetime = fullDatetime.toISOString();
 
       // Create transactions. If there are independent inserts (income + expense), run them in parallel
@@ -511,7 +513,7 @@ const Orders: React.FC = () => {
                   >
                     <td className="px-6 py-5">
                       <span className="font-black text-gray-900">#{order.orderNumber}</span>
-                      <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{new Date(order.orderDate).toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                      <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{formatDate(getOrderActivityDate(order))}</p>
                     </td>
                     <td className="px-6 py-5">
                       <span className="text-sm font-bold text-gray-700">{custName}</span>

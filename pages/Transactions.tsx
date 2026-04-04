@@ -14,7 +14,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
-import { getDateTimeFilters } from '../utils';
+import { formatDateTimeParts, getDateTimeFilters } from '../utils';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
@@ -242,20 +242,8 @@ const Transactions: React.FC = () => {
   }, [transactions, effectiveTypeTab, searchQuery, allCategories, users]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
-    try {
-      const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
-      if (!candidate) return { date: '', time: '' };
-      const date = new Date(candidate);
-      if (Number.isNaN(date.getTime())) {
-        return { date: dateString || createdAt || '', time: '' };
-      }
-      const timeZone = 'Asia/Dhaka';
-      const dateStr = date.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric', timeZone });
-      const timeStr = date.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone });
-      return { date: dateStr, time: timeStr };
-    } catch (e) {
-      return { date: dateString || createdAt || '', time: '' };
-    }
+    const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
+    return formatDateTimeParts(candidate);
   };
 
   const handleRowClick = (transaction: Transaction) => {

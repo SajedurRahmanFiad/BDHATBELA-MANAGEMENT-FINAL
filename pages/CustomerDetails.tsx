@@ -8,6 +8,7 @@ import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { buildHistoryBackState, getPreservedRouteState } from '../src/utils/navigation';
+import { getTodayDate } from '../utils';
 
 const CustomerDetails: React.FC = () => {
   const { id } = useParams();
@@ -68,7 +69,7 @@ const CustomerDetails: React.FC = () => {
 
       const newOrder = {
         orderNumber: newOrderNumber,
-        orderDate: new Date().toISOString().split('T')[0],
+        orderDate: getTodayDate(),
         customerId: customer.id,
         createdBy: order.createdBy,
         status: OrderStatus.ON_HOLD,

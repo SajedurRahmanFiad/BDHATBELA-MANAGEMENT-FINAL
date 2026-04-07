@@ -120,7 +120,7 @@ const IncomeVsExpense: React.FC = () => {
         ].map((stat, index) => (
           <div key={index} className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
-            <h4 className="text-xl font-bold text-gray-900 mt-1">{stat.value}</h4>
+            <h4 className="text-lg font-bold text-gray-900 mt-1">{stat.value}</h4>
             <p className={`text-lg font-black mt-2 ${stat.color}`}>{formatCurrency(stat.amount)}</p>
           </div>
         ))}

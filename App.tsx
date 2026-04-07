@@ -54,6 +54,7 @@ import Vendors from './pages/Vendors';
 import VendorForm from './pages/VendorForm';
 import VendorDetails from './pages/VendorDetails';
 import Reports from './pages/Reports';
+import Payroll from './pages/Payroll';
 import ExpenseSummary from './pages/reports/ExpenseSummary';
 import IncomeSummary from './pages/reports/IncomeSummary';
 import IncomeVsExpense from './pages/reports/IncomeVsExpense';
@@ -62,12 +63,17 @@ import ProductQuantitySold from './pages/reports/ProductQuantitySold';
 import CustomerSalesReport from './pages/reports/CustomerSalesReport';
 import UserActivityPerformanceReport from './pages/reports/UserActivityPerformanceReport';
 import PrintOrder from './pages/PrintOrder';
+import WalletPage from './pages/Wallet';
+import { UserRole, isEmployeeRole } from './types';
 
 // Inner app component that uses auth context
 const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ user, profile, isLoading }) => {
   // Check authentication state - only require user since profile is GUARANTEED to exist when user exists
   // Profile is always loaded along with user by AuthProvider, never null during normal operation
   const isAuthenticated = !!user;
+  const activeUser = profile || user;
+  const isAdmin = activeUser?.role === UserRole.ADMIN;
+  const isEmployee = isEmployeeRole(activeUser?.role);
   
   return (
     <Routes>
@@ -182,6 +188,20 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
 
       <Route path="/reports" element={
         isAuthenticated ? <Layout><Reports /></Layout> : <Navigate to="/login" replace />
+      } />
+      <Route path="/payroll" element={
+        isAuthenticated
+          ? isAdmin
+            ? <Layout><Payroll /></Layout>
+            : <Navigate to="/wallet" replace />
+          : <Navigate to="/login" replace />
+      } />
+      <Route path="/wallet" element={
+        isAuthenticated
+          ? isEmployee
+            ? <Layout><WalletPage /></Layout>
+            : <Navigate to="/payroll" replace />
+          : <Navigate to="/login" replace />
       } />
       <Route path="/reports/expense" element={
         isAuthenticated ? <Layout><ExpenseSummary /></Layout> : <Navigate to="/login" replace />

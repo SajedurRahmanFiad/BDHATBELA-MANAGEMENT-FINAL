@@ -408,7 +408,7 @@ const BillForm: React.FC = () => {
             <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest"><span>Subtotal</span><span className="text-gray-900 font-black">{formatCurrency(subtotal)}</span></div>
             <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest"><span>Discount</span><input type="number" value={discount} onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)} className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" /></div>
             <div className="flex justify-between items-center text-gray-500 text-sm font-bold uppercase tracking-widest"><span>Shipping</span><input type="number" value={shipping} onChange={(e) => setShipping(parseFloat(e.target.value) || 0)} className="w-24 text-right px-3 py-1.5 border border-gray-100 rounded-lg focus:ring-2 focus:ring-[#3c5a82] font-black text-gray-900 bg-white" /></div>
-            <div className="pt-6 border-t-4 border-[#c7e0f5] flex justify-between items-center"><span className="text-lg font-bold text-gray-900 uppercase tracking-tighter">Total Bill</span><span className="text-3xl font-black">{formatCurrency(total)}</span></div>
+            <div className="pt-6 border-t-4 border-[#c7e0f5] flex justify-between items-center"><span className="text-lg font-bold text-gray-900 uppercase tracking-tighter">Total Bill</span><span className="text-lg font-black">{formatCurrency(total)}</span></div>
             <Button 
               onClick={handleSave}
               variant="primary"

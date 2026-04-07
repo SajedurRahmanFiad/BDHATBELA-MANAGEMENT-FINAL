@@ -68,7 +68,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 type="number" 
                 value={paymentForm.amount} 
                 onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})} 
-                className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-xl outline-none`}
+                className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-lg outline-none`}
               />
             </div>
 

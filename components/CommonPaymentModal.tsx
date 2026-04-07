@@ -87,7 +87,7 @@ const CommonPaymentModal: React.FC<CommonPaymentModalProps> = ({
               value={paymentForm.amount} 
               onChange={e => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value) || 0})}
               disabled={isLoading}
-              className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-xl outline-none disabled:opacity-50`}
+              className={`w-full px-6 py-4 bg-[#ebf4ff] border-2 border-[#c7dff5] rounded-lg font-black ${theme.colors.primary[600]} text-lg outline-none disabled:opacity-50`}
             />
           </div>
 

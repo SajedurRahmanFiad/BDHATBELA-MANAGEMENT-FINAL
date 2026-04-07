@@ -25,7 +25,8 @@ import {
   Minus,
   Check,
   AlertCircle,
-  Info
+  Info,
+  Wallet
 } from 'lucide-react';
 
 // Fixed missing properties on ICONS object by adding 'Users' and 'Briefcase' keys
@@ -38,6 +39,7 @@ export const ICONS = {
   Users: <Users size={20} />,
   Briefcase: <Briefcase size={20} />,
   Banking: <CreditCard size={20} />,
+  Payroll: <Wallet size={20} />,
   Reports: <BarChart3 size={20} />,
   Settings: <Settings size={20} />,
   Courier: <Truck size={20} />,

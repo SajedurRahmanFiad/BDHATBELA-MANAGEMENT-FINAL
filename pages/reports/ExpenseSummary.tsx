@@ -95,7 +95,7 @@ const ExpenseSummary: React.FC = () => {
           <div className="space-y-4">
             <div className="p-4 bg-red-50 rounded-lg">
               <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Outflow</p>
-              <h4 className="text-3xl font-black text-red-600">{formatCurrency(expenses.reduce((s, e) => s + e.amount, 0))}</h4>
+              <h4 className="text-lg font-black text-red-600">{formatCurrency(expenses.reduce((s, e) => s + e.amount, 0))}</h4>
             </div>
             <div className="divide-y divide-gray-50">
               {chartData.sort((a,b) => b.value - a.value).slice(0, 5).map((item, i) => (

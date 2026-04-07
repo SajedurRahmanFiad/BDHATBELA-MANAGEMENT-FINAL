@@ -108,7 +108,7 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, variant 
       <div className="flex-1">
         {/* slightly smaller title text */}
         <p className={`text-[10px] font-bold uppercase tracking-widest ${textColor === 'text-white' ? 'text-white/70' : 'text-gray-400'}`}>{title}</p>
-        <h3 className={`text-xl font-black mt-1 flex flex-wrap items-baseline ${textColor}`}>
+        <h3 className={`text-lg font-black mt-1 flex flex-wrap items-baseline ${textColor}`}>
           <span>{value}</span>
           {subtotalAmount && (
             <span className="text-sm font-semibold ml-1 whitespace-nowrap">

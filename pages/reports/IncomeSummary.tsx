@@ -109,7 +109,7 @@ const IncomeSummary: React.FC = () => {
         <div className="space-y-6">
           <div className={`${theme.colors.primary[600]} p-8 rounded-lg text-white shadow-lg shadow-[#0f2f57]/20`}>
             <p className="text-[#c7dff5] text-xs font-bold uppercase tracking-widest mb-1">Total Revenue Collected</p>
-            <h4 className="text-4xl font-black">{formatCurrency(income.reduce((s, e) => s + e.amount, 0))}</h4>
+            <h4 className="text-lg font-black">{formatCurrency(income.reduce((s, e) => s + e.amount, 0))}</h4>
             <div className="mt-6 p-4 bg-white/10 rounded-xl flex items-center justify-between">
               <span className="text-sm font-medium">Avg Transaction Size</span>
               <span className="font-bold">{formatCurrency(income.length ? income.reduce((s,e) => s+e.amount, 0) / income.length : 0)}</span>

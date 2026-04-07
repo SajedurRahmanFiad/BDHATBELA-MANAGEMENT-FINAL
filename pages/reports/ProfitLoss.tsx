@@ -246,7 +246,7 @@ const ProfitLoss: React.FC = () => {
           <div className="pt-12">
             <div className={`p-6 rounded-lg flex justify-between items-center ${plData.netProfit >= 0 ? theme.colors.primary[600] : 'bg-red-600'} text-white shadow-xl`}>
               <span className="text-lg font-black uppercase tracking-widest">Net Profit / Loss</span>
-              <span className="text-3xl font-black">{formatCurrency(plData.netProfit)}</span>
+              <span className="text-lg font-black">{formatCurrency(plData.netProfit)}</span>
             </div>
           </div>
         </div>

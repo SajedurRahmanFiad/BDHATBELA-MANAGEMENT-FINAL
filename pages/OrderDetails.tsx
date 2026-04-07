@@ -313,7 +313,7 @@ const OrderDetails: React.FC = () => {
           }} className="p-2 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 text-gray-500 transition-all">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
           </button>
-          <h2 className="text-md md:text-2xl font-bold text-gray-900">{order.orderNumber}</h2>
+          <h2 className="text-md md:text-lg font-bold text-gray-900">{order.orderNumber}</h2>
           <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusColor(order.status)}`}>
             {order.status}
           </span>
@@ -617,7 +617,7 @@ const OrderDetails: React.FC = () => {
                     <div className="space-y-4 text-center">
                       <div className="p-4 bg-gray-50 rounded-lg">
                         <p className="text-[10px] font-black text-gray-400 uppercase">Amount Due</p>
-                        <p className="text-2xl font-black text-gray-900">{formatCurrency(order.total - order.paidAmount)}</p>
+                        <p className="text-lg font-black text-gray-900">{formatCurrency(order.total - order.paidAmount)}</p>
                       </div>
                       <button 
                         onClick={openPayment}

@@ -38,10 +38,28 @@ import {
   updateInvoiceSettings,
   updateSystemDefaults,
   updateCourierSettings,
+  updatePayrollSettings,
+  markPayrollPaid,
+  updateWalletSettings,
+  payEmployeeWallet,
   batchUpdateSettings,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
-import type { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
+import type {
+  Customer,
+  Order,
+  Bill,
+  Account,
+  Transaction,
+  User,
+  Vendor,
+  Product,
+  OrderStatus,
+  PayrollPayment,
+  PayrollSettings,
+  WalletPayout,
+  WalletSettings,
+} from '../../types';
 import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
 // Helper: parse react-query page keys which follow the pattern ['resource', page, pageSize, filters?]
@@ -445,6 +463,7 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
 
       // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'orders');
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
 }
@@ -521,6 +540,10 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
       // Stock can change when status/items change
       if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
         queryClient.invalidateQueries({ queryKey: ['products'], exact: false });
+      }
+
+      if (variables?.updates?.status !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ['wallet'] });
       }
     },
   });
@@ -610,6 +633,9 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
 
       // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'orders');
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
 }
@@ -2006,6 +2032,114 @@ export function useUpdateCourierSettings(): UseMutationResult<any, Error, any, u
   });
 }
 
+export function useUpdatePayrollSettings(): UseMutationResult<
+  PayrollSettings,
+  Error,
+  Partial<PayrollSettings>,
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updatePayrollSettings,
+    onMutate: async (newSettings) => {
+      await queryClient.cancelQueries({ queryKey: ['settings', 'payroll'] });
+
+      const previousSettings = queryClient.getQueryData<PayrollSettings>(['settings', 'payroll']);
+      queryClient.setQueryData(['settings', 'payroll'], { ...previousSettings, ...newSettings });
+
+      return { previousSettings };
+    },
+    onError: (_err, _newSettings, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings', 'payroll'], context.previousSettings);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'payroll'] });
+    },
+  });
+}
+
+export function useMarkPayrollPaid(): UseMutationResult<
+  PayrollPayment,
+  Error,
+  {
+    employeeId: string;
+    periodStart: string;
+    periodEnd: string;
+    periodKind: 'month' | 'custom';
+    periodLabel: string;
+    unitAmountSnapshot: number;
+    countedStatusesSnapshot: OrderStatus[];
+    orderCountSnapshot: number;
+    amountSnapshot: number;
+    note?: string;
+  },
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: markPayrollPaid,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
+    },
+  });
+}
+
+export function useUpdateWalletSettings(): UseMutationResult<
+  WalletSettings,
+  Error,
+  Partial<WalletSettings>,
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateWalletSettings,
+    onMutate: async (newSettings) => {
+      await queryClient.cancelQueries({ queryKey: ['settings', 'wallet'] });
+
+      const previousSettings = queryClient.getQueryData<WalletSettings>(['settings', 'wallet']);
+      queryClient.setQueryData(['settings', 'wallet'], { ...previousSettings, ...newSettings });
+
+      return { previousSettings };
+    },
+    onError: (_err, _newSettings, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings', 'wallet'], context.previousSettings);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    },
+  });
+}
+
+export function usePayEmployeeWallet(): UseMutationResult<
+  WalletPayout,
+  Error,
+  {
+    employeeId: string;
+    amount: number;
+    accountId: string;
+    paymentMethod: string;
+    categoryId: string;
+    paidAt: string;
+    note?: string;
+  },
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: payEmployeeWallet,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
+  });
+}
+
 // ========== BATCH SETTINGS ==========
 
 /**
@@ -2028,6 +2162,8 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       const previousInvoice = queryClient.getQueryData<any>(['settings', 'invoice']);
       const previousDefaults = queryClient.getQueryData<any>(['settings', 'defaults']);
       const previousCourier = queryClient.getQueryData<any>(['settings', 'courier']);
+      const previousPayroll = queryClient.getQueryData<any>(['settings', 'payroll']);
+      const previousWallet = queryClient.getQueryData<any>(['settings', 'wallet']);
       
       // Optimistically update all settings caches
       if (updates.company && previousCompany) {
@@ -2045,6 +2181,12 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       if (updates.courier && previousCourier) {
         queryClient.setQueryData(['settings', 'courier'], { ...previousCourier, ...updates.courier });
       }
+      if (updates.payroll && previousPayroll) {
+        queryClient.setQueryData(['settings', 'payroll'], { ...previousPayroll, ...updates.payroll });
+      }
+      if (updates.wallet && previousWallet) {
+        queryClient.setQueryData(['settings', 'wallet'], { ...previousWallet, ...updates.wallet });
+      }
       
       return {
         previousCompany,
@@ -2052,6 +2194,8 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
         previousInvoice,
         previousDefaults,
         previousCourier,
+        previousPayroll,
+        previousWallet,
       };
     },
     onError: (err, updates, context) => {
@@ -2071,10 +2215,17 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       if (context?.previousCourier) {
         queryClient.setQueryData(['settings', 'courier'], context.previousCourier);
       }
+      if (context?.previousPayroll) {
+        queryClient.setQueryData(['settings', 'payroll'], context.previousPayroll);
+      }
+      if (context?.previousWallet) {
+        queryClient.setQueryData(['settings', 'wallet'], context.previousWallet);
+      }
     },
     onSuccess: () => {
       // Refetch all settings in background to validate
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
 }

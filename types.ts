@@ -223,4 +223,104 @@ export interface Settings {
       maxWeightKg: number;
     };
   };
+  payroll: {
+    unitAmount: number;
+    countedStatuses: OrderStatus[];
+  };
+}
+
+export interface PayrollSettings {
+  unitAmount: number;
+  countedStatuses: OrderStatus[];
+}
+
+export interface PayrollPayment {
+  id: string;
+  employeeId: string;
+  employeeName?: string;
+  employeeRole?: UserRole;
+  periodStart: string;
+  periodEnd: string;
+  periodKind: 'month' | 'custom';
+  periodLabel: string;
+  unitAmountSnapshot: number;
+  countedStatusesSnapshot: OrderStatus[];
+  orderCountSnapshot: number;
+  amountSnapshot: number;
+  paidAt: string;
+  paidBy: string;
+  paidByName?: string;
+  note?: string;
+  createdAt?: string;
+}
+
+export interface PayrollSummaryRow {
+  employeeId: string;
+  employeeName: string;
+  employeeRole: UserRole;
+  countedOrderCount: number;
+  unitAmount: number;
+  estimatedAmount: number;
+  paymentStatus: 'paid' | 'unpaid';
+  paymentSnapshot?: PayrollPayment;
+  liveAmountDelta?: number;
+  liveOrderCountDelta?: number;
+}
+
+export type WalletEntryType = 'order_credit' | 'order_reversal' | 'payout';
+
+export interface WalletSettings {
+  unitAmount: number;
+  countedStatuses: OrderStatus[];
+}
+
+export interface WalletBalanceCard {
+  employeeId: string;
+  employeeName: string;
+  employeeRole: UserRole;
+  currentBalance: number;
+  totalEarned: number;
+  totalPaid: number;
+  creditedOrders: number;
+  lastActivityAt?: string;
+}
+
+export interface WalletActivityEntry {
+  id: string;
+  employeeId: string;
+  employeeName?: string;
+  employeeRole?: UserRole;
+  entryType: WalletEntryType;
+  amountDelta: number;
+  unitAmountSnapshot?: number;
+  orderId?: string;
+  orderNumber?: string;
+  payoutId?: string;
+  transactionId?: string;
+  accountId?: string;
+  accountName?: string;
+  paymentMethod?: string;
+  categoryId?: string;
+  categoryName?: string;
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
+  createdByName?: string;
+  paidAt?: string;
+  paidBy?: string;
+  paidByName?: string;
+}
+
+export interface WalletPayout {
+  id: string;
+  employeeId: string;
+  amount: number;
+  accountId: string;
+  paymentMethod: string;
+  categoryId: string;
+  transactionId: string;
+  paidAt: string;
+  paidBy: string;
+  paidByName?: string;
+  note?: string;
 }

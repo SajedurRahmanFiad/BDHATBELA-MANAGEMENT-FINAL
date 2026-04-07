@@ -20,6 +20,16 @@ const defaultSettings: Settings = {
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
     paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
   },
+  payroll: {
+    unitAmount: 0,
+    countedStatuses: [
+      OrderStatus.ON_HOLD,
+      OrderStatus.PROCESSING,
+      OrderStatus.PICKED,
+      OrderStatus.COMPLETED,
+      OrderStatus.CANCELLED,
+    ],
+  },
 };
 
 // Helper to get from local storage, NO fallback to initial data
@@ -31,6 +41,24 @@ const getFromStorage = <T,>(key: string): T | null => {
 // Global State - ONLY for currentUser and settings (sync with localStorage)
 const _storedCurrent = getFromStorage<User | null>('currentUser');
 const _storedSettings = getFromStorage<Settings>('settings');
+const mergedSettings: Settings = _storedSettings
+  ? {
+      ...defaultSettings,
+      ..._storedSettings,
+      company: { ...defaultSettings.company, ...(_storedSettings as any).company },
+      order: { ...defaultSettings.order, ...(_storedSettings as any).order },
+      invoice: { ...defaultSettings.invoice, ...(_storedSettings as any).invoice },
+      defaults: { ...defaultSettings.defaults, ...(_storedSettings as any).defaults },
+      categories: Array.isArray((_storedSettings as any).categories) ? (_storedSettings as any).categories : defaultSettings.categories,
+      paymentMethods: Array.isArray((_storedSettings as any).paymentMethods) ? (_storedSettings as any).paymentMethods : defaultSettings.paymentMethods,
+      courier: {
+        steadfast: { ...defaultSettings.courier.steadfast, ...(_storedSettings as any).courier?.steadfast },
+        carryBee: { ...defaultSettings.courier.carryBee, ...(_storedSettings as any).courier?.carryBee },
+        paperfly: { ...defaultSettings.courier.paperfly, ...(_storedSettings as any).courier?.paperfly },
+      },
+      payroll: { ...defaultSettings.payroll, ...(_storedSettings as any).payroll },
+    }
+  : defaultSettings;
 
 export const db = {
   // Keep only currentUser and settings (for context)
@@ -45,7 +73,7 @@ export const db = {
   transactions: [], // DEPRECATED - Do not use. Fetch via useTransactions()
   
   currentUser: _storedCurrent ?? null,
-  settings: _storedSettings ?? defaultSettings,
+  settings: mergedSettings,
 };
 
 export const saveDb = () => {

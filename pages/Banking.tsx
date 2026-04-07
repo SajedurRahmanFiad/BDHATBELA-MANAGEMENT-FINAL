@@ -100,16 +100,16 @@ const Banking: React.FC = () => {
       <div className={`${theme.colors.primary[600]} rounded-xl p-8 text-white shadow-xl shadow-[#0f2f57]/20 relative overflow-hidden`}>
         <div className="relative z-10">
           <p className="text-[#c7dff5] font-medium text-sm mb-1 uppercase tracking-wider">Total Combined Balance</p>
-          <h1 className="text-4xl font-black">{formatCurrency(totalBalance)}</h1>
+          <h1 className="text-lg font-black">{formatCurrency(totalBalance)}</h1>
           <div className="mt-8 flex gap-6">
             <div>
               <p className="text-[#a8c5e8] text-xs font-bold uppercase">Bank Accounts</p>
-              <p className="text-xl font-bold">{accounts.filter(a => a.type === 'Bank').length}</p>
+              <p className="text-lg font-bold">{accounts.filter(a => a.type === 'Bank').length}</p>
             </div>
             <div className="w-px bg-[#0f2f57]/50 h-10"></div>
             <div>
               <p className="text-[#a8c5e8] text-xs font-bold uppercase">Cash Accounts</p>
-              <p className="text-xl font-bold">{accounts.filter(a => a.type === 'Cash').length}</p>
+              <p className="text-lg font-bold">{accounts.filter(a => a.type === 'Cash').length}</p>
             </div>
           </div>
         </div>
@@ -159,7 +159,7 @@ const Banking: React.FC = () => {
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-sm font-bold text-gray-900">Current Balance</span>
-                <span className={`text-xl font-black`}>{formatCurrency(acc.currentBalance)}</span>
+                <span className={`text-lg font-black`}>{formatCurrency(acc.currentBalance)}</span>
               </div>
             </div>
           </div>

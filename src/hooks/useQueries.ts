@@ -38,9 +38,35 @@ import {
   fetchInvoiceSettings,
   fetchSystemDefaults,
   fetchCourierSettings,
+  fetchPayrollSettings,
+  fetchPayrollEmployees,
+  fetchPayrollHistory,
+  fetchPayrollSummaries,
+  fetchWalletSettings,
+  fetchEmployeeWalletCards,
+  fetchMyWallet,
+  fetchWalletActivity,
+  fetchWalletActivityPage,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
-import type { Customer, Order, Bill, Account, Transaction, User, Vendor, Product } from '../../types';
+import type {
+  Customer,
+  Order,
+  Bill,
+  Account,
+  Transaction,
+  User,
+  Vendor,
+  Product,
+  PayrollPayment,
+  PayrollSettings,
+  PayrollSummaryRow,
+  WalletActivityEntry,
+  WalletEntryType,
+  WalletBalanceCard,
+  WalletSettings,
+} from '../../types';
+import { db } from '../../db';
 
 // ========== CUSTOMERS ==========
 
@@ -458,5 +484,164 @@ export function useCourierSettings(): UseQueryResult<any, Error> {
     queryKey: ['settings', 'courier'],
     queryFn: fetchCourierSettings,
     staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function usePayrollSettings(): UseQueryResult<PayrollSettings, Error> {
+  return useQuery({
+    queryKey: ['settings', 'payroll'],
+    queryFn: fetchPayrollSettings,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function usePayrollEmployees(enabled: boolean = true): UseQueryResult<User[], Error> {
+  return useQuery({
+    queryKey: ['payroll', 'employees'],
+    queryFn: fetchPayrollEmployees,
+    staleTime: 15 * 60 * 1000,
+    enabled,
+  });
+}
+
+export function usePayrollSummaries(
+  periodStart: string | undefined,
+  periodEnd: string | undefined,
+  employeeId?: string
+): UseQueryResult<PayrollSummaryRow[], Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['payroll', 'summaries', periodStart, periodEnd, employeeId, currentUser?.id, currentUser?.role],
+    queryFn: () =>
+      fetchPayrollSummaries({
+        periodStart: periodStart || '',
+        periodEnd: periodEnd || '',
+        employeeId,
+        currentUser,
+      }),
+    enabled: !!currentUser?.id && !!periodStart && !!periodEnd,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
+  });
+}
+
+export function usePayrollHistory(
+  periodStart?: string,
+  periodEnd?: string,
+  employeeId?: string,
+  enabled: boolean = true
+): UseQueryResult<PayrollPayment[], Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['payroll', 'history', periodStart, periodEnd, employeeId, currentUser?.id, currentUser?.role],
+    queryFn: () =>
+      fetchPayrollHistory({
+        periodStart,
+        periodEnd,
+        employeeId,
+        currentUser,
+      }),
+    enabled: enabled && !!currentUser?.id,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useWalletSettings(): UseQueryResult<WalletSettings, Error> {
+  return useQuery({
+    queryKey: ['settings', 'wallet'],
+    queryFn: fetchWalletSettings,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useEmployeeWalletCards(
+  enabled: boolean = true
+): UseQueryResult<WalletBalanceCard[], Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['wallet', 'cards', currentUser?.id, currentUser?.role],
+    queryFn: () =>
+      fetchEmployeeWalletCards({
+        currentUser,
+      }),
+    enabled: enabled && !!currentUser?.id,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useMyWallet(enabled: boolean = true): UseQueryResult<WalletBalanceCard | null, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['wallet', 'me', currentUser?.id, currentUser?.role],
+    queryFn: () =>
+      fetchMyWallet({
+        currentUser,
+      }),
+    enabled: enabled && !!currentUser?.id,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useWalletActivity(
+  employeeId?: string,
+  enabled: boolean = true,
+  entryTypes?: WalletEntryType[]
+): UseQueryResult<WalletActivityEntry[], Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['wallet', 'activity', employeeId, currentUser?.id, currentUser?.role, entryTypes?.join(',') || 'all'],
+    queryFn: () =>
+      fetchWalletActivity({
+        employeeId,
+        currentUser,
+        entryTypes,
+      }),
+    enabled: enabled && !!currentUser?.id,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useWalletActivityPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  options?: {
+    employeeId?: string;
+    enabled?: boolean;
+    entryTypes?: WalletEntryType[];
+  }
+): UseQueryResult<{ data: WalletActivityEntry[]; count: number }, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: [
+      'wallet',
+      'activity',
+      'page',
+      page,
+      pageSize,
+      options?.employeeId,
+      currentUser?.id,
+      currentUser?.role,
+      options?.entryTypes?.join(',') || 'all',
+    ],
+    queryFn: () =>
+      fetchWalletActivityPage(page, pageSize, {
+        employeeId: options?.employeeId,
+        currentUser,
+        entryTypes: options?.entryTypes,
+      }),
+    enabled: (options?.enabled ?? true) && !!currentUser?.id,
+    placeholderData: (previousData) => previousData,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
   });
 }

@@ -5,10 +5,11 @@ import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
+import { OrderStatus, UserRole } from '../types';
 import { 
   useCategories, usePaymentMethods, useUnits,
   useCompanySettings, useOrderSettings, useInvoiceSettings, 
-  useSystemDefaults, useCourierSettings, useAccounts, useProducts
+  useSystemDefaults, useCourierSettings, useAccounts, useProducts, useWalletSettings
 } from '../src/hooks/useQueries';
 import { 
   useCreateCategory, useDeleteCategory, 
@@ -16,11 +17,13 @@ import {
   useCreateUnit, useDeleteUnit,
   useBatchUpdateSettings
 } from '../src/hooks/useMutations';
+import { useAuth } from '../src/contexts/AuthProvider';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
 import { fetchCarryBeeStores } from '../src/services/supabaseQueries';
 
 const SettingsPage: React.FC = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('company');
   const [showModal, setShowModal] = useState<'category' | 'payment' | 'unit' | null>(null);
   const queryClient = useQueryClient();
@@ -31,6 +34,7 @@ const SettingsPage: React.FC = () => {
   const { data: invoiceSettingsData, isPending: invoiceLoading } = useInvoiceSettings();
   const { data: systemDefaultsData, isPending: defaultsLoading } = useSystemDefaults();
   const { data: courierSettingsData, isPending: courierLoading } = useCourierSettings();
+  const { data: walletSettingsData, isPending: walletLoading } = useWalletSettings();
   const { data: categories = [], isPending: loadingCategories } = useCategories();
   const { data: paymentMethods = [], isPending: loadingPaymentMethods } = usePaymentMethods();
   const { data: units = [], isPending: loadingUnits } = useUnits();
@@ -54,6 +58,12 @@ const SettingsPage: React.FC = () => {
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
     paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
   });
+  const [walletSettings, setWalletSettings] = useState({
+    unitAmount: 0,
+    countedStatuses: Object.values(OrderStatus) as OrderStatus[],
+  });
+  const PAYROLL_STATUS_OPTIONS = Object.values(OrderStatus) as OrderStatus[];
+  const payrollSettings = walletSettings;
   const [invoiceSettings, setInvoiceSettings] = useState({ title: 'Invoice', logoWidth: 120, logoHeight: 120, footer: '' });
   const [systemDefaults, setSystemDefaults] = useState({ 
     defaultAccountId: '', 
@@ -91,6 +101,10 @@ const SettingsPage: React.FC = () => {
   React.useEffect(() => {
     if (courierSettingsData) setCourierSettings(courierSettingsData);
   }, [courierSettingsData]);
+
+  React.useEffect(() => {
+    if (walletSettingsData) setWalletSettings(walletSettingsData);
+  }, [walletSettingsData]);
 
   // Fetch CarryBee stores when credentials change (debounced to avoid rapid calls while typing)
   useEffect(() => {
@@ -136,7 +150,16 @@ const SettingsPage: React.FC = () => {
     };
   }, [courierSettings.carryBee.baseUrl, courierSettings.carryBee.clientId, courierSettings.carryBee.clientSecret, courierSettings.carryBee.clientContext]);
 
-  const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
+  const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || walletLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
+  const toggleWalletStatus = (status: OrderStatus) => {
+    setWalletSettings((current) => ({
+      ...current,
+      countedStatuses: current.countedStatuses.includes(status)
+        ? current.countedStatuses.filter((value) => value !== status)
+        : [...current.countedStatuses, status],
+    }));
+  };
+  const togglePayrollStatus = toggleWalletStatus;
 
   const handleSave = async () => {
     try {
@@ -149,7 +172,8 @@ const SettingsPage: React.FC = () => {
         order: orderSettings,
         invoice: invoiceSettings,
         defaults: systemDefaults,
-        courier: courierSettings
+        courier: courierSettings,
+        wallet: walletSettings,
       }).then(() => {
         // Update mock db for backward compatibility
         db.settings.company = companySettings;
@@ -157,6 +181,11 @@ const SettingsPage: React.FC = () => {
         db.settings.invoice = invoiceSettings;
         db.settings.defaults = systemDefaults;
         db.settings.courier = courierSettings;
+        db.settings.payroll = {
+          ...db.settings.payroll,
+          unitAmount: walletSettings.unitAmount,
+          countedStatuses: walletSettings.countedStatuses,
+        };
         
         // Update toast to success
         toast.update(toastId, 'Settings saved successfully!', 'success');
@@ -375,10 +404,29 @@ const SettingsPage: React.FC = () => {
     { id: 'company', label: 'Company', icon: ICONS.Dashboard },
     { id: 'order', label: 'Order & Invoice', icon: ICONS.Sales },
     { id: 'defaults', label: 'Defaults', icon: ICONS.Settings },
+    { id: 'wallet', label: 'Wallet', icon: ICONS.Payroll },
     { id: 'categories', label: 'Categories', icon: ICONS.More },
     { id: 'payments', label: 'Payment Methods', icon: ICONS.Banking },
     { id: 'courier', label: 'Courier', icon: ICONS.Courier },
   ];
+
+  if (!user) {
+    return <div className="p-8 text-center text-gray-500">Loading settings access...</div>;
+  }
+
+  if (user.role !== UserRole.ADMIN) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Only</p>
+          <h2 className="mt-3 text-2xl font-black text-gray-900">Settings are available to administrators only.</h2>
+          <p className="mt-2 text-sm font-medium text-gray-500">
+            Wallet configuration, order defaults, and courier credentials can only be managed by admins.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -597,6 +645,202 @@ const SettingsPage: React.FC = () => {
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'payroll' && (
+            <div className="space-y-10 animate-in fade-in duration-300">
+              <section className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h3 className="text-xl font-bold text-gray-800">Wallet Settings</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unit Amount (BDT)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={walletSettings.unitAmount}
+                      onChange={(event) =>
+                        setWalletSettings((current) => ({
+                          ...current,
+                          unitAmount: Number.parseFloat(event.target.value || '0') || 0,
+                        }))
+                      }
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                    />
+                    <p className="text-xs font-medium text-gray-400">
+                      Employees earn this amount only when their order matches one of the payable statuses below.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#d6e3f0] bg-[#f8fbff] px-5 py-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Current Preview</p>
+                    <p className="mt-3 text-lg font-black text-gray-900">{formatCurrency(walletSettings.unitAmount)}</p>
+                    <p className="mt-2 text-sm font-medium text-gray-500">
+                      Applied to each new employee-created order as a wallet credit.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h3 className="text-xl font-bold text-gray-800">Counted Order Statuses</h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    Select the exact order statuses that should be included in payroll calculations.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {PAYROLL_STATUS_OPTIONS.map((status) => {
+                    const checked = payrollSettings.countedStatuses.includes(status);
+                    return (
+                      <button
+                        type="button"
+                        key={status}
+                        onClick={() => togglePayrollStatus(status)}
+                        className={`flex items-start gap-4 rounded-2xl border px-4 py-4 text-left transition-all ${
+                          checked
+                            ? 'border-[#c7dff5] bg-[#f8fbff] shadow-sm'
+                            : 'border-gray-100 bg-gray-50/70 hover:border-gray-200 hover:bg-white'
+                        }`}
+                      >
+                        <div
+                          className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-md border text-[11px] ${
+                            checked
+                              ? 'border-[#0f2f57] bg-[#0f2f57] text-white'
+                              : 'border-gray-300 bg-white text-transparent'
+                          }`}
+                        >
+                          ✓
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-black text-gray-900">{status}</p>
+                          <p className="mt-1 text-xs font-medium text-gray-500">
+                            {checked ? 'Included in payroll calculations.' : 'Excluded from payroll calculations.'}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-2xl border border-gray-100 bg-gray-50 px-5 py-5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Selected Statuses</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {payrollSettings.countedStatuses.map((status) => (
+                      <span
+                        key={status}
+                        className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] ${theme.colors.primary[50]} ${theme.colors.primary.text}`}
+                      >
+                        {status}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'wallet' && (
+            <div className="space-y-10 animate-in fade-in duration-300">
+              <section className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h3 className="text-xl font-bold text-gray-800">Wallet Settings</h3>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Unit Amount (BDT)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={walletSettings.unitAmount}
+                      onChange={(event) =>
+                        setWalletSettings((current) => ({
+                          ...current,
+                          unitAmount: Number.parseFloat(event.target.value || '0') || 0,
+                        }))
+                      }
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                    />
+                    <p className="text-xs font-medium text-gray-400">
+                      Employees earn this amount every time they create a new order.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#d6e3f0] bg-[#f8fbff] px-5 py-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Current Preview</p>
+                    <p className="mt-3 text-lg font-black text-gray-900">{formatCurrency(walletSettings.unitAmount)}</p>
+                    <p className="mt-2 text-sm font-medium text-gray-500">
+                      Applied to employee orders that are currently in the selected payable statuses.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="border-b border-gray-100 pb-4">
+                    <h3 className="text-xl font-bold text-gray-800">Payable Orders</h3>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Choose which order statuses should add wallet credit to the corresponding employee. Multiple statuses can be selected at the same time.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {Object.values(OrderStatus).map((status) => {
+                      const checked = walletSettings.countedStatuses.includes(status);
+
+                      return (
+                        <label
+                          key={status}
+                          className={`flex cursor-pointer items-start gap-4 rounded-2xl border px-4 py-4 transition-all ${
+                            checked
+                              ? 'border-[#c7dff5] bg-[#f8fbff] shadow-sm'
+                              : 'border-gray-100 bg-gray-50/70 hover:border-gray-200 hover:bg-white'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleWalletStatus(status)}
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-[#0f2f57] focus:ring-[#3c5a82]"
+                          />
+                          <div className="flex-1">
+                            <p className="text-sm font-black text-gray-900">{status}</p>
+                            <p className="mt-1 text-xs font-medium text-gray-500">
+                              {checked ? 'Orders in this status will credit the employee wallet.' : 'Orders in this status will not credit the employee wallet.'}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50 px-5 py-5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Selected Statuses</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {walletSettings.countedStatuses.length > 0 ? (
+                        walletSettings.countedStatuses.map((status) => (
+                          <span
+                            key={status}
+                            className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] ${theme.colors.primary[50]} ${theme.colors.primary.text}`}
+                          >
+                            {status}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm font-medium text-gray-500">
+                          No payable statuses selected. No wallet credit will be added until at least one status is checked.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
           )}
 

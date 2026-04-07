@@ -258,6 +258,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               onClick={() => setIsSidebarOpen(false)}
             />
 
+            {user.role === UserRole.ADMIN ? null : (
+              <SidebarItem to="/wallet" icon={ICONS.Payroll} label="Wallet" active={isActive('/wallet')} onClick={() => setIsSidebarOpen(false)} />
+            )}
+
             {user.role === UserRole.ADMIN && (
               <>
                 <SidebarItem 
@@ -287,7 +291,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             {user.role === UserRole.ADMIN && (
               <>
                 <SidebarItem to="/reports" icon={ICONS.Reports} label="Reports" active={isActive('/reports')} onClick={() => setIsSidebarOpen(false)} />
-                <SidebarItem to="/users" icon={ICONS.Users} label="Users" active={isActive('/users')} onClick={() => setIsSidebarOpen(false)} />
+                <SidebarItem
+                  icon={ICONS.Users}
+                  label="Human Resource"
+                  active={isActive('/users') || isActive('/payroll')}
+                  children={[
+                    { to: '/users', label: 'Users', active: isActive('/users') },
+                    { to: '/payroll', label: 'Payroll', active: isActive('/payroll') }
+                  ]}
+                  onClick={() => setIsSidebarOpen(false)}
+                />
                 <SidebarItem to="/settings" icon={ICONS.Settings} label="Settings" active={isActive('/settings')} onClick={() => setIsSidebarOpen(false)} />
               </>
             )}

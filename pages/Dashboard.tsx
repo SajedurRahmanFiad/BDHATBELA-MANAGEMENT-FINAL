@@ -7,13 +7,29 @@ import { FilterBar, LoadingOverlay } from '../components';
 import { getBillActivityDate, getOrderActivityDate, getTransactionActivityDate, isWithinDateRange, FilterRange } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { 
-  useOrders, useBills, useTransactions, useCategories, useUsers
+  useOrders, useBills, useTransactions, useCategories, useUsers, useMyWallet
 } from '../src/hooks/useQueries';
 import { buildCustomerSalesRows, buildProductSalesRows } from '../src/utils/salesReportUtils';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Line, PieChart, Pie, Cell, Legend, ComposedChart 
 } from 'recharts';
+
+const roundDashboardValue = (value: number): number => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0;
+  return Math.round(numericValue);
+};
+
+const formatDashboardInteger = (value: number): string => {
+  return roundDashboardValue(value).toLocaleString('en-BD');
+};
+
+const CASH_FLOW_LABELS: Record<string, string> = {
+  income: 'Income',
+  expense: 'Expense',
+  profit: 'Profit',
+};
 
 const isSameLocalCalendarDay = (value: string | undefined, compareDate: Date = new Date()): boolean => {
   if (!value) return false;
@@ -57,7 +73,7 @@ const EMPLOYEE_STATUS_STYLES: Record<OrderStatus, { valueClass: string; barClass
 
 const EmployeeSummaryCard: React.FC<{
   title: string;
-  value: number;
+  value: string | number;
   icon: React.ReactNode;
   cardClassName: string;
   iconClassName: string;
@@ -69,7 +85,7 @@ const EmployeeSummaryCard: React.FC<{
       </div>
       <div>
         <p className="text-[9px] font-black uppercase tracking-[0.18em] text-white/80">{title}</p>
-        <p className="mt-1 text-xl font-black leading-none">{value}</p>
+        <p className="mt-1 text-lg font-black leading-none">{value}</p>
       </div>
     </div>
   </div>
@@ -89,7 +105,7 @@ const EmployeeStatusCard: React.FC<{
     <div className="rounded-[12px] border border-gray-100 bg-white px-4 py-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[16px] font-black text-gray-900">{title}</p>
-        <p className={`text-xl font-black leading-none ${valueClass}`}>{value}</p>
+        <p className={`text-lg font-black leading-none ${valueClass}`}>{value}</p>
       </div>
       <div className={`mt-5 h-3 overflow-hidden rounded-full ${trackClass}`}>
         <div className={`h-full rounded-full ${barClass}`} style={{ width: `${width}%` }} />
@@ -156,8 +172,10 @@ const Dashboard: React.FC = () => {
   const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
   const { data: allCategories = [] } = useCategories();
   const { data: users = [] } = useUsers();
+  const { data: myWallet, isPending: myWalletLoading } = useMyWallet(!isAdmin);
+  const payrollSettings = { unitAmount: 0, countedStatuses: [] as OrderStatus[] };
   
-  const loading = ordersLoading || billsLoading || transactionsLoading;
+  const loading = ordersLoading || billsLoading || transactionsLoading || (!isAdmin && myWalletLoading);
 
   const filteredOrders = useMemo(
     () => orders.filter((order) => isWithinDateRange(getOrderActivityDate(order), filterRange, customDates)),
@@ -269,6 +287,23 @@ const Dashboard: React.FC = () => {
     () => users.filter((candidate) => isEmployeeRole(candidate.role)),
     [users]
   );
+  const countedPayrollStatuses = useMemo(() => {
+    const selectedStatuses = payrollSettings.countedStatuses?.length
+      ? payrollSettings.countedStatuses
+      : [
+          OrderStatus.ON_HOLD,
+          OrderStatus.PROCESSING,
+          OrderStatus.PICKED,
+          OrderStatus.COMPLETED,
+          OrderStatus.CANCELLED,
+        ];
+
+    return new Set(selectedStatuses);
+  }, [payrollSettings.countedStatuses]);
+  const filteredPayrollOrders = useMemo(
+    () => filteredOrders.filter((order) => countedPayrollStatuses.has(order.status)),
+    [countedPayrollStatuses, filteredOrders]
+  );
   const employeeComparisonRows = useMemo(() => {
     const employeeIdSet = new Set(employeeUsers.map((candidate) => candidate.id));
     const counts = new Map<string, number>();
@@ -312,6 +347,41 @@ const Dashboard: React.FC = () => {
     () => Math.max(0, ...employeeComparisonRows.map((row) => row.orderCount)),
     [employeeComparisonRows]
   );
+  const dashboardPayrollRows = useMemo(() => {
+    const employeeIdSet = new Set(employeeUsers.map((candidate) => candidate.id));
+    const counts = new Map<string, number>();
+
+    filteredPayrollOrders.forEach((order) => {
+      if (!employeeIdSet.has(order.createdBy)) return;
+      counts.set(order.createdBy, (counts.get(order.createdBy) || 0) + 1);
+    });
+
+    return employeeUsers.map((candidate) => {
+      const countedOrders = counts.get(candidate.id) || 0;
+      return {
+        employeeId: candidate.id,
+        employeeName: candidate.name,
+        countedOrders,
+        estimatedAmount: countedOrders * payrollSettings.unitAmount,
+      };
+    });
+  }, [employeeUsers, filteredPayrollOrders, payrollSettings.unitAmount]);
+  const adminEstimatedPayroll = useMemo(
+    () => dashboardPayrollRows.reduce((sum, row) => sum + row.estimatedAmount, 0),
+    [dashboardPayrollRows]
+  );
+  const adminEmployeesDue = useMemo(
+    () => dashboardPayrollRows.filter((row) => row.countedOrders > 0).length,
+    [dashboardPayrollRows]
+  );
+  const myPayrollOrders = useMemo(
+    () => filteredMyOrders.filter((order) => countedPayrollStatuses.has(order.status)),
+    [countedPayrollStatuses, filteredMyOrders]
+  );
+  const myEstimatedPayroll = useMemo(
+    () => myPayrollOrders.length * payrollSettings.unitAmount,
+    [myPayrollOrders, payrollSettings.unitAmount]
+  );
 
   // --- CHART DATA ---
   // Calculate cash flow by month from UNFILTERED real data (not affected by FilterBar)
@@ -341,9 +411,9 @@ const Dashboard: React.FC = () => {
     // Convert to chart format
     return months.map(name => ({
       name,
-      income: aggregatedData[name].income,
-      expense: -aggregatedData[name].expense, // Negative for visualization
-      profit: aggregatedData[name].income - aggregatedData[name].expense
+      income: roundDashboardValue(aggregatedData[name].income),
+      expense: -roundDashboardValue(aggregatedData[name].expense), // Negative for visualization
+      profit: roundDashboardValue(aggregatedData[name].income - aggregatedData[name].expense)
     }));
   }, [orders, bills, transactions]);
 
@@ -383,7 +453,7 @@ const Dashboard: React.FC = () => {
     // Convert to chart format, ensuring we always have data
     const data = Object.entries(expenseMap).map(([name, value]) => ({
       name,
-      value: Math.max(value, 1), // Ensure at least 1 to show in pie chart
+      value: Math.max(roundDashboardValue(value), 1), // Ensure at least 1 to show in pie chart
       color: colorMap[name]
     }));
 
@@ -427,6 +497,40 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
+        {false && (
+        <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900">Payroll Snapshot</h3>
+              <p className="mt-1.5 text-sm font-medium text-gray-500">
+                Estimated employee payroll for the current dashboard period using the active payroll settings.
+              </p>
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
+              {countedPayrollStatuses.size} counted statuses • unit rate {formatCurrency(payrollSettings.unitAmount)}
+            </p>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-[#d6e3f0] bg-[#f8fbff] px-5 py-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Estimated Payroll</p>
+              <p className="mt-3 text-lg font-black text-gray-900">{formatCurrency(adminEstimatedPayroll)}</p>
+              <p className="mt-2 text-sm font-medium text-gray-500">Total live payroll amount for the filtered dashboard window.</p>
+            </div>
+            <div className="rounded-2xl border border-gray-100 bg-white px-5 py-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Employees Due</p>
+              <p className="mt-3 text-lg font-black text-gray-900">{adminEmployeesDue}</p>
+              <p className="mt-2 text-sm font-medium text-gray-500">Employees with at least one qualifying order in this period.</p>
+            </div>
+            <div className="rounded-2xl border border-gray-100 bg-white px-5 py-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Counted Orders</p>
+              <p className="mt-3 text-lg font-black text-gray-900">{filteredPayrollOrders.length}</p>
+              <p className="mt-2 text-sm font-medium text-gray-500">Orders currently included by the configured payroll statuses.</p>
+            </div>
+          </div>
+        </section>
+        )}
+
         <div className="bg-white p-8 rounded-xl border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -449,8 +553,15 @@ const Dashboard: React.FC = () => {
                 <ComposedChart data={monthlyData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} />
-                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} cursor={{ fill: '#f8fafc' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} tickFormatter={(value) => formatDashboardInteger(Number(value))} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                    cursor={{ fill: '#f8fafc' }}
+                    formatter={(value: number | string, name: string) => [
+                      formatCurrency(Math.abs(roundDashboardValue(Number(value)))),
+                      CASH_FLOW_LABELS[String(name)] || String(name),
+                    ]}
+                  />
                   <Bar dataKey="income" fill="#059669" radius={[4, 4, 0, 0]} barSize={40} />
                   <Bar dataKey="expense" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={40} />
                   <Line type="monotone" dataKey="profit" stroke="#8B5CF6" strokeWidth={4} dot={{ r: 6, fill: '#8B5CF6', strokeWidth: 2, stroke: '#fff' }} />
@@ -459,8 +570,15 @@ const Dashboard: React.FC = () => {
                 <ComposedChart data={monthlyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} />
-                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} cursor={{ fill: '#f8fafc' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }} tickFormatter={(value) => formatDashboardInteger(Number(value))} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                    cursor={{ fill: '#f8fafc' }}
+                    formatter={(value: number | string, name: string) => [
+                      formatCurrency(Math.abs(roundDashboardValue(Number(value)))),
+                      CASH_FLOW_LABELS[String(name)] || String(name),
+                    ]}
+                  />
                   <Bar dataKey="income" fill="#059669" radius={[4, 4, 0, 0]} barSize={40} />
                   <Bar dataKey="expense" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={40} />
                   <Line type="monotone" dataKey="profit" stroke="#8B5CF6" strokeWidth={4} dot={{ r: 6, fill: '#8B5CF6', strokeWidth: 2, stroke: '#fff' }} />
@@ -554,7 +672,7 @@ const Dashboard: React.FC = () => {
                   <Pie data={expenseByCategory} innerRadius={0} outerRadius={100} dataKey="value">
                     {expenseByCategory.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value: number | string) => formatCurrency(roundDashboardValue(Number(value)))} />
                   {isMobile ? (
                     <Legend verticalAlign="bottom" align="center" layout="horizontal" wrapperStyle={{ paddingTop: '20px' }} />
                   ) : (
@@ -581,7 +699,7 @@ const Dashboard: React.FC = () => {
       />
 
       <section className="rounded-[16px] border border-gray-100 bg-white p-5 shadow-sm md:p-8">
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-4 xl:grid-cols-4">
           <EmployeeSummaryCard
             title="Total Created"
             value={myTotalCreated}
@@ -602,6 +720,13 @@ const Dashboard: React.FC = () => {
             icon={ICONS.More}
             cardClassName="bg-gradient-to-r from-[#ff7a11] to-[#ff7a11]"
             iconClassName="bg-[#ef6800]"
+          />
+          <EmployeeSummaryCard
+            title="Wallet Balance"
+            value={formatCurrency(myWallet?.currentBalance ?? 0)}
+            icon={ICONS.Payroll}
+            cardClassName="bg-gradient-to-r from-[#119f57] to-[#43cf7f]"
+            iconClassName="bg-[#0d7f46]"
           />
         </div>
 

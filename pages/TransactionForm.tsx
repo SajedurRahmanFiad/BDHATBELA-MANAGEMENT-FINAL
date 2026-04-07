@@ -142,7 +142,7 @@ const TransactionForm: React.FC = () => {
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount (BDT)</label>
             <input 
               type="number" 
-              className={`w-full text-xl font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? '${theme.colors.primary[600]}' : 'text-red-600'}`}
+              className={`w-full text-lg font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? '${theme.colors.primary[600]}' : 'text-red-600'}`}
               value={form.amount}
               onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})}
               placeholder="0.00"

@@ -717,7 +717,7 @@ const buildUserReportPdfHtml = (params: {
 const MetricCard: React.FC<{ label: string; value: string; hint: string; tone: string }> = ({ label, value, hint, tone }) => (
   <div className={`rounded-2xl border p-4 ${tone}`}>
     <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">{label}</p>
-    <h4 className="mt-3 text-2xl font-black">{value}</h4>
+    <h4 className="mt-3 text-lg font-black">{value}</h4>
     <p className="mt-2 text-xs font-semibold opacity-80">{hint}</p>
   </div>
 );

@@ -1,8 +1,30 @@
 /// <reference types="vite/client" />
 import supabase from './supabaseClient';
-import { Customer, Order, Bill, Account, Transaction, User, Vendor, Product, OrderStatus, BillStatus, isEmployeeRole } from '../../types';
+import {
+  Customer,
+  Order,
+  Bill,
+  Account,
+  Transaction,
+  User,
+  Vendor,
+  Product,
+  OrderStatus,
+  BillStatus,
+  UserRole,
+  PayrollPayment,
+  PayrollSettings,
+  PayrollSummaryRow,
+  WalletActivityEntry,
+  WalletEntryType,
+  WalletBalanceCard,
+  WalletPayout,
+  WalletSettings,
+  isEmployeeRole,
+} from '../../types';
 import { db } from '../../db';
-import { normalizeUtcTimestamp } from '../../utils';
+import { getOrderActivityDate, normalizeUtcTimestamp } from '../../utils';
+import { isDateWithinPayrollPeriod } from '../utils/payroll';
 
 export const DEFAULT_PAGE_SIZE = 25;
 
@@ -59,6 +81,14 @@ function getCurrentUserId(): string {
     throw new Error('User session not available for mutation');
   }
   return user.id;
+}
+
+function getCurrentUserProfile(): User | null {
+  return ((db as any).currentUser || null) as User | null;
+}
+
+function isCurrentUserAdmin(): boolean {
+  return getCurrentUserProfile()?.role === UserRole.ADMIN;
 }
 
 function getCurrentOrderAccessContext(): { userId: string | null; restrictOrderMutationsToOwn: boolean } {
@@ -605,7 +635,17 @@ export async function createOrder(order: Omit<Order, 'id'>) {
     paperfly_tracking_number: data.paperfly_tracking_number,
   };
 
-  return mapOrder(mappedData);
+  const createdOrder = mapOrder(mappedData);
+
+  await syncWalletCreditForOrder({
+    id: createdOrder.id,
+    createdBy: createdOrder.createdBy,
+    status: createdOrder.status,
+    orderNumber: createdOrder.orderNumber,
+    createdAt: createdOrder.createdAt,
+  });
+
+  return createdOrder;
 }
 
 type LineItem = { productId?: string; quantity?: number };
@@ -837,7 +877,19 @@ export async function updateOrder(id: string, updates: Partial<Order>) {
     throw stockErr;
   }
 
-  return mapOrder(fullData);
+  const updatedOrder = mapOrder(fullData);
+
+  if (updates.status !== undefined) {
+    await syncWalletCreditForOrder({
+      id: updatedOrder.id,
+      createdBy: updatedOrder.createdBy,
+      status: updatedOrder.status,
+      orderNumber: updatedOrder.orderNumber,
+      createdAt: updatedOrder.createdAt,
+    });
+  }
+
+  return updatedOrder;
 }
 
 export async function deleteOrder(id: string) {
@@ -857,39 +909,13 @@ export async function deleteOrder(id: string) {
 
   assertEmployeeCanAccessOrder(existingOrderRow, 'delete');
 
-  // Delete related transactions for this order:
-  // - Sale Income transactions (type = 'Income')
-  // - Shipping Expense transactions (type = 'Expense' and category = 'expense_shipping')
-  const { error: incomeErr } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('reference_id', id)
-    .eq('type', 'Income');
-
-  if (incomeErr) {
-    console.error('[supabaseQueries] deleteOrder: failed to delete income transactions:', incomeErr);
-    throw incomeErr;
-  }
-
-  const { error: shippingErr } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('reference_id', id)
-    .eq('type', 'Expense')
-    .eq('category', 'expense_shipping');
-
-  if (shippingErr) {
-    console.error('[supabaseQueries] deleteOrder: failed to delete shipping expense transactions:', shippingErr);
-    throw shippingErr;
-  }
-
-  const { error } = await supabase
-    .from('orders')
-    .delete()
-    .eq('id', id);
+  const { error } = await supabase.rpc('delete_order_atomic', {
+    p_order_id: id,
+    p_deleted_by: getCurrentUserId(),
+  });
 
   if (error) {
-    console.error('[supabaseQueries] deleteOrder error:', error);
+    console.error('[supabaseQueries] deleteOrder rpc error:', error);
     throw error;
   }
 }
@@ -2997,6 +3023,944 @@ export async function updateCourierSettings(updates: {
   }
 }
 
+// ========== PAYROLL ==========
+
+const DEFAULT_PAYROLL_STATUSES: OrderStatus[] = [
+  OrderStatus.ON_HOLD,
+  OrderStatus.PROCESSING,
+  OrderStatus.PICKED,
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
+];
+
+function normalizePayrollStatuses(input: unknown): OrderStatus[] {
+  const allowed = new Set<string>(Object.values(OrderStatus));
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(input) ? input : [])
+        .map((value) => String(value || '').trim())
+        .filter((value) => allowed.has(value))
+    )
+  ) as OrderStatus[];
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  if (Array.isArray(input)) {
+    return [];
+  }
+
+  return [...DEFAULT_PAYROLL_STATUSES];
+}
+
+function getDefaultPayrollSettings(): PayrollSettings {
+  return {
+    unitAmount: 0,
+    countedStatuses: [...DEFAULT_PAYROLL_STATUSES],
+  };
+}
+
+function mapPayrollSettings(row: any): PayrollSettings {
+  return {
+    unitAmount: Number(row?.unit_amount ?? row?.unitAmount ?? 0),
+    countedStatuses: normalizePayrollStatuses(row?.counted_statuses ?? row?.countedStatuses),
+  };
+}
+
+function mapPayrollPayment(row: any, userMap?: Map<string, User>): PayrollPayment {
+  const employee = userMap?.get(String(row?.employee_id || ''));
+  const payer = userMap?.get(String(row?.paid_by || ''));
+
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: row.employee_name || employee?.name || undefined,
+    employeeRole: employee?.role,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    periodKind: row.period_kind,
+    periodLabel: row.period_label || `${row.period_start} - ${row.period_end}`,
+    unitAmountSnapshot: Number(row.unit_amount_snapshot ?? 0),
+    countedStatusesSnapshot: normalizePayrollStatuses(row.counted_statuses_snapshot),
+    orderCountSnapshot: Number(row.order_count_snapshot ?? 0),
+    amountSnapshot: Number(row.amount_snapshot ?? 0),
+    paidAt: normalizeUtcTimestamp(row.paid_at) || String(row.paid_at || ''),
+    paidBy: row.paid_by,
+    paidByName: row.paid_by_name || payer?.name || undefined,
+    note: row.note || '',
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
+  };
+}
+
+export async function fetchPayrollSettings(): Promise<PayrollSettings> {
+  try {
+    const { data, error } = await supabase
+      .from('payroll_settings')
+      .select('*')
+      .maybeSingle();
+
+    if (error || !data) {
+      if (error) {
+        console.error('[supabaseQueries] fetchPayrollSettings error:', error);
+      }
+      return getDefaultPayrollSettings();
+    }
+
+    return mapPayrollSettings(data);
+  } catch (err) {
+    console.error('[supabaseQueries] fetchPayrollSettings exception:', err);
+    return getDefaultPayrollSettings();
+  }
+}
+
+export async function updatePayrollSettings(
+  updates: Partial<PayrollSettings>
+): Promise<PayrollSettings> {
+  await ensureAuthenticated();
+
+  try {
+    const current = await fetchPayrollSettings();
+    const merged = {
+      unit_amount: updates.unitAmount !== undefined ? updates.unitAmount : current.unitAmount,
+      counted_statuses: normalizePayrollStatuses(updates.countedStatuses ?? current.countedStatuses),
+    };
+
+    const { data: existingData } = await supabase
+      .from('payroll_settings')
+      .select('id')
+      .limit(1)
+      .maybeSingle();
+
+    let result;
+    if (existingData?.id) {
+      const { data, error } = await supabase
+        .from('payroll_settings')
+        .update(merged)
+        .eq('id', existingData.id)
+        .select()
+        .maybeSingle();
+
+      if (error) throw error;
+      result = data;
+    } else {
+      const { data, error } = await supabase
+        .from('payroll_settings')
+        .insert(merged)
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+    }
+
+    return mapPayrollSettings(result || merged);
+  } catch (err) {
+    console.error('[supabaseQueries] updatePayrollSettings error:', err);
+    throw err;
+  }
+}
+
+export async function fetchPayrollEmployees(): Promise<User[]> {
+  const currentUser = getCurrentUserProfile();
+  const employees = (await fetchUsers())
+    .filter((candidate) => isEmployeeRole(candidate.role))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  if (!currentUser) return employees;
+  if (currentUser.role === UserRole.ADMIN) return employees;
+  if (isEmployeeRole(currentUser.role)) {
+    return employees.filter((candidate) => candidate.id === currentUser.id);
+  }
+
+  return [];
+}
+
+export async function fetchPayrollHistory(params?: {
+  periodStart?: string;
+  periodEnd?: string;
+  employeeId?: string;
+  currentUser?: Pick<User, 'id' | 'role'> | null;
+}): Promise<PayrollPayment[]> {
+  const currentUser = params?.currentUser || getCurrentUserProfile();
+  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+    throw new Error('Payroll history is available to admins only.');
+  }
+
+  let query: any = supabase
+    .from('payroll_payments')
+    .select('*')
+    .order('paid_at', { ascending: false });
+
+  if (params?.employeeId) {
+    query = query.eq('employee_id', params.employeeId);
+  }
+
+  if (params?.periodStart && params?.periodEnd) {
+    query = query
+      .lte('period_start', params.periodEnd)
+      .gte('period_end', params.periodStart);
+  } else if (params?.periodStart) {
+    query = query.gte('period_end', params.periodStart);
+  } else if (params?.periodEnd) {
+    query = query.lte('period_start', params.periodEnd);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[supabaseQueries] fetchPayrollHistory error:', error);
+    throw error;
+  }
+
+  const users = await fetchUsers();
+  const userMap = new Map(users.map((candidate) => [candidate.id, candidate]));
+
+  return (data || []).map((row: any) => mapPayrollPayment(row, userMap));
+}
+
+export async function fetchPayrollSummaries(params: {
+  periodStart: string;
+  periodEnd: string;
+  employeeId?: string;
+  currentUser?: Pick<User, 'id' | 'role' | 'name'> | null;
+}): Promise<PayrollSummaryRow[]> {
+  const currentUser = params.currentUser || getCurrentUserProfile();
+  if (!currentUser?.id || !params.periodStart || !params.periodEnd) return [];
+
+  const payrollSettings = await fetchPayrollSettings();
+  const countedStatuses = normalizePayrollStatuses(payrollSettings.countedStatuses);
+
+  const targetEmployeeId = currentUser.role === UserRole.ADMIN
+    ? params.employeeId || undefined
+    : currentUser.id;
+
+  const employees = await fetchPayrollEmployees();
+  const relevantEmployees = employees.filter((candidate) =>
+    targetEmployeeId ? candidate.id === targetEmployeeId : true
+  );
+
+  const employeeIds = new Set(relevantEmployees.map((candidate) => candidate.id));
+  if (employeeIds.size === 0) return [];
+
+  const orderRows = await queryAllRows<any>(
+    (from, to) =>
+      supabase
+        .from('orders_with_customer_creator')
+        .select('created_by, creator_name, created_at, order_date, history, status')
+        .order('created_at', { ascending: false })
+        .range(from, to)
+  );
+
+  const orderCounts = new Map<string, number>();
+
+  orderRows.forEach((row: any) => {
+    const createdBy = String(row?.created_by || '').trim();
+    if (!employeeIds.has(createdBy)) return;
+    if (!countedStatuses.includes(row.status as OrderStatus)) return;
+
+    const activityDate = getOrderActivityDate({
+      createdAt: row.created_at ?? row.createdAt,
+      orderDate: row.order_date ?? row.orderDate,
+      history: row.history || undefined,
+    });
+
+    if (!isDateWithinPayrollPeriod(activityDate, params.periodStart, params.periodEnd)) return;
+    orderCounts.set(createdBy, (orderCounts.get(createdBy) || 0) + 1);
+  });
+
+  let paymentQuery: any = supabase
+    .from('payroll_payments')
+    .select('*')
+    .lte('period_start', params.periodEnd)
+    .gte('period_end', params.periodStart);
+
+  if (targetEmployeeId) {
+    paymentQuery = paymentQuery.eq('employee_id', targetEmployeeId);
+  } else {
+    paymentQuery = paymentQuery.in('employee_id', Array.from(employeeIds));
+  }
+
+  const { data: paymentRows, error: paymentError } = await paymentQuery;
+  if (paymentError) {
+    console.error('[supabaseQueries] fetchPayrollSummaries payment lookup error:', paymentError);
+    throw paymentError;
+  }
+
+  const userMap = new Map(relevantEmployees.map((candidate) => [candidate.id, candidate]));
+  const paymentByEmployee = new Map<string, PayrollPayment>();
+  (paymentRows || []).forEach((row: any) => {
+    paymentByEmployee.set(String(row.employee_id), mapPayrollPayment(row, userMap));
+  });
+
+  return relevantEmployees
+    .map((employee) => {
+      const countedOrderCount = orderCounts.get(employee.id) || 0;
+      const estimatedAmount = countedOrderCount * payrollSettings.unitAmount;
+      const paymentSnapshot = paymentByEmployee.get(employee.id);
+
+      return {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeRole: employee.role,
+        countedOrderCount,
+        unitAmount: payrollSettings.unitAmount,
+        estimatedAmount,
+        paymentStatus: paymentSnapshot ? 'paid' : 'unpaid',
+        paymentSnapshot,
+        liveAmountDelta: paymentSnapshot ? estimatedAmount - paymentSnapshot.amountSnapshot : 0,
+        liveOrderCountDelta: paymentSnapshot ? countedOrderCount - paymentSnapshot.orderCountSnapshot : 0,
+      } satisfies PayrollSummaryRow;
+    })
+    .sort((left, right) => {
+      if (left.paymentStatus !== right.paymentStatus) {
+        return left.paymentStatus === 'unpaid' ? -1 : 1;
+      }
+      if (right.estimatedAmount !== left.estimatedAmount) {
+        return right.estimatedAmount - left.estimatedAmount;
+      }
+      return left.employeeName.localeCompare(right.employeeName);
+    });
+}
+
+export async function markPayrollPaid(payload: {
+  employeeId: string;
+  periodStart: string;
+  periodEnd: string;
+  periodKind: 'month' | 'custom';
+  periodLabel: string;
+  unitAmountSnapshot: number;
+  countedStatusesSnapshot: OrderStatus[];
+  orderCountSnapshot: number;
+  amountSnapshot: number;
+  note?: string;
+}): Promise<PayrollPayment> {
+  await ensureAuthenticated();
+
+  const currentUser = getCurrentUserProfile();
+  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+    throw new Error('Only admins can mark payroll as paid.');
+  }
+
+  const { data: overlappingRecord, error: overlapError } = await supabase
+    .from('payroll_payments')
+    .select('id')
+    .eq('employee_id', payload.employeeId)
+    .lte('period_start', payload.periodEnd)
+    .gte('period_end', payload.periodStart)
+    .limit(1)
+    .maybeSingle();
+
+  if (overlapError) {
+    console.error('[supabaseQueries] markPayrollPaid overlap check error:', overlapError);
+    throw overlapError;
+  }
+
+  if (overlappingRecord?.id) {
+    throw new Error('This employee already has payroll recorded for an overlapping period.');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('payroll_payments')
+      .insert({
+        employee_id: payload.employeeId,
+        period_start: payload.periodStart,
+        period_end: payload.periodEnd,
+        period_kind: payload.periodKind,
+        period_label: payload.periodLabel,
+        unit_amount_snapshot: payload.unitAmountSnapshot,
+        counted_statuses_snapshot: normalizePayrollStatuses(payload.countedStatusesSnapshot),
+        order_count_snapshot: payload.orderCountSnapshot,
+        amount_snapshot: payload.amountSnapshot,
+        paid_at: new Date().toISOString(),
+        paid_by: currentUser.id,
+        note: payload.note?.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const userMap = new Map<string, User>([[currentUser.id, currentUser as User]]);
+    return mapPayrollPayment(data, userMap);
+  } catch (err: any) {
+    const errorText = String(err?.message || err || '');
+    if (
+      errorText.includes('no_overlapping_payroll_periods') ||
+      errorText.toLowerCase().includes('exclusion constraint')
+    ) {
+      throw new Error('This employee already has payroll recorded for an overlapping period.');
+    }
+
+    console.error('[supabaseQueries] markPayrollPaid error:', err);
+    throw err;
+  }
+}
+
+// ========== WALLET ==========
+
+function mapWalletBalanceCard(row: any): WalletBalanceCard {
+  return {
+    employeeId: String(row.employee_id ?? row.employeeId ?? ''),
+    employeeName: row.employee_name ?? row.employeeName ?? 'Unknown Employee',
+    employeeRole: (row.employee_role ?? row.employeeRole ?? UserRole.EMPLOYEE) as UserRole,
+    currentBalance: Number(row.current_balance ?? row.currentBalance ?? 0),
+    totalEarned: Number(row.total_earned ?? row.totalEarned ?? 0),
+    totalPaid: Number(row.total_paid ?? row.totalPaid ?? 0),
+    creditedOrders: Number(row.credited_orders ?? row.creditedOrders ?? 0),
+    lastActivityAt: normalizeUtcTimestamp(row.last_activity_at ?? row.lastActivityAt) || undefined,
+  };
+}
+
+function mapWalletActivityEntry(row: any): WalletActivityEntry {
+  return {
+    id: String(row.id),
+    employeeId: String(row.employee_id ?? row.employeeId ?? ''),
+    employeeName: row.employee_name ?? row.employeeName ?? undefined,
+    employeeRole: (row.employee_role ?? row.employeeRole ?? undefined) as UserRole | undefined,
+    entryType: String(row.entry_type ?? row.entryType ?? 'order_credit') as WalletActivityEntry['entryType'],
+    amountDelta: Number(row.amount_delta ?? row.amountDelta ?? 0),
+    unitAmountSnapshot: row.unit_amount_snapshot !== undefined && row.unit_amount_snapshot !== null
+      ? Number(row.unit_amount_snapshot)
+      : row.unitAmountSnapshot !== undefined && row.unitAmountSnapshot !== null
+        ? Number(row.unitAmountSnapshot)
+        : undefined,
+    orderId: row.order_id ?? row.orderId ?? undefined,
+    orderNumber: row.order_number ?? row.orderNumber ?? undefined,
+    payoutId: row.payout_id ?? row.payoutId ?? undefined,
+    transactionId: row.transaction_id ?? row.transactionId ?? undefined,
+    accountId: row.account_id ?? row.accountId ?? undefined,
+    accountName: row.account_name ?? row.accountName ?? undefined,
+    paymentMethod: row.payment_method ?? row.paymentMethod ?? undefined,
+    categoryId: row.category_id ?? row.categoryId ?? undefined,
+    categoryName: row.category_name ?? row.categoryName ?? undefined,
+    note: row.note ?? undefined,
+    createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || String(row.created_at ?? row.createdAt ?? ''),
+    createdBy: row.created_by ?? row.createdBy ?? undefined,
+    createdByName: row.created_by_name ?? row.createdByName ?? undefined,
+    paidAt: normalizeUtcTimestamp(row.paid_at ?? row.paidAt) || undefined,
+    paidBy: row.paid_by ?? row.paidBy ?? undefined,
+    paidByName: row.paid_by_name ?? row.paidByName ?? undefined,
+  };
+}
+
+function mapWalletPayout(row: any): WalletPayout {
+  return {
+    id: String(row.id),
+    employeeId: String(row.employee_id ?? row.employeeId ?? ''),
+    amount: Number(row.amount ?? 0),
+    accountId: String(row.account_id ?? row.accountId ?? ''),
+    paymentMethod: String(row.payment_method ?? row.paymentMethod ?? ''),
+    categoryId: String(row.category_id ?? row.categoryId ?? ''),
+    transactionId: String(row.transaction_id ?? row.transactionId ?? ''),
+    paidAt: normalizeUtcTimestamp(row.paid_at ?? row.paidAt) || String(row.paid_at ?? row.paidAt ?? ''),
+    paidBy: String(row.paid_by ?? row.paidBy ?? ''),
+    paidByName: row.paid_by_name ?? row.paidByName ?? undefined,
+    note: row.note ?? undefined,
+  };
+}
+
+type WalletOrderSyncRow = {
+  id: string;
+  createdBy: string;
+  status: OrderStatus;
+  orderNumber?: string;
+  createdAt?: string;
+};
+
+type WalletEntrySyncRow = {
+  id: string;
+  employeeId: string;
+  entryType: WalletEntryType;
+  amountDelta: number;
+  unitAmountSnapshot?: number;
+  sourceOrderId: string;
+  sourceOrderNumber?: string;
+};
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function deleteWalletEntryRows(entryIds: string[]): Promise<void> {
+  for (const chunk of chunkArray(entryIds.filter(Boolean), 200)) {
+    if (chunk.length === 0) continue;
+    const { error } = await supabase
+      .from('wallet_entries')
+      .delete()
+      .in('id', chunk);
+
+    if (error) {
+      console.error('[supabaseQueries] deleteWalletEntryRows error:', error);
+      throw error;
+    }
+  }
+}
+
+async function insertWalletEntryRows(rows: Array<Record<string, any>>): Promise<void> {
+  for (const chunk of chunkArray(rows, 200)) {
+    if (chunk.length === 0) continue;
+    const { error } = await supabase
+      .from('wallet_entries')
+      .insert(chunk);
+
+    if (error) {
+      console.error('[supabaseQueries] insertWalletEntryRows error:', error);
+      throw error;
+    }
+  }
+}
+
+function isWalletStatusPayable(
+  status: string | undefined,
+  countedStatuses: OrderStatus[]
+): status is OrderStatus {
+  return !!status && countedStatuses.includes(status as OrderStatus);
+}
+
+async function syncWalletCreditForOrder(
+  order: WalletOrderSyncRow,
+  walletSettings?: WalletSettings
+): Promise<void> {
+  if (!order.id || !order.createdBy) return;
+
+  const creator = await fetchUserById(order.createdBy);
+  if (!creator || !isEmployeeRole(creator.role)) return;
+
+  const effectiveSettings = walletSettings ?? await fetchWalletSettings();
+  const payableStatuses = normalizePayrollStatuses(effectiveSettings.countedStatuses);
+  const actorId = getCurrentUserProfile()?.id || order.createdBy;
+  const nowIso = new Date().toISOString();
+
+  const { data: rawEntries, error } = await supabase
+    .from('wallet_entries')
+    .select('id, employee_id, entry_type, amount_delta, unit_amount_snapshot, source_order_id, source_order_number')
+    .eq('source_order_id', order.id)
+    .in('entry_type', ['order_credit', 'order_reversal'])
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('[supabaseQueries] syncWalletCreditForOrder entry fetch error:', error);
+    throw error;
+  }
+
+  const entries: WalletEntrySyncRow[] = (rawEntries || []).map((row: any) => ({
+    id: String(row.id),
+    employeeId: String(row.employee_id ?? ''),
+    entryType: String(row.entry_type ?? 'order_credit') as WalletEntryType,
+    amountDelta: Number(row.amount_delta ?? 0),
+    unitAmountSnapshot: row.unit_amount_snapshot !== undefined && row.unit_amount_snapshot !== null
+      ? Number(row.unit_amount_snapshot)
+      : undefined,
+    sourceOrderId: String(row.source_order_id ?? ''),
+    sourceOrderNumber: row.source_order_number ?? undefined,
+  }));
+
+  const creditEntry = entries.find((entry) => entry.entryType === 'order_credit');
+  const reversalEntries = entries.filter((entry) => entry.entryType === 'order_reversal');
+
+  if (!creditEntry && reversalEntries.length > 0) {
+    await deleteWalletEntryRows(reversalEntries.map((entry) => entry.id));
+  }
+
+  if (isWalletStatusPayable(order.status, payableStatuses)) {
+    if (reversalEntries.length > 0) {
+      await deleteWalletEntryRows(reversalEntries.map((entry) => entry.id));
+    }
+
+    if (!creditEntry && effectiveSettings.unitAmount > 0) {
+      await insertWalletEntryRows([
+        {
+          employee_id: order.createdBy,
+          entry_type: 'order_credit',
+          amount_delta: effectiveSettings.unitAmount,
+          unit_amount_snapshot: effectiveSettings.unitAmount,
+          source_order_id: order.id,
+          source_order_number: order.orderNumber || null,
+          note: 'Wallet credit added because the order is in a payable status.',
+          created_at: nowIso,
+          created_by: actorId,
+        },
+      ]);
+    }
+
+    return;
+  }
+
+  if (creditEntry && reversalEntries.length === 0) {
+    await insertWalletEntryRows([
+      {
+        employee_id: order.createdBy,
+        entry_type: 'order_reversal',
+        amount_delta: -Math.abs(creditEntry.amountDelta),
+        unit_amount_snapshot: creditEntry.unitAmountSnapshot ?? Math.abs(creditEntry.amountDelta),
+        source_order_id: order.id,
+        source_order_number: order.orderNumber || creditEntry.sourceOrderNumber || null,
+        note: 'Wallet credit reversed because the order is not in a payable status.',
+        created_at: nowIso,
+        created_by: actorId,
+      },
+    ]);
+  }
+}
+
+async function syncWalletCreditsForPayableStatuses(walletSettings: WalletSettings): Promise<void> {
+  const employees = await fetchPayrollEmployees();
+  const employeeIds = employees.map((employee) => employee.id).filter(Boolean);
+  if (employeeIds.length === 0) return;
+
+  const payableStatuses = normalizePayrollStatuses(walletSettings.countedStatuses);
+  const actorId = getCurrentUserProfile()?.id || null;
+  const nowIso = new Date().toISOString();
+
+  const orders = await queryAllRows<any>((from, to) =>
+    supabase
+      .from('orders')
+      .select('id, created_by, status, order_number, created_at')
+      .in('created_by', employeeIds)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+  );
+
+  const walletEntries = await queryAllRows<any>((from, to) =>
+    supabase
+      .from('wallet_entries')
+      .select('id, employee_id, entry_type, amount_delta, unit_amount_snapshot, source_order_id, source_order_number')
+      .in('employee_id', employeeIds)
+      .not('source_order_id', 'is', null)
+      .in('entry_type', ['order_credit', 'order_reversal'])
+      .order('created_at', { ascending: true })
+      .range(from, to)
+  );
+
+  const entriesByOrderId = new Map<string, WalletEntrySyncRow[]>();
+  (walletEntries || []).forEach((row: any) => {
+    const sourceOrderId = String(row.source_order_id ?? '');
+    if (!sourceOrderId) return;
+    const mappedRow: WalletEntrySyncRow = {
+      id: String(row.id),
+      employeeId: String(row.employee_id ?? ''),
+      entryType: String(row.entry_type ?? 'order_credit') as WalletEntryType,
+      amountDelta: Number(row.amount_delta ?? 0),
+      unitAmountSnapshot: row.unit_amount_snapshot !== undefined && row.unit_amount_snapshot !== null
+        ? Number(row.unit_amount_snapshot)
+        : undefined,
+      sourceOrderId,
+      sourceOrderNumber: row.source_order_number ?? undefined,
+    };
+    entriesByOrderId.set(sourceOrderId, [...(entriesByOrderId.get(sourceOrderId) || []), mappedRow]);
+  });
+
+  const reversalIdsToDelete: string[] = [];
+  const rowsToInsert: Array<Record<string, any>> = [];
+
+  (orders || []).forEach((row: any) => {
+    const order: WalletOrderSyncRow = {
+      id: String(row.id),
+      createdBy: String(row.created_by ?? ''),
+      status: String(row.status ?? OrderStatus.ON_HOLD) as OrderStatus,
+      orderNumber: row.order_number ?? undefined,
+      createdAt: normalizeUtcTimestamp(row.created_at ?? row.createdAt) || undefined,
+    };
+    const orderEntries = entriesByOrderId.get(order.id) || [];
+    const creditEntry = orderEntries.find((entry) => entry.entryType === 'order_credit');
+    const reversalEntries = orderEntries.filter((entry) => entry.entryType === 'order_reversal');
+    const shouldBeCredited = isWalletStatusPayable(order.status, payableStatuses);
+
+    if (!creditEntry && reversalEntries.length > 0) {
+      reversalIdsToDelete.push(...reversalEntries.map((entry) => entry.id));
+    }
+
+    if (shouldBeCredited) {
+      if (reversalEntries.length > 0) {
+        reversalIdsToDelete.push(...reversalEntries.map((entry) => entry.id));
+      }
+
+      if (!creditEntry && walletSettings.unitAmount > 0) {
+        rowsToInsert.push({
+          employee_id: order.createdBy,
+          entry_type: 'order_credit',
+          amount_delta: walletSettings.unitAmount,
+          unit_amount_snapshot: walletSettings.unitAmount,
+          source_order_id: order.id,
+          source_order_number: order.orderNumber || null,
+          note: 'Wallet credit added because the order is in a payable status.',
+          created_at: nowIso,
+          created_by: actorId || order.createdBy,
+        });
+      }
+
+      return;
+    }
+
+    if (creditEntry && reversalEntries.length === 0) {
+      rowsToInsert.push({
+        employee_id: order.createdBy,
+        entry_type: 'order_reversal',
+        amount_delta: -Math.abs(creditEntry.amountDelta),
+        unit_amount_snapshot: creditEntry.unitAmountSnapshot ?? Math.abs(creditEntry.amountDelta),
+        source_order_id: order.id,
+        source_order_number: order.orderNumber || creditEntry.sourceOrderNumber || null,
+        note: 'Wallet credit reversed because the order is not in a payable status.',
+        created_at: nowIso,
+        created_by: actorId || order.createdBy,
+      });
+    }
+  });
+
+  const uniqueReversalIds = Array.from(new Set(reversalIdsToDelete));
+  if (uniqueReversalIds.length > 0) {
+    await deleteWalletEntryRows(uniqueReversalIds);
+  }
+
+  if (rowsToInsert.length > 0) {
+    await insertWalletEntryRows(rowsToInsert);
+  }
+}
+
+function isMissingWalletSchemaError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '');
+  return code === 'PGRST205' || message.includes('employee_wallet_balances') || message.includes('wallet_activity_with_relations');
+}
+
+export async function fetchWalletSettings(): Promise<WalletSettings> {
+  const payrollSettings = await fetchPayrollSettings();
+  return {
+    unitAmount: payrollSettings.unitAmount,
+    countedStatuses: payrollSettings.countedStatuses,
+  };
+}
+
+export async function updateWalletSettings(
+  updates: Partial<WalletSettings>
+): Promise<WalletSettings> {
+  const current = await fetchPayrollSettings();
+  const nextCountedStatuses = updates.countedStatuses !== undefined
+    ? normalizePayrollStatuses(updates.countedStatuses)
+    : current.countedStatuses;
+  const shouldSyncPayableStatuses = updates.countedStatuses !== undefined
+    && JSON.stringify(nextCountedStatuses) !== JSON.stringify(current.countedStatuses);
+
+  const result = await updatePayrollSettings({
+    unitAmount: updates.unitAmount,
+    countedStatuses: updates.countedStatuses,
+  });
+
+  if (shouldSyncPayableStatuses) {
+    await syncWalletCreditsForPayableStatuses({
+      unitAmount: result.unitAmount,
+      countedStatuses: result.countedStatuses,
+    });
+  }
+
+  return {
+    unitAmount: result.unitAmount,
+    countedStatuses: result.countedStatuses,
+  };
+}
+
+export async function fetchEmployeeWalletCards(params?: {
+  currentUser?: Pick<User, 'id' | 'role'> | null;
+}): Promise<WalletBalanceCard[]> {
+  const currentUser = params?.currentUser || getCurrentUserProfile();
+  if (!currentUser?.id) return [];
+
+  let query: any = supabase
+    .from('employee_wallet_balances')
+    .select('*')
+    .order('current_balance', { ascending: false })
+    .order('employee_name', { ascending: true });
+
+  if (currentUser.role !== UserRole.ADMIN) {
+    query = query.eq('employee_id', currentUser.id);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[supabaseQueries] fetchEmployeeWalletCards error:', error);
+    if (isMissingWalletSchemaError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  return (data || []).map(mapWalletBalanceCard);
+}
+
+export async function fetchMyWallet(params?: {
+  currentUser?: Pick<User, 'id' | 'role' | 'name'> | null;
+}): Promise<WalletBalanceCard | null> {
+  const currentUser = params?.currentUser || getCurrentUserProfile();
+  if (!currentUser?.id) return null;
+
+  const { data, error } = await supabase
+    .from('employee_wallet_balances')
+    .select('*')
+    .eq('employee_id', currentUser.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[supabaseQueries] fetchMyWallet error:', error);
+    if (!isMissingWalletSchemaError(error)) {
+      throw error;
+    }
+  }
+
+  if (!data || error) {
+    return {
+      employeeId: currentUser.id,
+      employeeName: (currentUser as Pick<User, 'name'>).name || 'Unknown Employee',
+      employeeRole: (currentUser.role || UserRole.EMPLOYEE) as UserRole,
+      currentBalance: 0,
+      totalEarned: 0,
+      totalPaid: 0,
+      creditedOrders: 0,
+    };
+  }
+
+  return mapWalletBalanceCard(data);
+}
+
+export async function fetchWalletActivity(params?: {
+  employeeId?: string;
+  currentUser?: Pick<User, 'id' | 'role'> | null;
+  entryTypes?: WalletEntryType[];
+}): Promise<WalletActivityEntry[]> {
+  const currentUser = params?.currentUser || getCurrentUserProfile();
+  if (!currentUser?.id) return [];
+
+  const targetEmployeeId = currentUser.role === UserRole.ADMIN
+    ? params?.employeeId || undefined
+    : currentUser.id;
+  const entryTypes = params?.entryTypes?.length ? params.entryTypes : undefined;
+
+  const rows = await queryAllRows<any>((from, to) => {
+    let query: any = supabase
+      .from('wallet_activity_with_relations')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (targetEmployeeId) {
+      query = query.eq('employee_id', targetEmployeeId);
+    }
+
+    if (entryTypes) {
+      query = query.in('entry_type', entryTypes);
+    }
+
+    return query;
+  });
+
+  if (!rows.length) {
+    return [];
+  }
+
+  return rows.map(mapWalletActivityEntry);
+}
+
+export async function fetchWalletActivityPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  params?: {
+    employeeId?: string;
+    currentUser?: Pick<User, 'id' | 'role'> | null;
+    entryTypes?: WalletEntryType[];
+  }
+): Promise<{ data: WalletActivityEntry[]; count: number }> {
+  const currentUser = params?.currentUser || getCurrentUserProfile();
+  if (!currentUser?.id) {
+    return { data: [], count: 0 };
+  }
+
+  const targetEmployeeId = currentUser.role === UserRole.ADMIN
+    ? params?.employeeId || undefined
+    : currentUser.id;
+  const entryTypes = params?.entryTypes?.length ? params.entryTypes : undefined;
+  const start = (page - 1) * pageSize;
+  const end = start + pageSize - 1;
+
+  try {
+    let query: any = supabase
+      .from('wallet_activity_with_relations')
+      .select('*', { count: 'estimated' })
+      .order('created_at', { ascending: false })
+      .range(start, end);
+
+    if (targetEmployeeId) {
+      query = query.eq('employee_id', targetEmployeeId);
+    }
+
+    if (entryTypes) {
+      query = query.in('entry_type', entryTypes);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('[supabaseQueries] fetchWalletActivityPage error:', error);
+      if (!isMissingWalletSchemaError(error)) {
+        throw error;
+      }
+      return { data: [], count: 0 };
+    }
+
+    return {
+      data: (data || []).map(mapWalletActivityEntry),
+      count: count ?? 0,
+    };
+  } catch (error) {
+    console.error('[supabaseQueries] fetchWalletActivityPage exception:', error);
+    if (isMissingWalletSchemaError(error)) {
+      return { data: [], count: 0 };
+    }
+    throw error;
+  }
+}
+
+export async function payEmployeeWallet(payload: {
+  employeeId: string;
+  amount: number;
+  accountId: string;
+  paymentMethod: string;
+  categoryId: string;
+  paidAt: string;
+  note?: string;
+}): Promise<WalletPayout> {
+  await ensureAuthenticated();
+
+  const currentUser = getCurrentUserProfile();
+  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+    throw new Error('Only admins can pay employee wallets.');
+  }
+
+  const { data, error } = await supabase.rpc('pay_employee_wallet', {
+    p_employee_id: payload.employeeId,
+    p_amount: payload.amount,
+    p_account_id: payload.accountId,
+    p_payment_method: payload.paymentMethod,
+    p_category_id: payload.categoryId,
+    p_paid_at: payload.paidAt,
+    p_paid_by: currentUser.id,
+    p_note: payload.note?.trim() || null,
+  });
+
+  if (error) {
+    console.error('[supabaseQueries] payEmployeeWallet error:', error);
+    throw error;
+  }
+
+  return mapWalletPayout({
+    ...data,
+    paid_by_name: currentUser.name,
+  });
+}
+
 // ========== CARRYBEE STORES ==========
 
 /**
@@ -3831,17 +4795,31 @@ export async function batchUpdateSettings(updates: {
     carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string };
     paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number };
   };
+  payroll?: {
+    unitAmount?: number;
+    countedStatuses?: OrderStatus[];
+  };
+  wallet?: {
+    unitAmount?: number;
+    countedStatuses?: OrderStatus[];
+  };
 }) {
   await ensureAuthenticated();
   
   try {
-    // Execute all 5 settings updates in parallel
-    const [company, order, invoice, defaults, courier] = await Promise.all([
+    const shouldUpdateWallet = Boolean(updates.wallet || updates.payroll);
+    const walletUpdatePayload = updates.wallet || (updates.payroll
+      ? { unitAmount: updates.payroll.unitAmount, countedStatuses: updates.payroll.countedStatuses }
+      : undefined);
+
+    // Execute all settings updates in parallel
+    const [company, order, invoice, defaults, courier, wallet] = await Promise.all([
       updates.company ? updateCompanySettings(updates.company) : fetchCompanySettings(),
       updates.order ? updateOrderSettings(updates.order) : fetchOrderSettings(),
       updates.invoice ? updateInvoiceSettings(updates.invoice) : fetchInvoiceSettings(),
       updates.defaults ? updateSystemDefaults(updates.defaults) : fetchSystemDefaults(),
       updates.courier ? updateCourierSettings(updates.courier) : fetchCourierSettings(),
+      shouldUpdateWallet ? updateWalletSettings(walletUpdatePayload) : fetchWalletSettings(),
     ]);
 
     return {
@@ -3850,6 +4828,7 @@ export async function batchUpdateSettings(updates: {
       invoice,
       defaults,
       courier,
+      wallet,
     };
   } catch (err: any) {
     console.error('[supabaseQueries] batchUpdateSettings error:', err);
@@ -3924,6 +4903,19 @@ export default {
   updateSystemDefaults,
   fetchCourierSettings,
   updateCourierSettings,
+  fetchPayrollSettings,
+  updatePayrollSettings,
+  fetchPayrollEmployees,
+  fetchPayrollHistory,
+  fetchPayrollSummaries,
+  markPayrollPaid,
+  fetchWalletSettings,
+  updateWalletSettings,
+  fetchEmployeeWalletCards,
+  fetchMyWallet,
+  fetchWalletActivity,
+  fetchWalletActivityPage,
+  payEmployeeWallet,
   syncCarryBeeTransferStatuses,
   fetchSteadfastStatusByTrackingCode,
   syncSteadfastDeliveryStatuses,

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
-import { UserRole } from '../types';
+import { UserRole, hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
 import { theme } from '../theme';
 import { useUser } from '../src/hooks/useQueries';
@@ -37,15 +37,17 @@ const UserDetails: React.FC = () => {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading user...</div>;
   if (error || !user) return <div className="p-8 text-center text-gray-500">{error?.message || 'User not found.'}</div>;
+  if (!currentUser) return <div className="p-8 text-center text-gray-500">Not authenticated.</div>;
 
-  const canEdit = currentUser.role === UserRole.ADMIN || currentUser.id === id;
-  const isAdmin = currentUser.role === UserRole.ADMIN;
+  const canEdit = hasAdminAccess(currentUser.role) || currentUser.id === id;
+  const isAdmin = hasAdminAccess(currentUser.role);
+  const isDeveloperTarget = user.role === UserRole.DEVELOPER;
 
   const handleDelete = async () => {
     if (!id) return;
     try {
       await deleteUserMutation.mutateAsync(id);
-      toast.success('User deleted successfully!');
+      toast.success('User moved to the recycle bin');
       navigate('/users');
     } catch (err) {
       console.error('Failed to delete user:', err);
@@ -104,13 +106,13 @@ const UserDetails: React.FC = () => {
               {ICONS.Edit} Edit Profile
             </button>
           )}
-          {isAdmin && (
+          {isAdmin && !isDeveloperTarget && (
             <button 
               onClick={() => setShowDeleteConfirm(true)}
               disabled={deleteUserMutation.isPending}
               className="px-6 py-2 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Delete User
+              Archive User
             </button>
           )}
         </div>
@@ -127,7 +129,7 @@ const UserDetails: React.FC = () => {
               />
             </div>
             <span className={`px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest ${
-              user.role === UserRole.ADMIN ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+              hasAdminAccess(user.role) ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
             }`}>
               {user.role}
             </span>
@@ -201,9 +203,9 @@ const UserDetails: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 space-y-6">
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Delete User?</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Move User To Recycle Bin?</h3>
               <p className="text-gray-600 text-sm">
-                Are you sure you want to delete <strong>{user.name}</strong>? This action cannot be undone.
+                Are you sure you want to archive <strong>{user.name}</strong>? You can restore this user later from the recycle bin.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -219,7 +221,7 @@ const UserDetails: React.FC = () => {
                 disabled={deleteUserMutation.isPending}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {deleteUserMutation.isPending ? 'Deleting...' : 'Delete'}
+                {deleteUserMutation.isPending ? 'Archiving...' : 'Move To Bin'}
               </button>
             </div>
           </div>

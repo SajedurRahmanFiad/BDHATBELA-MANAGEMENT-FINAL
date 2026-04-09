@@ -6,7 +6,7 @@ import { fetchCompanySettings } from '../src/services/supabaseQueries';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { signIn, isLoading, user, profile } = useAuth();
+  const { signIn, isLoading, user } = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -37,7 +37,6 @@ const Login: React.FC = () => {
         });
       } catch (err) {
         console.error('Failed to load company settings:', err);
-        // Use default logo if fetch fails
         setCompanySettings({
           name: 'BD Hatbela',
           logo: db.settings.company.logo
@@ -51,13 +50,12 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
-    console.log('[Login] Form submitted with phone:', phone);
+    const normalizedPhone = phone.trim();
+    console.log('[Login] Form submitted with phone:', normalizedPhone);
 
     try {
-      // Sign in using phone number. The AuthProvider's signIn method
-      // converts phone to email and handles auth + profile sync.
       console.log('[Login] Calling signIn...');
-      const { error: signInError, data } = await signIn(phone, password);
+      const { error: signInError, data } = await signIn(normalizedPhone, password);
 
       if (signInError) {
         console.error('[Login] Sign-in error:', signInError);
@@ -67,20 +65,9 @@ const Login: React.FC = () => {
         return;
       }
 
-      console.log('[Login] Sign-in successful, user:', data?.user?.email);
-      
-      // Check if profile was loaded successfully
-      if (!data?.profileLoaded) {
-        console.error('[Login] Sign-in succeeded but profile not loaded');
-        setError(data?.error?.message || 'Failed to load user profile. Please try again or contact administrator.');
-        setIsSubmitting(false);
-        return;
-      }
-      
-      // Navigation will happen automatically via useEffect when profile is ready
-      console.log('[Login] Profile loaded, waiting for state to propagate...');
-      // Don't set isSubmitting to false yet - let the loading state show until redirect
-      
+      console.log('[Login] Sign-in successful for user:', data?.user?.phone || normalizedPhone);
+      setIsSubmitting(false);
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
       console.error('[Login] Sign-in exception:', err);
       setError(err?.message || 'Failed to sign in');
@@ -142,28 +129,15 @@ const Login: React.FC = () => {
           </div>
 
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600 space-y-2">
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600">
               <p className="font-semibold">Error</p>
-              <p>{error instanceof Error ? error.message : String(error)}</p>
-              {(error instanceof Error ? error.message : String(error)).includes('Email confirmation') && (
-                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-700 text-xs">
-                  <p className="font-semibold mb-1">Quick Fix:</p>
-                  <ol className="list-decimal list-inside space-y-1">
-                    <li>Go to Supabase Dashboard</li>
-                    <li>Project → Authentication → Providers</li>
-                    <li>Click "Email" tab</li>
-                    <li>Toggle OFF "Confirm email"</li>
-                    <li>Save settings</li>
-                    <li>Try logging in again</li>
-                  </ol>
-                </div>
-              )}
+              <p>{error}</p>
             </div>
           )}
 
           <div>
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isSubmitting}
               className="w-full bg-blue-600 text-white py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed font-medium hover:bg-blue-700 transition-colors"
             >

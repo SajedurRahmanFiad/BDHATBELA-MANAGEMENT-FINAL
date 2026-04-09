@@ -1,13 +1,14 @@
 
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { User, UserRole } from '../types';
+import { User, UserRole, hasAdminAccess } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
 import { useUser } from '../src/hooks/useQueries';
 import { useCreateUser, useUpdateUser, useDeleteUser } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { getErrorMessage } from '../src/services/supabaseQueries';
+import { useAuth } from '../src/contexts/AuthProvider';
 
 const UserForm: React.FC = () => {
   const { id } = useParams();
@@ -22,6 +23,7 @@ const UserForm: React.FC = () => {
   const updateMutation = useUpdateUser();
   const deleteMutation = useDeleteUser();
   const toast = useToastNotifications();
+  const { user: currentUser } = useAuth();
   
   // Form state
   const [saving, setSaving] = useState(false);
@@ -42,11 +44,9 @@ const UserForm: React.FC = () => {
     }
   }, [existingUser]);
 
-  // Get current user from localStorage (basic approach)
-  const currentUserStr = localStorage.getItem('currentUser');
-  const currentUser = currentUserStr ? JSON.parse(currentUserStr) : null;
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(currentUser?.role);
   const isSelf = currentUser?.id === id;
+  const isDeveloperTarget = form.role === UserRole.DEVELOPER;
 
   const loading = userLoading;
 
@@ -85,15 +85,10 @@ const UserForm: React.FC = () => {
         
         await updateMutation.mutateAsync({ id, updates });
         
-        // Update currentUser in localStorage if editing self
-        if (isSelf && currentUser) {
-          const updated = { ...currentUser, ...updates };
-          localStorage.setItem('currentUser', JSON.stringify(updated));
-        }
       } else {
         // Create new user
         if (!isAdmin) {
-          toast.error('Only admins can add users');
+          toast.error('Only admin-access users can add users');
           setSaving(false);
           return;
         }
@@ -124,7 +119,7 @@ const UserForm: React.FC = () => {
     setSaving(true);
     try {
       await deleteMutation.mutateAsync(id);
-      toast.success('User deleted successfully!');
+      toast.success('User moved to the recycle bin');
       navigate('/users');
     } catch (err) {
       console.error('Failed to delete user:', err);
@@ -208,11 +203,17 @@ const UserForm: React.FC = () => {
             {isAdmin && (
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">System Role</label>
-                <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})}>
+                <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})} disabled={existingUser?.role === UserRole.DEVELOPER}>
                   <option value={UserRole.EMPLOYEE}>Employee</option>
                   <option value={UserRole.EMPLOYEE1}>Employee1</option>
                   <option value={UserRole.ADMIN}>Administrator</option>
+                  {existingUser?.role === UserRole.DEVELOPER && (
+                    <option value={UserRole.DEVELOPER}>Developer</option>
+                  )}
                 </select>
+                <p className="text-[10px] text-gray-400 font-medium">
+                  Developer is reserved for direct database assignment only.
+                </p>
               </div>
             )}
           </div>
@@ -227,14 +228,19 @@ const UserForm: React.FC = () => {
               {saving ? 'Saving...' : 'Save Details'}
             </Button>
             
-            {isEdit && isAdmin && (
+            {isEdit && isAdmin && !isDeveloperTarget && (
               <button 
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={saving}
                 className="w-full px-4 py-3 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Delete User
+                Archive User
               </button>
+            )}
+            {isEdit && isDeveloperTarget && (
+              <p className="text-center text-xs font-bold text-gray-400">
+                Developer users cannot be archived from the app.
+              </p>
             )}
           </div>
         </div>
@@ -244,9 +250,9 @@ const UserForm: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 space-y-6">
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Delete User?</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Move User To Recycle Bin?</h3>
               <p className="text-gray-600 text-sm">
-                Are you sure you want to delete <strong>{form.name}</strong>? This action cannot be undone.
+                Are you sure you want to archive <strong>{form.name}</strong>? You can restore this user later from the recycle bin.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -262,7 +268,7 @@ const UserForm: React.FC = () => {
                 disabled={saving}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {saving ? 'Deleting...' : 'Delete'}
+                {saving ? 'Archiving...' : 'Move To Bin'}
               </button>
             </div>
           </div>

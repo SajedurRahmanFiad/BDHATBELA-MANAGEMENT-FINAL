@@ -50,8 +50,7 @@ const VendorDetails: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Vendor Profile</h2>
         </div>
         <div className="flex gap-2">
-          <button className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
-          <button className={`px-4 py-2 ${theme.colors.primary[600]} text-white rounded-xl font-bold hover:${theme.colors.primary[700]} shadow-md`}>Purchase Statement</button>
+          <button onClick={() => navigate(`/vendors/edit/${id}`)} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
         </div>
       </div>
 

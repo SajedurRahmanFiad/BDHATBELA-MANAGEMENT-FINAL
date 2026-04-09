@@ -71,11 +71,11 @@ const Vendors: React.FC = () => {
   const filteredVendors = vendors;
 
   const handleDelete = async (vendorId: string) => {
-    if (!confirm('Are you sure you want to delete this vendor?')) return;
+    if (!confirm('Move this vendor to the recycle bin? You can restore it later.')) return;
     try {
       await deleteVendorMutation.mutateAsync(vendorId);
       // Cache updated deterministically by mutation hook
-      toast.success('Vendor deleted successfully');
+      toast.success('Vendor moved to the recycle bin');
     } catch (err) {
       console.error('Failed to delete vendor:', err);
       const msg = getErrorMessage(err);

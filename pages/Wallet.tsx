@@ -143,7 +143,7 @@ const Wallet: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Wallet</h2>
           <p className="text-sm text-gray-500">
-            Review your live wallet balance and your payment history.
+            Review your live wallet balance and your payment history. Wallet balances start from Apr 1, 2026.
           </p>
         </div>
         <div className="rounded-2xl border border-[#d6e3f0] bg-[#f8fbff] px-4 py-3 text-sm font-medium text-gray-600">

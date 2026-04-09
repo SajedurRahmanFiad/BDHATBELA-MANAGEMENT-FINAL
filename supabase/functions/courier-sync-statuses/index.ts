@@ -45,6 +45,21 @@ const PICKED_STATUS = "Picked";
 const SYNC_CONCURRENCY = 8;
 type AdminClient = ReturnType<typeof createClient>;
 
+function isIncidentWriteFreezeEnabled() {
+  const rawValue =
+    Deno.env.get("INCIDENT_WRITE_FREEZE") ||
+    Deno.env.get("SUPABASE_WRITE_FREEZE") ||
+    Deno.env.get("DB_WRITE_FREEZE") ||
+    "";
+
+  return ["1", "true", "yes", "on"].includes(rawValue.trim().toLowerCase());
+}
+
+function getIncidentWriteFreezeReason() {
+  return Deno.env.get("INCIDENT_WRITE_FREEZE_REASON")?.trim() ||
+    "Courier sync is paused while the database incident is being investigated.";
+}
+
 function jsonResponse(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status,
@@ -325,6 +340,23 @@ serve(async (req) => {
     const body = parseRequestBody(rawBody);
     const mode = body.mode === "backfill" ? "backfill" : "incremental";
     const limit = clampLimit(body.limit, mode === "backfill" ? DEFAULT_BACKFILL_LIMIT : DEFAULT_INCREMENTAL_LIMIT);
+
+    if (isIncidentWriteFreezeEnabled()) {
+      return jsonResponse(202, {
+        data: {
+          mode,
+          checked: 0,
+          updated: 0,
+          hasMore: false,
+          nextCursorCreatedAt: null,
+          statusCounts: {},
+          errors: [],
+          updatedOrders: [],
+          reason: "incident-write-freeze",
+          message: getIncidentWriteFreezeReason(),
+        },
+      });
+    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

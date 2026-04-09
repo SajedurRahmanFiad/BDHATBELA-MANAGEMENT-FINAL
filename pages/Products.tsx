@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Product, UserRole, isEmployeeRole } from '../types';
+import { Product, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import Pagination from '../src/components/Pagination';
@@ -31,7 +31,7 @@ const Products: React.FC = () => {
 
   const createdByIds = useMemo(() => {
     if (createdByFilter === 'all') return undefined;
-    if (createdByFilter === 'admins') return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+    if (createdByFilter === 'admins') return users.filter(u => hasAdminAccess(u.role)).map(u => u.id);
     if (createdByFilter === 'employees') return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     return [createdByFilter];
   }, [createdByFilter, users]);
@@ -47,7 +47,7 @@ const Products: React.FC = () => {
   const total = productsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteProductMutation = useDeleteProduct();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
   
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
@@ -67,11 +67,11 @@ const Products: React.FC = () => {
   const filteredProducts = products;
 
   const handleDelete = async (productId: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+    if (!confirm('Move this product to the recycle bin? You can restore it later.')) return;
     try {
       await deleteProductMutation.mutateAsync(productId);
       // Cache updated deterministically by mutation hook
-      toast.success('Product deleted successfully');
+      toast.success('Product moved to the recycle bin');
     } catch (err) {
       console.error('Failed to delete product:', err);
       toast.error('Failed to delete product');
@@ -125,14 +125,7 @@ const Products: React.FC = () => {
           },
           {
             key: 'salePrice',
-            label: isAdmin ? (
-              <>
-                Sale Price<br />
-                Purchase Price
-              </>
-            ) : (
-              <>Sale Price</>
-            ),
+            label: isAdmin ? 'Sale Price / Purchase Price' : 'Sale Price',
             render: (salePrice, product) => (
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">

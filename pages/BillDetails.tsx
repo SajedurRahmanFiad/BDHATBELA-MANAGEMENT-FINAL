@@ -6,10 +6,11 @@ import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { theme } from '../theme';
 import { useBill, useVendors, useUsers, useAccounts, useCompanySettings, useInvoiceSettings, useProducts } from '../src/hooks/useQueries';
-import { useUpdateBill, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useUpdateBill, useCreateTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
 import { getPreservedRouteState } from '../src/utils/navigation';
+import { handlePrintBill } from '../src/utils/printUtils';
 import { buildLocalDateTime, getTodayDate } from '../utils';
 
 const BillDetails: React.FC = () => {
@@ -30,9 +31,8 @@ const BillDetails: React.FC = () => {
   // Mutations
   const updateMutation = useUpdateBill();
   const createTransactionMutation = useCreateTransaction();
-  const updateAccountMutation = useUpdateAccount();
   const toast = useToastNotifications();
-  const isPaymentLoading = updateMutation.isPending || createTransactionMutation.isPending || updateAccountMutation.isPending;
+  const isPaymentLoading = updateMutation.isPending || createTransactionMutation.isPending;
   
   // Get vendor and created by user from query results
   const vendor = bill ? vendors.find(v => v.id === bill.vendorId) : undefined;
@@ -46,7 +46,7 @@ const BillDetails: React.FC = () => {
   const [paymentForm, setPaymentForm] = useState({
     date: getTodayDate(),
     time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    accountId: db.settings.defaults.accountId || '',
+    accountId: db.settings.defaults.defaultAccountId || '',
     amount: 0
   });
 
@@ -87,22 +87,9 @@ const BillDetails: React.FC = () => {
   const handlePayment = async () => {
     if (!bill) return;
     try {
-      // Try to find account in cached data
-      let account = accounts.find(a => a.id === paymentForm.accountId);
-      
-      if (!account) {
-        if (!paymentForm.accountId) {
-          toast.error('Please select an account');
-          return;
-        }
-        // Account not in visible list, but proceed with the ID provided
-        account = { 
-          id: paymentForm.accountId, 
-          name: 'Selected Account',
-          type: 'Bank' as const,
-          openingBalance: 0,
-          currentBalance: 0
-        };
+      if (!paymentForm.accountId) {
+        toast.error('Please select an account');
+        return;
       }
 
       const updatedPaid = bill.paidAmount + paymentForm.amount;
@@ -128,43 +115,22 @@ const BillDetails: React.FC = () => {
         paidAt: isoDatetime
       };
 
-      // Create expense transaction for the payment
-      try {
-        const expenseTxn: Transaction = {
-          id: Math.random().toString(36).substr(2, 9),
-          date: isoDatetime,
-          type: 'Expense',
-          category: db.settings.defaults.expenseCategoryId || 'expense_purchases',
-          accountId: paymentForm.accountId,
-          amount: paymentForm.amount,
-          description: `Payment for Bill #${bill.billNumber}`,
-          referenceId: bill.id,
-          contactId: bill.vendorId,
-          paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-          createdBy: user.id
-        };
-        await createTransactionMutation.mutateAsync(expenseTxn as any);
-      } catch (err) {
-        console.error('Failed to create transaction:', err);
-        // Continue with bill update even if transaction fails
-      }
+      const expenseTxn: Transaction = {
+        id: Math.random().toString(36).substr(2, 9),
+        date: isoDatetime,
+        type: 'Expense',
+        category: db.settings.defaults.expenseCategoryId || 'expense_purchases',
+        accountId: paymentForm.accountId,
+        amount: paymentForm.amount,
+        description: `Payment for Bill #${bill.billNumber}`,
+        referenceId: bill.id,
+        contactId: bill.vendorId,
+        paymentMethod: db.settings.defaults.defaultPaymentMethod || 'Cash',
+        createdBy: user.id
+      };
+      await createTransactionMutation.mutateAsync(expenseTxn as any);
 
-      // Update account balance and bill
-      const balanceChange = paymentForm.amount;
-      const results = await Promise.allSettled([
-        updateMutation.mutateAsync({ id: id!, updates: updatedBill }),
-        updateAccountMutation.mutateAsync({
-          id: paymentForm.accountId,
-          updates: { currentBalance: account.currentBalance - balanceChange }
-        })
-      ]);
-      
-      // Check if both mutations succeeded
-      if (results[0].status === 'rejected' || results[1].status === 'rejected') {
-        const billStatus = results[0].status === 'rejected' ? 'failed' : 'succeeded';
-        const accountStatus = results[1].status === 'rejected' ? 'failed' : 'succeeded';
-        throw new Error(`Payment update failed: Bill update ${billStatus}, Account update ${accountStatus}`);
-      }
+      await updateMutation.mutateAsync({ id: id!, updates: updatedBill });
 
       setShowPaymentModal(false);
       toast.success('Payment recorded successfully');
@@ -179,7 +145,7 @@ const BillDetails: React.FC = () => {
     setPaymentForm({
       date: getTodayDate(),
       time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-      accountId: '',
+      accountId: db.settings.defaults.defaultAccountId || '',
       amount: bill.total - bill.paidAmount
     });
     setShowPaymentModal(true);
@@ -212,7 +178,7 @@ const BillDetails: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center gap-2 relative">
-          <button className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all">
+          <button onClick={() => handlePrintBill(id!, navigate)} className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all">
             {ICONS.Print} Print Bill
           </button>
           <div className="relative">
@@ -226,8 +192,8 @@ const BillDetails: React.FC = () => {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
                 <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-50 py-2">
-                  <button onClick={() => { window.print(); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
-                  <button onClick={() => { window.print(); setIsActionOpen(false); }} className="md:hidden border-t w-full text-left px-4 py-2 text-sm hover:bg-gray-50"></button>
+                  <button onClick={() => { handlePrintBill(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
+                  <div className="md:hidden border-t my-1"></div>
                   <button disabled={bill.status === BillStatus.PAID} onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Processing</button>
                   <button disabled={bill.status === BillStatus.PAID} onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Received</button>
                   <div className="border-t my-1"></div>

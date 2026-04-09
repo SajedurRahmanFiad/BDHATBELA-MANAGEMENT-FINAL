@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { UserRole, OrderStatus, Order, isEmployeeRole } from '../types';
+import { OrderStatus, Order, UserRole, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard } from '../components/Card';
 import { FilterBar, LoadingOverlay } from '../components';
@@ -63,6 +63,11 @@ const EMPLOYEE_STATUS_STYLES: Record<OrderStatus, { valueClass: string; barClass
     valueClass: 'text-emerald-500',
     barClass: 'bg-emerald-500',
     trackClass: 'bg-emerald-100',
+  },
+  [OrderStatus.RETURNED]: {
+    valueClass: 'text-orange-500',
+    barClass: 'bg-orange-500',
+    trackClass: 'bg-orange-100',
   },
   [OrderStatus.CANCELLED]: {
     valueClass: 'text-rose-500',
@@ -162,7 +167,7 @@ const Dashboard: React.FC = () => {
     return <div className="p-8 text-center text-gray-500">Not Authenticated</div>;
   }
   
-  const isAdmin = user.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user.role);
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
   
@@ -228,6 +233,7 @@ const Dashboard: React.FC = () => {
     processing: filteredOrders.filter(o => o.status === OrderStatus.PROCESSING).length,
     picked: filteredOrders.filter(o => o.status === OrderStatus.PICKED).length,
     completed: filteredOrders.filter(o => o.status === OrderStatus.COMPLETED).length,
+    returned: filteredOrders.filter(o => o.status === OrderStatus.RETURNED).length,
     cancelled: filteredOrders.filter(o => o.status === OrderStatus.CANCELLED).length,
   };
 
@@ -238,6 +244,7 @@ const Dashboard: React.FC = () => {
     processing: filteredOrders.filter(o => o.status === OrderStatus.PROCESSING).reduce((sum, o) => sum + o.total, 0),
     picked: filteredOrders.filter(o => o.status === OrderStatus.PICKED).reduce((sum, o) => sum + o.total, 0),
     completed: filteredOrders.filter(o => o.status === OrderStatus.COMPLETED).reduce((sum, o) => sum + o.total, 0),
+    returned: filteredOrders.filter(o => o.status === OrderStatus.RETURNED).reduce((sum, o) => sum + o.total, 0),
     cancelled: filteredOrders.filter(o => o.status === OrderStatus.CANCELLED).reduce((sum, o) => sum + o.total, 0),
   };
 
@@ -278,6 +285,11 @@ const Dashboard: React.FC = () => {
       value: filteredMyOrders.filter((order) => order.status === OrderStatus.COMPLETED).length,
     },
     {
+      status: OrderStatus.RETURNED,
+      label: 'Returned',
+      value: filteredMyOrders.filter((order) => order.status === OrderStatus.RETURNED).length,
+    },
+    {
       status: OrderStatus.CANCELLED,
       label: 'Cancelled',
       value: filteredMyOrders.filter((order) => order.status === OrderStatus.CANCELLED).length,
@@ -295,6 +307,7 @@ const Dashboard: React.FC = () => {
           OrderStatus.PROCESSING,
           OrderStatus.PICKED,
           OrderStatus.COMPLETED,
+          OrderStatus.RETURNED,
           OrderStatus.CANCELLED,
         ];
 
@@ -557,9 +570,9 @@ const Dashboard: React.FC = () => {
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
                     cursor={{ fill: '#f8fafc' }}
-                    formatter={(value: number | string, name: string) => [
-                      formatCurrency(Math.abs(roundDashboardValue(Number(value)))),
-                      CASH_FLOW_LABELS[String(name)] || String(name),
+                    formatter={(value: number | string | undefined, name: string | undefined) => [
+                      formatCurrency(Math.abs(roundDashboardValue(Number(value || 0)))),
+                      CASH_FLOW_LABELS[String(name || '')] || String(name || ''),
                     ]}
                   />
                   <Bar dataKey="income" fill="#059669" radius={[4, 4, 0, 0]} barSize={40} />
@@ -574,9 +587,9 @@ const Dashboard: React.FC = () => {
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
                     cursor={{ fill: '#f8fafc' }}
-                    formatter={(value: number | string, name: string) => [
-                      formatCurrency(Math.abs(roundDashboardValue(Number(value)))),
-                      CASH_FLOW_LABELS[String(name)] || String(name),
+                    formatter={(value: number | string | undefined, name: string | undefined) => [
+                      formatCurrency(Math.abs(roundDashboardValue(Number(value || 0)))),
+                      CASH_FLOW_LABELS[String(name || '')] || String(name || ''),
                     ]}
                   />
                   <Bar dataKey="income" fill="#059669" radius={[4, 4, 0, 0]} barSize={40} />
@@ -672,7 +685,7 @@ const Dashboard: React.FC = () => {
                   <Pie data={expenseByCategory} innerRadius={0} outerRadius={100} dataKey="value">
                     {expenseByCategory.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip formatter={(value: number | string) => formatCurrency(roundDashboardValue(Number(value)))} />
+                  <Tooltip formatter={(value: number | string | undefined) => formatCurrency(roundDashboardValue(Number(value || 0)))} />
                   {isMobile ? (
                     <Legend verticalAlign="bottom" align="center" layout="horizontal" wrapperStyle={{ paddingTop: '20px' }} />
                   ) : (

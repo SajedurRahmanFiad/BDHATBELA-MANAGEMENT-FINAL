@@ -3,11 +3,12 @@ import { Button, LoadingOverlay, Modal, Table } from '../components';
 import type { TableColumn } from '../components/Table';
 import { ICONS, formatCurrency } from '../constants';
 import Pagination from '../src/components/Pagination';
-import { UserRole, type WalletActivityEntry, type WalletBalanceCard } from '../types';
+import { hasAdminAccess, type WalletActivityEntry, type WalletBalanceCard } from '../types';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { usePayEmployeeWallet } from '../src/hooks/useMutations';
+import { formatDateTimeParts, getTodayDate } from '../utils';
 import {
   useAccounts,
   useCategories,
@@ -18,17 +19,12 @@ import {
   useWalletSettings,
 } from '../src/hooks/useQueries';
 
-const getTodayValue = (): string => new Date().toISOString().slice(0, 10);
+const getTodayValue = (): string => getTodayDate();
 
 const formatTimestamp = (value?: string): string => {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-BD', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const { date, time } = formatDateTimeParts(value);
+  if (!date) return '-';
+  return time ? `${date}, ${time}` : date;
 };
 
 const getEntryLabel = (entryType: WalletActivityEntry['entryType']): string => {
@@ -42,6 +38,8 @@ const getEntryBadgeClass = (entryType: WalletActivityEntry['entryType']): string
   if (entryType === 'order_reversal') return 'bg-amber-100 text-amber-700';
   return 'bg-[#dfeaf7] text-[#0f2f57]';
 };
+
+const normalizeCategoryName = (value?: string): string => (value || '').trim().toLowerCase();
 
 const MetricCard: React.FC<{
   label: string;
@@ -100,7 +98,6 @@ type PayoutFormState = {
   amount: string;
   accountId: string;
   paymentMethod: string;
-  categoryId: string;
   paidAt: string;
   note: string;
 };
@@ -115,12 +112,11 @@ const Payroll: React.FC = () => {
     amount: '',
     accountId: '',
     paymentMethod: '',
-    categoryId: '',
     paidAt: getTodayValue(),
     note: '',
   });
 
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
   const { data: walletSettings = { unitAmount: 0, countedStatuses: [] }, isPending: walletSettingsLoading } = useWalletSettings();
   const { data: walletCards = [], isPending: walletCardsLoading } = useEmployeeWalletCards(isAdmin);
   const { data: accounts = [], isPending: accountsLoading } = useAccounts();
@@ -144,6 +140,10 @@ const Payroll: React.FC = () => {
     () => categories.filter((category) => category.type === 'Expense'),
     [categories]
   );
+  const payrollExpenseCategory = useMemo(
+    () => expenseCategories.find((category) => normalizeCategoryName(category.name) === 'payroll') || null,
+    [expenseCategories]
+  );
 
   useEffect(() => {
     if (!selectedCard) return;
@@ -152,11 +152,10 @@ const Payroll: React.FC = () => {
       amount: selectedCard.currentBalance > 0 ? String(selectedCard.currentBalance) : '',
       accountId: systemDefaults?.defaultAccountId || accounts[0]?.id || '',
       paymentMethod: systemDefaults?.defaultPaymentMethod || paymentMethods[0]?.name || '',
-      categoryId: systemDefaults?.expenseCategoryId || expenseCategories[0]?.id || '',
       paidAt: getTodayValue(),
       note: '',
     });
-  }, [selectedCard, systemDefaults, accounts, paymentMethods, expenseCategories]);
+  }, [selectedCard, systemDefaults, accounts, paymentMethods]);
 
   useEffect(() => {
     if (historyPage > walletActivityTotalPages) {
@@ -285,7 +284,6 @@ const Payroll: React.FC = () => {
       amount: '',
       accountId: '',
       paymentMethod: '',
-      categoryId: '',
       paidAt: getTodayValue(),
       note: '',
     });
@@ -303,7 +301,12 @@ const Payroll: React.FC = () => {
       toast.warning('Payout amount cannot exceed the wallet balance.');
       return;
     }
-    if (!payoutForm.accountId || !payoutForm.paymentMethod || !payoutForm.categoryId || !payoutForm.paidAt) {
+    const payrollCategoryId = payrollExpenseCategory?.id || '';
+    if (!payrollCategoryId) {
+      toast.warning('Create an expense category named "Payroll" before recording payouts.');
+      return;
+    }
+    if (!payoutForm.accountId || !payoutForm.paymentMethod || !payoutForm.paidAt) {
       toast.warning('Complete the payout form before continuing.');
       return;
     }
@@ -320,7 +323,7 @@ const Payroll: React.FC = () => {
         amount,
         accountId: payoutForm.accountId,
         paymentMethod: payoutForm.paymentMethod,
-        categoryId: payoutForm.categoryId,
+        categoryId: payrollCategoryId,
         paidAt: payoutForm.paidAt,
         note: payoutForm.note,
       });
@@ -344,8 +347,8 @@ const Payroll: React.FC = () => {
     return (
       <div className="max-w-3xl mx-auto">
         <div className="rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Only</p>
-          <h2 className="mt-3 text-2xl font-black text-gray-900">Payroll is available to administrators only.</h2>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Access Only</p>
+          <h2 className="mt-3 text-2xl font-black text-gray-900">Payroll is available to admin-access users only.</h2>
           <p className="mt-2 text-sm font-medium text-gray-500">
             Employees use the Wallet page to review their own balance and wallet history.
           </p>
@@ -386,7 +389,7 @@ const Payroll: React.FC = () => {
           <div>
             <h3 className="text-xl font-black text-gray-900">Employee Wallets</h3>
             <p className="mt-1 text-sm font-medium text-gray-500">
-              Each new employee-created order adds the current unit amount directly to that employee wallet.
+              Each new employee-created order adds the current unit amount directly to that employee wallet. Balances start counting from Apr 1, 2026.
             </p>
           </div>
         </div>
@@ -448,7 +451,7 @@ const Payroll: React.FC = () => {
               variant="primary"
               onClick={handleConfirmPayout}
               loading={payEmployeeWalletMutation.isPending}
-              disabled={!selectedCard}
+              disabled={!selectedCard || !payrollExpenseCategory}
             >
               Create Payout
             </Button>
@@ -522,22 +525,6 @@ const Payroll: React.FC = () => {
                   {paymentMethods.map((method) => (
                     <option key={method.id} value={method.name}>
                       {method.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Expense Category</label>
-                <select
-                  value={payoutForm.categoryId}
-                  onChange={(event) => setPayoutForm((current) => ({ ...current, categoryId: event.target.value }))}
-                  className="w-full rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-[#3c5a82]"
-                >
-                  <option value="">Select an expense category</option>
-                  {expenseCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
                     </option>
                   ))}
                 </select>

@@ -8,6 +8,13 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: {
+          '/api': {
+            target: env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8001',
+            changeOrigin: true,
+            rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
+          },
+        },
       },
       plugins: [react()],
       define: {

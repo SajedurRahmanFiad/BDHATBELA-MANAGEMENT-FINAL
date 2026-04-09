@@ -2,7 +2,7 @@
 import React from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Customer, UserRole } from '../types';
+import { Customer, hasAdminAccess } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton, TableLoadingSkeleton } from '../components';
 import FilterBar, { FilterRange } from '../components/FilterBar';
@@ -40,7 +40,7 @@ const Customers: React.FC = () => {
   const total = customersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteCustomerMutation = useDeleteCustomer();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
 
   useEffect(() => {
     if (!shouldHydrateFromUrl) return;
@@ -77,7 +77,7 @@ const Customers: React.FC = () => {
   const filteredCustomers = customers;
 
   const handleDelete = async (customerId: string) => {
-    if (!confirm('Are you sure you want to delete this customer?')) return;
+    if (!confirm('Move this customer to the recycle bin? You can restore it later.')) return;
 
     // If this is an optimistic local-only item (temp id), remove it from the cache
     if (isTempId(customerId)) {
@@ -85,13 +85,13 @@ const Customers: React.FC = () => {
         if (!old) return old;
         return old.filter(c => c.id !== customerId);
       });
-      toast.success('Customer deleted');
+      toast.success('Customer removed locally');
       return;
     }
 
     try {
       await deleteCustomerMutation.mutateAsync(customerId);
-      toast.success('Customer deleted successfully');
+      toast.success('Customer moved to the recycle bin');
     } catch (err) {
       console.error('Failed to delete customer:', err);
       const msg = getErrorMessage(err);

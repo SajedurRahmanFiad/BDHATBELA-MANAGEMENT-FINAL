@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
-import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder, syncCarryBeeTransferStatuses } from '../src/services/supabaseQueries';
+import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder } from '../src/services/supabaseQueries';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
 import { db } from '../db';
-import type { Order, Customer } from '../types';
+import { OrderStatus, type Order, type Customer } from '../types';
 
 interface CarryBeeModalProps {
   isOpen: boolean;
@@ -43,26 +43,6 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
   const [loadingAreas, setLoadingAreas] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const updateOrder = useUpdateOrder();
-  const pollingIntervalRef = useRef<number | null>(null);
-  const pollingCancelledRef = useRef<boolean>(false);
-
-  // Ensure polling stops when modal is closed or component unmounts
-  useEffect(() => {
-    if (!isOpen) {
-      pollingCancelledRef.current = true;
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    }
-    return () => {
-      pollingCancelledRef.current = true;
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [isOpen]);
 
   // Fetch cities on mount
   useEffect(() => {
@@ -334,14 +314,32 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                       // Edge function returns data that may nest the order object.
                       // Check several possible paths defensively.
                       const consignmentId = (
-                        (result && (result.order?.consignment_id || result.consignment_id)) ||
-                        (result.data && (result.data.order?.consignment_id || result.data.consignment_id)) ||
+                        result?.order?.consignment_id ||
+                        result?.order?.consignmentId ||
+                        result?.consignment_id ||
+                        result?.consignmentId ||
+                        result?.data?.order?.consignment_id ||
+                        result?.data?.order?.consignmentId ||
+                        result?.data?.consignment_id ||
+                        result?.data?.consignmentId ||
+                        result?.data?.data?.order?.consignment_id ||
+                        result?.data?.data?.order?.consignmentId ||
+                        result?.data?.data?.consignment_id ||
+                        result?.data?.data?.consignmentId ||
                         null
                       );
 
                       const historyText = `Sent to CarryBee by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+                      const pickedHistory = `Marked as picked automatically after successful CarryBee submission on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
 
-                      const updates: any = { history: { ...order.history, courier: historyText } };
+                      const updates: any = {
+                        status: OrderStatus.PICKED,
+                        history: {
+                          ...order.history,
+                          courier: historyText,
+                          picked: pickedHistory,
+                        },
+                      };
                       if (consignmentId) updates.carrybeeConsignmentId = consignmentId;
 
                       console.log('[CarryBeeModal] Updating order with courier history:', updates);
@@ -352,39 +350,6 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                       await queryClient.refetchQueries({ queryKey: ['order', order.id] });
                       console.log('[CarryBeeModal] Courier status updated and UI refreshed');
 
-                      // Start polling the shared server-side sync so the UI can refresh early
-                      // without maintaining a second CarryBee status parser in the browser.
-                      if (consignmentId) {
-                        pollingCancelledRef.current = false;
-
-                        const poll = async () => {
-                          if (pollingCancelledRef.current) return;
-                          try {
-                            const syncResult = await syncCarryBeeTransferStatuses({
-                              orderId: order.id,
-                              limit: 1,
-                            });
-                            if (syncResult.updated > 0 && !pollingCancelledRef.current) {
-                              // Refetch queries to reflect the updated order status
-                              await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
-                              await queryClient.refetchQueries({ queryKey: ['order', order.id] });
-                              
-                              pollingCancelledRef.current = true;
-                              if (pollingIntervalRef.current) {
-                                clearInterval(pollingIntervalRef.current);
-                                pollingIntervalRef.current = null;
-                              }
-                            }
-                          } catch (err) {
-                            console.error('[CarryBeeModal] Polling error:', err);
-                          }
-                        };
-
-                        // Poll every 15 seconds until condition met
-                        pollingIntervalRef.current = window.setInterval(poll, 15_000) as unknown as number;
-                        // Run immediately once
-                        poll();
-                      }
                     } catch (err) {
                       console.error('[CarryBeeModal] Failed to update order sent flag or consignment id:', err);
                     }

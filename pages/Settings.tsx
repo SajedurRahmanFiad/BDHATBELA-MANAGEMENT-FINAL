@@ -5,7 +5,7 @@ import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { OrderStatus, UserRole } from '../types';
+import { OrderStatus, hasAdminAccess, type Settings } from '../types';
 import { 
   useCategories, usePaymentMethods, useUnits,
   useCompanySettings, useOrderSettings, useInvoiceSettings, 
@@ -58,14 +58,20 @@ const SettingsPage: React.FC = () => {
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
     paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
   });
+  const PAYROLL_STATUS_OPTIONS = [
+    OrderStatus.ON_HOLD,
+    OrderStatus.PROCESSING,
+    OrderStatus.PICKED,
+    OrderStatus.COMPLETED,
+    OrderStatus.CANCELLED,
+  ] as OrderStatus[];
   const [walletSettings, setWalletSettings] = useState({
     unitAmount: 0,
-    countedStatuses: Object.values(OrderStatus) as OrderStatus[],
+    countedStatuses: PAYROLL_STATUS_OPTIONS,
   });
-  const PAYROLL_STATUS_OPTIONS = Object.values(OrderStatus) as OrderStatus[];
   const payrollSettings = walletSettings;
   const [invoiceSettings, setInvoiceSettings] = useState({ title: 'Invoice', logoWidth: 120, logoHeight: 120, footer: '' });
-  const [systemDefaults, setSystemDefaults] = useState({ 
+  const [systemDefaults, setSystemDefaults] = useState<Settings['defaults']>({ 
     defaultAccountId: '', 
     defaultPaymentMethod: '', 
     incomeCategoryId: '', 
@@ -103,7 +109,14 @@ const SettingsPage: React.FC = () => {
   }, [courierSettingsData]);
 
   React.useEffect(() => {
-    if (walletSettingsData) setWalletSettings(walletSettingsData);
+    if (!walletSettingsData) return;
+    const countedStatuses = (walletSettingsData.countedStatuses || []).filter((status): status is OrderStatus =>
+      PAYROLL_STATUS_OPTIONS.includes(status as OrderStatus)
+    );
+    setWalletSettings({
+      ...walletSettingsData,
+      countedStatuses: countedStatuses.length > 0 ? countedStatuses : PAYROLL_STATUS_OPTIONS,
+    });
   }, [walletSettingsData]);
 
   // Fetch CarryBee stores when credentials change (debounced to avoid rapid calls while typing)
@@ -414,14 +427,14 @@ const SettingsPage: React.FC = () => {
     return <div className="p-8 text-center text-gray-500">Loading settings access...</div>;
   }
 
-  if (user.role !== UserRole.ADMIN) {
+  if (!hasAdminAccess(user.role)) {
     return (
       <div className="max-w-3xl mx-auto">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Only</p>
-          <h2 className="mt-3 text-2xl font-black text-gray-900">Settings are available to administrators only.</h2>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Access Only</p>
+          <h2 className="mt-3 text-2xl font-black text-gray-900">Settings are available to admin-access users only.</h2>
           <p className="mt-2 text-sm font-medium text-gray-500">
-            Wallet configuration, order defaults, and courier credentials can only be managed by admins.
+            Wallet configuration, order defaults, and courier credentials can only be managed by admin-access users.
           </p>
         </div>
       </div>
@@ -452,7 +465,7 @@ const SettingsPage: React.FC = () => {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl font-medium transition-all ${
                 activeTab === tab.id 
-                  ? `bg-white ${theme.colors.primary[600]} shadow-sm border border-gray-100 ring-1 ring-[#ebf4ff]` 
+                  ? `${theme.colors.primary[600]} text-white shadow-sm border border-gray-100 ring-1 ring-[#ebf4ff]` 
                   : 'text-gray-500 hover:bg-gray-100'
               }`}
             >

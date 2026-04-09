@@ -7,7 +7,7 @@ import { theme } from '../../theme';
 import { useAuth } from '../../src/contexts/AuthProvider';
 import { useToastNotifications } from '../../src/contexts/ToastContext';
 import { useBills, useCategories, useCompanySettings, useOrders, useTransactions, useUsers } from '../../src/hooks/useQueries';
-import { Bill, Order, OrderStatus, Transaction, User, UserRole, isEmployeeRole } from '../../types';
+import { Bill, Order, OrderStatus, Transaction, User, UserRole, hasAdminAccess, isEmployeeRole } from '../../types';
 import { FilterRange, formatDate, isWithinDateRange } from '../../utils';
 
 type RoleFilter = 'All Users' | 'Admins' | 'Employees';
@@ -149,7 +149,7 @@ const buildUserReportPdfHtml = (params: {
   selectedPeriod: string;
 }) => {
   const { report, companyName, companyLogo, generatedAt, selectedPeriod } = params;
-  const roleTone = report.user.role === UserRole.ADMIN ? 'role-admin' : 'role-employee';
+  const roleTone = hasAdminAccess(report.user.role) ? 'role-admin' : 'role-employee';
   const userImageSrc = toAbsoluteAssetUrl(report.user.image);
   const companyLogoSrc = toAbsoluteAssetUrl(companyLogo);
   const userAvatar = userImageSrc
@@ -806,7 +806,7 @@ const UserActivityPerformanceReport: React.FC = () => {
         candidate.role.toLowerCase().includes(query);
       const matchesRole =
         roleFilter === 'All Users' ||
-        (roleFilter === 'Admins' && candidate.role === UserRole.ADMIN) ||
+        (roleFilter === 'Admins' && hasAdminAccess(candidate.role)) ||
         (roleFilter === 'Employees' && isEmployeeRole(candidate.role));
       return matchesSearch && matchesRole;
     });
@@ -949,7 +949,7 @@ const UserActivityPerformanceReport: React.FC = () => {
   );
 
   if (!user) return <div className="p-8 text-center text-gray-500">Loading report access...</div>;
-  if (user.role !== UserRole.ADMIN) return <div className="p-8 text-center text-gray-500">This report is available to admins only.</div>;
+  if (!hasAdminAccess(user.role)) return <div className="p-8 text-center text-gray-500">This report is available to admin-access users only.</div>;
   if (usersLoading || ordersLoading || billsLoading || transactionsLoading) {
     return <div className="p-8 text-center text-gray-500">Loading user activity report...</div>;
   }
@@ -1070,7 +1070,7 @@ const UserActivityPerformanceReport: React.FC = () => {
                               <h3 className="mt-2 truncate text-xl font-black text-gray-900">{report.user.name}</h3>
                               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-gray-500">
                                 <span>{report.user.phone || 'No phone'}</span>
-                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${report.user.role === UserRole.ADMIN ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{report.user.role}</span>
+                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${hasAdminAccess(report.user.role) ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{report.user.role}</span>
                               </div>
                             </div>
                           </div>

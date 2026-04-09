@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, UserRole } from '../types';
+import { User, UserRole, hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
@@ -10,6 +10,8 @@ import { useUsers } from '../src/hooks/useQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState } from '../src/utils/navigation';
 
+type RoleFilter = 'All' | UserRole.ADMIN | UserRole.DEVELOPER | UserRole.EMPLOYEE | UserRole.EMPLOYEE1;
+
 const Users: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -17,30 +19,54 @@ const Users: React.FC = () => {
   const { user } = useAuth();
   const currentSearchParams = searchParams.toString();
   const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const roleFilter = (searchParams.get('role') as RoleFilter | null) || 'All';
   const { data: users = [], isPending: loading } = useUsers();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
+  const handleRoleFilterChange = (filter: RoleFilter) => {
+    const next = new URLSearchParams(searchParams);
+    if (filter === 'All') {
+      next.delete('role');
+    } else {
+      next.set('role', filter);
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   React.useEffect(() => {
     const params: Record<string, string> = {};
     if (searchQuery) params.search = searchQuery;
+    if (roleFilter !== 'All') params.role = roleFilter;
 
     if (new URLSearchParams(params).toString() !== currentSearchParams) {
       setSearchParams(params, { replace: true });
     }
-  }, [searchQuery, currentSearchParams, setSearchParams]);
+  }, [searchQuery, roleFilter, currentSearchParams, setSearchParams]);
 
   const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return users;
+    const query = searchQuery.trim().toLowerCase();
+    return users.filter((candidate) => {
+      if (roleFilter !== 'All' && candidate.role !== roleFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return (
+        candidate.name.toLowerCase().includes(query) ||
+        candidate.phone.includes(query) ||
+        candidate.role.toLowerCase().includes(query)
+      );
+    });
+  }, [users, searchQuery, roleFilter]);
+
+  const roleBadgeClass = (role: UserRole) => {
+    if (hasAdminAccess(role)) {
+      return 'bg-purple-100 text-purple-700';
     }
-    
-    const query = searchQuery.toLowerCase();
-    return users.filter(user => 
-      user.name.toLowerCase().includes(query) ||
-      user.phone.includes(query) ||
-      user.role.toLowerCase().includes(query)
-    );
-  }, [users, searchQuery]);
+    return 'bg-blue-100 text-blue-700';
+  };
+
+  const roleFilters: RoleFilter[] = ['All', UserRole.ADMIN, UserRole.DEVELOPER, UserRole.EMPLOYEE, UserRole.EMPLOYEE1];
 
   return (
     <div className="space-y-6">
@@ -58,6 +84,24 @@ const Users: React.FC = () => {
             Add User
           </Button>
         )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {roleFilters.map((filter) => (
+            <button
+              key={filter}
+              onClick={() => handleRoleFilterChange(filter)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                roleFilter === filter
+                  ? `${theme.colors.primary[600]} text-white shadow-md`
+                  : 'text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Table
@@ -80,9 +124,7 @@ const Users: React.FC = () => {
             label: 'Role',
             render: (role) => (
               <span
-                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                  role === UserRole.ADMIN ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                }`}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${roleBadgeClass(role as UserRole)}`}
               >
                 {role}
               </span>

@@ -44,14 +44,14 @@ const Reports: React.FC = () => {
       title: 'Income Summary',
       description: 'Analysis of your revenue streams and payment collections.',
       icon: ICONS.PlusCircle,
-      color: `bg-[#ebf4ff] ${theme.colors.primary[600]}`,
+      color: `bg-[#ebf4ff]`,
       to: '/reports/income'
     },
     {
       title: 'Income vs Expense',
       description: 'Visual comparison of cash inflows and outflows over time.',
       icon: ICONS.Transfer,
-      color: `bg-[#e6f0ff] ${theme.colors.secondary[600]}`,
+      color: `bg-[#e6f0ff]`,
       to: '/reports/income-vs-expense'
     },
     {

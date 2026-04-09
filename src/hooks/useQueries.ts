@@ -47,6 +47,7 @@ import {
   fetchMyWallet,
   fetchWalletActivity,
   fetchWalletActivityPage,
+  fetchRecycleBinItems,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type {
@@ -65,6 +66,7 @@ import type {
   WalletEntryType,
   WalletBalanceCard,
   WalletSettings,
+  RecycleBinItem,
 } from '../../types';
 import { db } from '../../db';
 
@@ -362,6 +364,17 @@ export function useProduct(id: string | undefined): UseQueryResult<Product | nul
     queryFn: () => fetchProductById(id || ''),
     enabled: !!id,
     staleTime: 15 * 60 * 1000, // Keep single-product cache consistent with products master cache
+  });
+}
+
+// ========== RECYCLE BIN ==========
+
+export function useRecycleBin(): UseQueryResult<RecycleBinItem[], Error> {
+  return useQuery({
+    queryKey: ['recycle-bin'],
+    queryFn: fetchRecycleBinItems,
+    staleTime: 60 * 1000,
+    refetchOnMount: 'always',
   });
 }
 

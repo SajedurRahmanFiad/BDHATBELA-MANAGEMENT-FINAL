@@ -3,16 +3,15 @@ import React, { useState, useMemo, useEffect } from 'react';
 import PortalMenu from '../components/PortalMenu';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { db } from '../db';
-import { Order, OrderStatus, UserRole, Transaction, isEmployeeRole } from '../types';
+import { Order, OrderStatus, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
-import { Button, TableLoadingSkeleton, CommonPaymentModal, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
+import { Button, TableLoadingSkeleton, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { useOrdersPage, useAccounts, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
+import { useOrdersPage, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
-import { useCreateOrder, useDeleteOrder, useUpdateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useCompletePickedOrder, useCreateOrder } from '../src/hooks/useMutations';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
@@ -26,8 +25,18 @@ const Orders: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { user, isLoading: authLoading } = useAuth();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
   const isEmployee = isEmployeeRole(user?.role);
+  const createCompletionForm = (order?: Order | null): OrderCompletionFormState => ({
+    outcome: 'Delivered',
+    date: getTodayDate(),
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    accountId: '',
+    amount: order ? Math.max(order.total - order.paidAmount, 0) : 0,
+    paymentMethod: '',
+    categoryId: '',
+    note: '',
+  });
 
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
@@ -56,16 +65,11 @@ const Orders: React.FC = () => {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const previousSearchQueryRef = React.useRef(searchQuery);
 
-  const [showPaymentModal, setShowPaymentModal] = useState<Order | null>(null);
+  const [completionOrder, setCompletionOrder] = useState<Order | null>(null);
   const [showSteadfast, setShowSteadfast] = useState<string | null>(null);
   const [showCarryBee, setShowCarryBee] = useState<string | null>(null);
   const [showPaperfly, setShowPaperfly] = useState<string | null>(null);
-  const [paymentForm, setPaymentForm] = useState({
-    date: getTodayDate(),
-    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    accountId: '',
-    amount: 0
-  });
+  const [completionForm, setCompletionForm] = useState<OrderCompletionFormState>(createCompletionForm());
 
   const { data: users = [] } = useUsers();
 
@@ -124,13 +128,13 @@ const Orders: React.FC = () => {
   const createdByIds = useMemo(() => {
     if (effectiveCreatedByFilter === 'all') return undefined;
     if (effectiveCreatedByFilter === 'admins') {
-      return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+      return users.filter(u => hasAdminAccess(u.role)).map(u => u.id);
     }
     if (effectiveCreatedByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
     }
     return [effectiveCreatedByFilter];
-  }, [effectiveCreatedByFilter, users, isEmployee]);
+  }, [effectiveCreatedByFilter, users]);
 
   const { data: ordersPage, isFetching: ordersLoading } = useOrdersPage(effectivePage, pageSize, {
     status: effectiveStatusTab === 'All' ? undefined : effectiveStatusTab,
@@ -143,7 +147,6 @@ const Orders: React.FC = () => {
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
 
-  const { data: accounts = [] } = useAccounts();
   const { data: orderSettings } = useOrderSettings();
 
   useEffect(() => {
@@ -200,10 +203,7 @@ const Orders: React.FC = () => {
   };
 
   const createOrderMutation = useCreateOrder();
-  const deleteOrderMutation = useDeleteOrder();
-  const updateOrderMutation = useUpdateOrder();
-  const createTransactionMutation = useCreateTransaction();
-  const updateAccountMutation = useUpdateAccount();
+  const completePickedOrderMutation = useCompletePickedOrder();
 
   // Create a Map for O(1) user lookups instead of O(n) array searching
   const userMap = useMemo(() => {
@@ -248,131 +248,58 @@ const Orders: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this order?')) return;
-    try {
-      await deleteOrderMutation.mutateAsync(id);
-      toast.success('Order deleted successfully');
-      // Current page cache is updated deterministically by the mutation hook
-    } catch (err) {
-      console.error('Failed to delete order', err);
-      toast.error('Failed to delete order: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    }
+  const openCompletionModal = (order: Order) => {
+    setCompletionForm(createCompletionForm(order));
+    setCompletionOrder(order);
   };
 
-  const openPaymentModal = (order: Order) => {
-    setPaymentForm({
-      date: getTodayDate(),
-      time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-      accountId: '',
-      amount: order.total - order.paidAmount
-    });
-    setShowPaymentModal(order);
-  };
+  const handleCompletePickedOrder = async () => {
+    if (!completionOrder) return;
 
-  const handleAddPayment = async () => {
-    if (!showPaymentModal) return;
-    const order = showPaymentModal;
-    
     try {
-      // Try to find account in cached data, fallback to provided ID if not found
-      // (accounts might not have fully loaded when payment modal opens)
-      let account = accounts.find(a => a.id === paymentForm.accountId);
-      
-      if (!account) {
-        // If account not found in cache, it might not be in the list, so just verify it has an ID
-        // The backend will validate that the account exists
-        if (!paymentForm.accountId) {
-          toast.error('Please select an account');
-          return;
-        }
-        // Account not in visible list, but proceed with the ID provided by user
-        // (backend RLS will validate it exists and belongs to user)
-        account = { 
-          id: paymentForm.accountId, 
-          name: 'Selected Account',
-          type: 'Bank',
-          openingBalance: 0,
-          currentBalance: 0
-        };
-      }
-
-      // Check if this is a partial payment (indicates order has remaining balance to track)
-      const shouldCreateShippingExpense = paymentForm.amount < order.total;
-
-      // Create full ISO datetime from date and time
-      const fullDatetime = buildLocalDateTime(paymentForm.date, paymentForm.time);
-      if (!fullDatetime) {
-        toast.error('Please enter a valid payment date and time');
+      if (!completionForm.accountId) {
+        toast.error('Please select an account');
         return;
       }
-      const isoDatetime = fullDatetime.toISOString();
-
-      // Create transactions. If there are independent inserts (income + expense), run them in parallel
-      const incomeTx = {
-        date: isoDatetime,
-        type: 'Income' as const,
-        category: db.settings.defaults.incomeCategoryId || 'income_sales',
-        accountId: paymentForm.accountId,
-        amount: order.total,
-        description: `Payment for Order #${order.orderNumber}`,
-        referenceId: order.id,
-        contactId: order.customerId,
-        paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-        createdBy: user.id,
-      };
-
-      if (shouldCreateShippingExpense) {
-        const remainingAmount = order.total - paymentForm.amount;
-        const expenseTx = {
-          date: isoDatetime,
-          type: 'Expense' as const,
-          category: 'expense_shipping',
-          accountId: paymentForm.accountId,
-          amount: remainingAmount,
-          description: `Shipping costs for Order #${order.orderNumber}`,
-          paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-          createdBy: user.id,
-        };
-
-        // Run both insertions in parallel to reduce overall latency
-        await Promise.all([
-          createTransactionMutation.mutateAsync(incomeTx),
-          createTransactionMutation.mutateAsync(expenseTx),
-        ]);
-      } else {
-        // Only income transaction required
-        await createTransactionMutation.mutateAsync(incomeTx);
+      if (completionForm.amount <= 0) {
+        toast.error(completionForm.outcome === 'Returned' ? 'Please enter the return expense amount' : 'Please enter the received amount');
+        return;
+      }
+      if (completionForm.outcome === 'Returned' && !completionForm.paymentMethod) {
+        toast.error('Please select a payment method');
+        return;
+      }
+      if (completionForm.outcome === 'Returned' && !completionForm.categoryId) {
+        toast.error('Please select an expense category');
+        return;
       }
 
-      // PARALLEL: Step 3 - Update account balance and order status together
-      const balanceChange = paymentForm.amount;
-      const updatedPaid = (order.paidAmount ?? 0) + paymentForm.amount;
-      const updatedStatus = OrderStatus.COMPLETED;
-      
-      await Promise.all([
-        updateAccountMutation.mutateAsync({
-          id: account.id,
-          updates: {
-            currentBalance: (account.currentBalance ?? 0) + balanceChange,
-          },
-        }),
-        updateOrderMutation.mutateAsync({
-          id: order.id,
-          updates: {
-            paidAmount: updatedPaid,
-            status: updatedStatus,
-          },
-        })
-      ]);
+      const fullDatetime = buildLocalDateTime(completionForm.date, completionForm.time);
+      if (!fullDatetime) {
+        toast.error('Please enter a valid date and time');
+        return;
+      }
+      await completePickedOrderMutation.mutateAsync({
+        orderId: completionOrder.id,
+        outcome: completionForm.outcome,
+        date: fullDatetime.toISOString(),
+        accountId: completionForm.accountId,
+        amount: completionForm.amount,
+        paymentMethod: completionForm.outcome === 'Returned' ? completionForm.paymentMethod : undefined,
+        categoryId: completionForm.outcome === 'Returned' ? completionForm.categoryId : undefined,
+        note: completionForm.outcome === 'Returned' ? completionForm.note : undefined,
+      });
 
-      // Close modal immediately - queries will auto-update via React Query
-      setShowPaymentModal(null);
-      // Refresh orders cache so the updated order is re-fetched and will no longer appear under the old status/tab
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      setCompletionOrder(null);
+      setCompletionForm(createCompletionForm());
+      toast.success(
+        completionForm.outcome === 'Returned'
+          ? `Order #${completionOrder.orderNumber} marked as returned`
+          : `Order #${completionOrder.orderNumber} marked as delivered`
+      );
     } catch (err) {
-      console.error('Failed to add payment:', err);
-      toast.error('Failed to add payment: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      console.error('Failed to finalize order:', err);
+      toast.error('Failed to finalize order: ' + (err instanceof Error ? err.message : 'Unknown error'));
     }
   };
 
@@ -382,7 +309,6 @@ const Orders: React.FC = () => {
     const patterns = [
       /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
       /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
-      /steadfast\.com\.bd\/t\/([a-z0-9-]+)/i,
     ];
     for (const pattern of patterns) {
       const match = text.match(pattern);
@@ -400,7 +326,11 @@ const Orders: React.FC = () => {
     const courierHistory = String(order.history?.courier || '').toLowerCase();
 
     if (steadfastTracking) {
-      window.open(`https://steadfast.com.bd/t/${encodeURIComponent(steadfastTracking)}`, '_blank', 'noopener,noreferrer');
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(steadfastTracking).catch(() => undefined);
+      }
+      toast.success(`Steadfast tracking code copied: ${steadfastTracking}`);
+      window.open('https://steadfast.com.bd/tracking', '_blank', 'noopener,noreferrer');
       return;
     }
 
@@ -459,17 +389,17 @@ const Orders: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Users</option>
-            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => hasAdminAccess(u.role)) && <option value="admins">Admin Access</option>}
             {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
             <optgroup label="Specific Users">
               {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
               ))}
             </optgroup>
           </select>
           {isEmployee && (
             <p className="text-xs font-semibold text-gray-500">
-              You can review all team orders here. Edit and delete remain limited to your own draft orders.
+              You can review all team orders here. Edit remains limited to your own draft orders.
             </p>
           )}
         </div>
@@ -494,7 +424,6 @@ const Orders: React.FC = () => {
               ) : displayedOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : displayedOrders.map((order) => {
-                const isModifiable = isAdmin || order.status === OrderStatus.ON_HOLD;
                 const isOwner = order.createdBy === user?.id;
                 const custName = order.customerName ?? 'Unknown';
                 const courierHistory = String(order.history?.courier || '').toLowerCase();
@@ -566,7 +495,6 @@ const Orders: React.FC = () => {
                                 {isOwner && order.status === OrderStatus.ON_HOLD && (
                                   <>
                                     <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                    <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
                                   </>
                                 )}
                                 {sentToAnyCourier && (
@@ -584,8 +512,8 @@ const Orders: React.FC = () => {
                             ) : (
                               <>
                                 <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                {order.status !== OrderStatus.COMPLETED && (
-                                  <button onClick={() => { openPaymentModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Banking} Payment</button>
+                                {order.status === OrderStatus.PICKED && (
+                                  <button onClick={() => { openCompletionModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Check} Mark as Completed</button>
                                 )}
                                 <div className="border-t my-1"></div>
                                 <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
@@ -597,7 +525,7 @@ const Orders: React.FC = () => {
                                     {ICONS.Courier} Tracking
                                   </button>
                                 )}
-                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
+                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                   <>
                                     <div className="border-t my-1"></div>
                                     <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
@@ -605,8 +533,6 @@ const Orders: React.FC = () => {
                                     <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
                                   </>
                                 )}
-                                <div className="border-t my-1"></div>
-                                <button onClick={() => { handleDelete(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
                               </>
                             )}
                           </PortalMenu>
@@ -614,7 +540,7 @@ const Orders: React.FC = () => {
                       )}
                     </td>
 
-                    {/* Desktop Hover Actions: admins keep full actions; employees see Edit/Delete when order is draft, otherwise N/A */}
+                    {/* Desktop Hover Actions: admins keep row actions; employees see Edit on their own drafts, otherwise tracking only */}
                     {hoveredRow === order.id && (isAdmin || (isEmployee && (sentToAnyCourier || (isOwner && order.status === OrderStatus.ON_HOLD)))) && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
@@ -623,7 +549,6 @@ const Orders: React.FC = () => {
                               {isOwner && order.status === OrderStatus.ON_HOLD && (
                                 <>
                                   <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                                  <button onClick={() => handleDelete(order.id)} className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
                                 </>
                               )}
                               {sentToAnyCourier && (
@@ -633,14 +558,14 @@ const Orders: React.FC = () => {
                           ) : (
                             <>
                               <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                              {order.status !== OrderStatus.COMPLETED && (
-                                <button onClick={() => openPaymentModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Add Payment">{ICONS.Banking}</button>
+                              {order.status === OrderStatus.PICKED && (
+                                <button onClick={() => openCompletionModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Mark as Completed">{ICONS.Check}</button>
                               )}
                               <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
                               {sentToAnyCourier && (
                                 <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
                               )}
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
+                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
                                 <>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                   <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>
@@ -648,9 +573,6 @@ const Orders: React.FC = () => {
                                   <button onClick={() => setShowPaperfly(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Paperfly"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full"/></button>
                                   <div className="h-5 w-px bg-gray-100 mx-1"></div>
                                 </>
-                              )}
-                              {isModifiable && (
-                                <button onClick={() => handleDelete(order.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
                               )}
                             </>
                           )}
@@ -677,16 +599,14 @@ const Orders: React.FC = () => {
             disabled={ordersLoading}
           />
         </div>
-      <CommonPaymentModal
-        isOpen={!!showPaymentModal}
-        onClose={() => setShowPaymentModal(null)}
-        onSubmit={handleAddPayment}
-        accounts={accounts}
-        paymentForm={paymentForm}
-        setPaymentForm={setPaymentForm}
-        isLoading={createTransactionMutation.isPending || updateAccountMutation.isPending || updateOrderMutation.isPending}
-        title="Receive Payment"
-        buttonText="Add Payment"
+      <OrderCompletionModal
+        isOpen={!!completionOrder}
+        onClose={() => setCompletionOrder(null)}
+        onSubmit={handleCompletePickedOrder}
+        order={completionOrder}
+        form={completionForm}
+        setForm={setCompletionForm}
+        isLoading={completePickedOrderMutation.isPending}
       />
 
       <SteadfastModal 
@@ -698,7 +618,7 @@ const Orders: React.FC = () => {
             ? (() => {
                 const o = orders.find(o => o.id === showSteadfast);
                 return o
-                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '', totalOrders: 0, dueAmount: 0 }
                   : null;
               })()
             : null
@@ -713,7 +633,7 @@ const Orders: React.FC = () => {
             ? (() => {
                 const o = orders.find(o => o.id === showCarryBee);
                 return o
-                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '', totalOrders: 0, dueAmount: 0 }
                   : null;
               })()
             : null
@@ -728,7 +648,7 @@ const Orders: React.FC = () => {
             ? (() => {
                 const o = orders.find(o => o.id === showPaperfly);
                 return o
-                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '' }
+                  ? { id: o.customerId, name: o.customerName || '', phone: o.customerPhone || '', address: o.customerAddress || '', totalOrders: 0, dueAmount: 0 }
                   : null;
               })()
             : null

@@ -4,6 +4,7 @@ import {
   updateCustomer,
   deleteCustomer,
   createOrder,
+  completePickedOrder,
   updateOrder,
   deleteOrder,
   createBill,
@@ -43,6 +44,8 @@ import {
   updateWalletSettings,
   payEmployeeWallet,
   batchUpdateSettings,
+  restoreDeletedItem,
+  permanentlyDeleteDeletedItem,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type {
@@ -59,6 +62,8 @@ import type {
   PayrollSettings,
   WalletPayout,
   WalletSettings,
+  RecycleBinEntityType,
+  CompletePickedOrderPayload,
 } from '../../types';
 import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
@@ -145,6 +150,74 @@ function matchesFiltersForResource(resource: string, row: any, filters: any): bo
 // Helper: invalidate all cached pages for a resource (including paginated keys)
 function invalidateResourceQueries(queryClient: ReturnType<typeof useQueryClient>, resource: string) {
   queryClient.invalidateQueries({ queryKey: [resource], exact: false });
+}
+
+function invalidateRecycleBin(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['recycle-bin'], exact: false });
+}
+
+function invalidateEntityAfterRecycleBinAction(
+  queryClient: ReturnType<typeof useQueryClient>,
+  entityType: RecycleBinEntityType
+) {
+  invalidateRecycleBin(queryClient);
+
+  if (entityType === 'customer') {
+    invalidateResourceQueries(queryClient, 'customers');
+    queryClient.invalidateQueries({ queryKey: ['customer'] });
+    return;
+  }
+
+  if (entityType === 'order') {
+    invalidateResourceQueries(queryClient, 'orders');
+    queryClient.invalidateQueries({ queryKey: ['order'] });
+    queryClient.invalidateQueries({ queryKey: ['customers'] });
+    queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'] });
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+    queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'] });
+    queryClient.invalidateQueries({ queryKey: ['payroll'] });
+    queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    return;
+  }
+
+  if (entityType === 'bill') {
+    invalidateResourceQueries(queryClient, 'bills');
+    queryClient.invalidateQueries({ queryKey: ['bill'] });
+    queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    queryClient.invalidateQueries({ queryKey: ['billsByVendorId'] });
+    queryClient.invalidateQueries({ queryKey: ['products'] });
+    queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    return;
+  }
+
+  if (entityType === 'transaction') {
+    invalidateResourceQueries(queryClient, 'transactions');
+    queryClient.invalidateQueries({ queryKey: ['transaction'] });
+    queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    return;
+  }
+
+  if (entityType === 'user') {
+    invalidateResourceQueries(queryClient, 'users');
+    queryClient.invalidateQueries({ queryKey: ['user'] });
+    queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    queryClient.invalidateQueries({ queryKey: ['payroll'] });
+    return;
+  }
+
+  if (entityType === 'vendor') {
+    invalidateResourceQueries(queryClient, 'vendors');
+    queryClient.invalidateQueries({ queryKey: ['vendor'] });
+    return;
+  }
+
+  if (entityType === 'product') {
+    invalidateResourceQueries(queryClient, 'products');
+    queryClient.invalidateQueries({ queryKey: ['product'] });
+  }
 }
 
 // ========== CUSTOMERS ==========
@@ -362,6 +435,7 @@ export function useDeleteCustomer(): UseMutationResult<void, Error, string, unkn
 
       // Ensure paginated customer tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'customers');
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -463,6 +537,11 @@ export function useCreateOrder(): UseMutationResult<Order, Error, Omit<Order, 'i
 
       // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'orders');
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
@@ -537,14 +616,35 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
       // Update detail cache deterministically
       queryClient.setQueryData(['order', data.id], data);
 
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'] });
+      queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+
       // Stock can change when status/items change
       if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
         queryClient.invalidateQueries({ queryKey: ['products'], exact: false });
       }
+    },
+  });
+}
 
-      if (variables?.updates?.status !== undefined) {
-        queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      }
+export function useCompletePickedOrder(): UseMutationResult<Order, Error, CompletePickedOrderPayload, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: completePickedOrder,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['order', data.id], data);
+      queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['customers'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['transactions'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['accounts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['products'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['payroll'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['wallet'], exact: false });
     },
   });
 }
@@ -633,9 +733,15 @@ export function useDeleteOrder(): UseMutationResult<void, Error, string, unknown
 
       // Ensure paginated order tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'orders');
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ordersByCustomerId'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -712,6 +818,9 @@ export function useCreateBill(): UseMutationResult<Bill, Error, Omit<Bill, 'id'>
 
       // Ensure paginated bill tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'bills');
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.invalidateQueries({ queryKey: ['billsByVendorId'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
@@ -763,6 +872,8 @@ export function useUpdateBill(): UseMutationResult<Bill, Error, { id: string; up
         }
       });
       queryClient.invalidateQueries({ queryKey: ['bill', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.invalidateQueries({ queryKey: ['billsByVendorId'] });
 
       // Stock can change when status/items change
       if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
@@ -832,6 +943,12 @@ export function useDeleteBill(): UseMutationResult<void, Error, string, unknown>
 
       // Ensure paginated bill tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'bills');
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.invalidateQueries({ queryKey: ['billsByVendorId'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1002,6 +1119,8 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
       });
       // Ensure paginated transaction tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'transactions');
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1063,6 +1182,8 @@ export function useDeleteTransaction(): UseMutationResult<void, Error, string, u
 
       // Ensure paginated transaction tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'transactions');
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1123,6 +1244,9 @@ export function useCreateUser(): UseMutationResult<User, Error, Partial<User>, u
 
       // Ensure paginated user tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'users');
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1297,6 +1421,7 @@ export function useCreateVendor(): UseMutationResult<Vendor, Error, Partial<Vend
 
       // Ensure paginated vendor tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'vendors');
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1466,6 +1591,7 @@ export function useCreateProduct(): UseMutationResult<Product, Error, Partial<Pr
 
       // Ensure paginated product tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'products');
+      invalidateRecycleBin(queryClient);
     },
   });
 }
@@ -1576,6 +1702,28 @@ export function useDeleteProduct(): UseMutationResult<void, Error, string, unkno
 
       // Ensure paginated product tables refetch if key shapes didn't match optimistic patch
       invalidateResourceQueries(queryClient, 'products');
+    },
+  });
+}
+
+// ========== RECYCLE BIN ==========
+
+export function useRestoreDeletedItem(): UseMutationResult<void, Error, { entityType: RecycleBinEntityType; id: string }, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: restoreDeletedItem,
+    onSuccess: (_data, variables) => {
+      invalidateEntityAfterRecycleBinAction(queryClient, variables.entityType);
+    },
+  });
+}
+
+export function usePermanentlyDeleteDeletedItem(): UseMutationResult<void, Error, { entityType: RecycleBinEntityType; id: string }, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: permanentlyDeleteDeletedItem,
+    onSuccess: (_data, variables) => {
+      invalidateEntityAfterRecycleBinAction(queryClient, variables.entityType);
     },
   });
 }

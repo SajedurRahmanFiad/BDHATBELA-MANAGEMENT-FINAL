@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
 import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
-import { fetchPaperflyOrderTracking, submitPaperflyOrder } from '../src/services/supabaseQueries';
+import { submitPaperflyOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
 import { db } from '../db';
 
@@ -12,25 +12,6 @@ interface PaperflyModalProps {
   onClose: () => void;
   order?: Order | null;
   customer?: Customer | null;
-}
-
-function extractPaperflyTrackingStatusEntry(payload: any): any | null {
-  const trackingStatus = payload?.success?.trackingStatus;
-  if (Array.isArray(trackingStatus) && trackingStatus.length > 0) {
-    return trackingStatus[0] || null;
-  }
-  if (Array.isArray(payload?.trackingStatus) && payload.trackingStatus.length > 0) {
-    return payload.trackingStatus[0] || null;
-  }
-  if (Array.isArray(payload?.data?.trackingStatus) && payload.data.trackingStatus.length > 0) {
-    return payload.data.trackingStatus[0] || null;
-  }
-  return null;
-}
-
-function isPaperflyPickedFromEntry(entry: any): boolean {
-  const pickValue = entry?.Pick;
-  return pickValue !== null && pickValue !== undefined && String(pickValue).trim() !== '';
 }
 
 export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, order, customer }) => {
@@ -43,18 +24,9 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
   const [maxWeightKg, setMaxWeightKg] = useState<number>(0.3);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollingIntervalRef = useRef<number | null>(null);
-  const pollingCancelledRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (!isOpen) {
-      pollingCancelledRef.current = true;
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      return;
-    }
+    if (!isOpen) return;
 
     const defaultShopName = courierSettings?.paperfly?.defaultShopName || '';
     const defaultWeight = Number(courierSettings?.paperfly?.maxWeightKg ?? 0.3);
@@ -62,18 +34,7 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
     setProductBrief(order?.notes || '');
     setMaxWeightKg(Number.isFinite(defaultWeight) ? defaultWeight : 0.3);
     setError(null);
-    pollingCancelledRef.current = false;
   }, [isOpen, courierSettings?.paperfly?.defaultShopName, courierSettings?.paperfly?.maxWeightKg, order?.notes]);
-
-  useEffect(() => {
-    return () => {
-      pollingCancelledRef.current = true;
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, []);
 
   if (!isOpen) return null;
 
@@ -141,8 +102,16 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
         null;
 
       const historyText = `Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+      const pickedHistory = `Marked as picked automatically after successful Paperfly submission on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
 
-      const updates: any = { history: { ...order.history, courier: historyText } };
+      const updates: any = {
+        status: OrderStatus.PICKED,
+        history: {
+          ...order.history,
+          courier: historyText,
+          picked: pickedHistory,
+        },
+      };
       if (trackingNumber) {
         updates.paperflyTrackingNumber = String(trackingNumber);
       }
@@ -150,43 +119,6 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
       await updateOrder.mutateAsync({ id: order.id, updates });
       await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
       await queryClient.refetchQueries({ queryKey: ['order', order.id] });
-
-      if (trackingNumber) {
-        const referenceNumber = String(trackingNumber);
-        const poll = async () => {
-          if (pollingCancelledRef.current) return;
-          try {
-            const details = await fetchPaperflyOrderTracking({
-              baseUrl,
-              username,
-              password,
-              referenceNumber,
-            });
-            if (details.error) return;
-            const trackingEntry = extractPaperflyTrackingStatusEntry(details.data);
-            if (!isPaperflyPickedFromEntry(trackingEntry)) return;
-
-            const pickedHistory = `Marked picked automatically from Paperfly tracking status on ${new Date().toLocaleString()}`;
-            await updateOrder.mutateAsync({
-              id: order.id,
-              updates: { status: OrderStatus.PICKED, history: { ...order.history, picked: pickedHistory } },
-            });
-            await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
-            await queryClient.refetchQueries({ queryKey: ['order', order.id] });
-
-            pollingCancelledRef.current = true;
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-              pollingIntervalRef.current = null;
-            }
-          } catch (err) {
-            console.error('[PaperflyModal] Polling error:', err);
-          }
-        };
-
-        pollingIntervalRef.current = window.setInterval(poll, 15_000) as unknown as number;
-        poll();
-      }
 
       onClose();
     } catch (err) {

@@ -1,19 +1,25 @@
 
 export enum UserRole {
   ADMIN = 'Admin',
+  DEVELOPER = 'Developer',
   EMPLOYEE = 'Employee',
   EMPLOYEE1 = 'Employee1'
 }
 
-export const isEmployeeRole = (r?: UserRole) => r === UserRole.EMPLOYEE || r === UserRole.EMPLOYEE1;
+export const isEmployeeRole = (r?: UserRole | string | null) => r === UserRole.EMPLOYEE || r === UserRole.EMPLOYEE1;
+export const isDeveloperRole = (r?: UserRole | string | null) => r === UserRole.DEVELOPER;
+export const hasAdminAccess = (r?: UserRole | string | null) => r === UserRole.ADMIN || r === UserRole.DEVELOPER;
 
 export enum OrderStatus {
   ON_HOLD = 'On Hold',
   PROCESSING = 'Processing',
   PICKED = 'Picked',
   COMPLETED = 'Completed',
+  RETURNED = 'Returned',
   CANCELLED = 'Cancelled'
 }
+
+export type OrderCompletionOutcome = 'Delivered' | 'Returned';
 
 export enum BillStatus {
   ON_HOLD = 'On Hold',
@@ -30,6 +36,8 @@ export interface User {
   image?: string;
   password?: string;
   createdAt?: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface Customer {
@@ -40,6 +48,8 @@ export interface Customer {
   totalOrders: number;
   dueAmount: number;
   createdBy?: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface Vendor {
@@ -50,6 +60,8 @@ export interface Vendor {
   totalPurchases: number;
   dueAmount: number;
   createdBy?: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface Product {
@@ -61,6 +73,8 @@ export interface Product {
   purchasePrice: number;
   stock: number;
   createdBy?: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface OrderItem {
@@ -76,6 +90,8 @@ export interface Order {
   orderNumber: string;
   orderDate: string;
   createdAt?: string;
+  deletedAt?: string;
+  deletedBy?: string;
   customerId: string;
   createdBy: string;
   status: OrderStatus;
@@ -94,6 +110,7 @@ export interface Order {
     processing?: string;
     picked?: string;
     completed?: string;
+    returned?: string;
     payment?: string;
   };
   paidAmount: number;
@@ -113,6 +130,8 @@ export interface Bill {
   billNumber: string;
   billDate: string;
   createdAt?: string;
+  deletedAt?: string;
+  deletedBy?: string;
   vendorId: string;
   createdBy: string;
   status: BillStatus;
@@ -154,6 +173,8 @@ export interface Transaction {
   type: 'Income' | 'Expense' | 'Transfer';
   category: string;
   createdAt?: string;
+  deletedAt?: string;
+  deletedBy?: string;
   accountId: string; // Used for Income/Expense or Source in Transfer
   toAccountId?: string; // Used for Transfer
   amount: number;
@@ -193,8 +214,8 @@ export interface Settings {
     footer: string;
   };
   defaults: {
-    accountId: string;
-    paymentMethod: string;
+    defaultAccountId: string;
+    defaultPaymentMethod: string;
     incomeCategoryId: string;
     expenseCategoryId: string;
     recordsPerPage: number;
@@ -323,4 +344,40 @@ export interface WalletPayout {
   paidBy: string;
   paidByName?: string;
   note?: string;
+}
+
+export interface CompletePickedOrderPayload {
+  orderId: string;
+  outcome: OrderCompletionOutcome;
+  date: string;
+  accountId: string;
+  amount: number;
+  paymentMethod?: string;
+  categoryId?: string;
+  note?: string;
+}
+
+export type RecycleBinEntityType =
+  | 'customer'
+  | 'order'
+  | 'bill'
+  | 'transaction'
+  | 'user'
+  | 'vendor'
+  | 'product';
+
+export interface RecycleBinItem {
+  id: string;
+  entityType: RecycleBinEntityType;
+  title: string;
+  description?: string;
+  details: string[];
+  deletedAt: string;
+  deletedBy?: string;
+  deletedByName?: string;
+  createdAt?: string;
+  createdBy?: string;
+  createdByName?: string;
+  status?: string;
+  amount?: number;
 }

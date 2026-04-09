@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
-import { Customer, Order, OrderStatus, OrderItem, UserRole, isEmployeeRole } from '../types';
+import { Customer, Order, OrderStatus, OrderItem, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -20,7 +20,7 @@ const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
   const isEmployee = isEmployeeRole(user?.role);
   const isEdit = Boolean(id);
 

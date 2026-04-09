@@ -3,13 +3,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
 import { db } from '../db';
-import { UserRole, isEmployeeRole, Order } from '../types';
+import { hasAdminAccess, isEmployeeRole, Order } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
 import { fetchCompanySettings } from '../src/services/supabaseQueries';
 import { useOrders } from '../src/hooks/useQueries';
 import { buildHistoryBackState } from '../src/utils/navigation';
+import IncidentModeBanner from './IncidentModeBanner';
+import { WRITE_FREEZE_ENABLED, WRITE_FREEZE_MESSAGE } from '../src/config/incidentMode';
 
 interface SidebarItemProps {
   to?: string;
@@ -258,11 +260,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               onClick={() => setIsSidebarOpen(false)}
             />
 
-            {user.role === UserRole.ADMIN ? null : (
+            {hasAdminAccess(user.role) ? null : (
               <SidebarItem to="/wallet" icon={ICONS.Payroll} label="Wallet" active={isActive('/wallet')} onClick={() => setIsSidebarOpen(false)} />
             )}
 
-            {user.role === UserRole.ADMIN && (
+            {hasAdminAccess(user.role) && (
               <>
                 <SidebarItem 
                   icon={ICONS.Briefcase} 
@@ -288,9 +290,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </>
             )}
 
-            {user.role === UserRole.ADMIN && (
+            {hasAdminAccess(user.role) && (
               <>
                 <SidebarItem to="/reports" icon={ICONS.Reports} label="Reports" active={isActive('/reports')} onClick={() => setIsSidebarOpen(false)} />
+                <SidebarItem to="/recycle-bin" icon={ICONS.RecycleBin} label="Recycle Bin" active={isActive('/recycle-bin')} onClick={() => setIsSidebarOpen(false)} />
                 <SidebarItem
                   icon={ICONS.Users}
                   label="Human Resource"
@@ -352,7 +355,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           <div className="flex items-center gap-4 ml-auto">
             <div className="relative">
-              <button onClick={() => setIsPlusOpen(!isPlusOpen)} className={`${theme.colors.primary[600]} text-white w-10 h-10 flex items-center justify-center ${theme.radius.md} hover:${theme.colors.primary[700]} ${theme.transitions.normal} shadow-lg shadow-[#0f2f57]/20 active:scale-95`}>
+              <button
+                onClick={() => {
+                  if (!WRITE_FREEZE_ENABLED) {
+                    setIsPlusOpen(!isPlusOpen);
+                  }
+                }}
+                disabled={WRITE_FREEZE_ENABLED}
+                title={WRITE_FREEZE_ENABLED ? WRITE_FREEZE_MESSAGE : 'Quick actions'}
+                className={`${theme.colors.primary[600]} text-white w-10 h-10 flex items-center justify-center ${theme.radius.md} ${theme.transitions.normal} shadow-lg shadow-[#0f2f57]/20 active:scale-95 ${WRITE_FREEZE_ENABLED ? 'cursor-not-allowed opacity-50' : `hover:${theme.colors.primary[700]}`}`}
+              >
                 {ICONS.Plus}
               </button>
               {isPlusOpen && (
@@ -433,6 +445,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 lg:p-10 animate-in fade-in duration-500 relative">
+          <IncidentModeBanner />
           {children}
           <footer className={`mt-20 py-8 border-t ${theme.colors.border.primary} flex flex-col items-center gap-2`}>
             <p className={`text-sm font-medium ${theme.colors.text.secondary}`}>© {new Date().getFullYear()} {companySettings.name}. All rights reserved.</p>

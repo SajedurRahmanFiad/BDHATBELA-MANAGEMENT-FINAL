@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Order, OrderStatus, UserRole, isEmployeeRole } from '../types';
+import { Order, OrderStatus, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { useCustomer, useOrdersByCustomerId, useOrderSettings, useUsers } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
@@ -27,7 +27,7 @@ const CustomerDetails: React.FC = () => {
   const createMutation = useCreateOrder();
   const toast = useToastNotifications();
 
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(user?.role);
   const isEmployee = isEmployeeRole(user?.role);
   const userMap = useMemo(() => new Map(users.map((entry) => [entry.id, entry.name])), [users]);
 
@@ -48,6 +48,7 @@ const CustomerDetails: React.FC = () => {
       case OrderStatus.PROCESSING: return 'bg-[#e6f0ff] text-[#3c5a82]';
       case OrderStatus.PICKED: return 'bg-purple-100 text-purple-600';
       case OrderStatus.COMPLETED: return 'bg-green-100 text-green-600';
+      case OrderStatus.RETURNED: return 'bg-orange-100 text-orange-700';
       case OrderStatus.CANCELLED: return 'bg-red-100 text-red-600';
       default: return 'bg-gray-100 text-gray-600';
     }

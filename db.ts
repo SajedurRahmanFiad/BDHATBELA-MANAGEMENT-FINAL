@@ -1,7 +1,7 @@
 
 import { User, UserRole, Order, OrderStatus, Bill, BillStatus, Customer, Vendor, Product, Account, Transaction, Settings } from './types';
 
-// Default Settings (Only for UI, all data comes from Supabase)
+// Default Settings (Only for UI, all data comes from the API)
 const defaultSettings: Settings = {
   company: {
     name: 'BD Hatbela',
@@ -12,7 +12,7 @@ const defaultSettings: Settings = {
   },
   order: { prefix: 'BDH-', nextNumber: 1 },
   invoice: { title: 'Tax Invoice', logoWidth: 60, logoHeight: 60, footer: 'Thank you for shopping with BD Hatbela!' },
-  defaults: { accountId: '', paymentMethod: 'Cash', incomeCategoryId: '', expenseCategoryId: '', recordsPerPage: 20 },
+  defaults: { defaultAccountId: '', defaultPaymentMethod: 'Cash', incomeCategoryId: '', expenseCategoryId: '', recordsPerPage: 20 },
   categories: [],
   paymentMethods: [],
   courier: {
@@ -48,7 +48,18 @@ const mergedSettings: Settings = _storedSettings
       company: { ...defaultSettings.company, ...(_storedSettings as any).company },
       order: { ...defaultSettings.order, ...(_storedSettings as any).order },
       invoice: { ...defaultSettings.invoice, ...(_storedSettings as any).invoice },
-      defaults: { ...defaultSettings.defaults, ...(_storedSettings as any).defaults },
+      defaults: {
+        ...defaultSettings.defaults,
+        ...(_storedSettings as any).defaults,
+        defaultAccountId:
+          (_storedSettings as any).defaults?.defaultAccountId ??
+          (_storedSettings as any).defaults?.accountId ??
+          defaultSettings.defaults.defaultAccountId,
+        defaultPaymentMethod:
+          (_storedSettings as any).defaults?.defaultPaymentMethod ??
+          (_storedSettings as any).defaults?.paymentMethod ??
+          defaultSettings.defaults.defaultPaymentMethod,
+      },
       categories: Array.isArray((_storedSettings as any).categories) ? (_storedSettings as any).categories : defaultSettings.categories,
       paymentMethods: Array.isArray((_storedSettings as any).paymentMethods) ? (_storedSettings as any).paymentMethods : defaultSettings.paymentMethods,
       courier: {
@@ -62,7 +73,7 @@ const mergedSettings: Settings = _storedSettings
 
 export const db = {
   // Keep only currentUser and settings (for context)
-  // ALL other data MUST come from Supabase via React Query
+  // ALL other data MUST come from the API via React Query
   users: [],       // DEPRECATED - Do not use. Fetch via useUsers()
   customers: [],   // DEPRECATED - Do not use. Fetch via useCustomers()
   vendors: [],     // DEPRECATED - Do not use. Fetch via useVendors()
@@ -78,7 +89,7 @@ export const db = {
 
 export const saveDb = () => {
   // Only save essential data to localStorage to avoid quota exceeded errors
-  // Large datasets (orders, bills, transactions, etc.) are fetched from Supabase on demand
+  // Large datasets (orders, bills, transactions, etc.) are fetched on demand
   try {
     localStorage.setItem('currentUser', JSON.stringify(db.currentUser));
     localStorage.setItem('settings', JSON.stringify(db.settings));

@@ -122,7 +122,7 @@ const Banking: React.FC = () => {
         {filteredAccounts.map((acc) => (
           <div key={acc.id} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group relative">
             <div className="flex justify-between items-start mb-4">
-              <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? `bg-[#e6f0ff] ${theme.colors.secondary[600]}` : 'bg-orange-50 text-orange-600'}`}>
+              <div className={`p-3 rounded-xl ${acc.type === 'Bank' ? `bg-[#e6f0ff]` : 'bg-orange-50 text-orange-600'}`}>
                 {acc.type === 'Bank' ? ICONS.Banking : ICONS.Banking}
               </div>
               <div className="relative">

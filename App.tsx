@@ -10,6 +10,7 @@ import { NetworkProvider } from './src/contexts/NetworkProvider';
 import Layout from './components/Layout';
 import ToastContainer from './components/ToastContainer';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
+import { WRITE_FREEZE_ENABLED } from './src/config/incidentMode';
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -55,6 +56,7 @@ import VendorForm from './pages/VendorForm';
 import VendorDetails from './pages/VendorDetails';
 import Reports from './pages/Reports';
 import Payroll from './pages/Payroll';
+import RecycleBin from './pages/RecycleBin';
 import ExpenseSummary from './pages/reports/ExpenseSummary';
 import IncomeSummary from './pages/reports/IncomeSummary';
 import IncomeVsExpense from './pages/reports/IncomeVsExpense';
@@ -63,8 +65,9 @@ import ProductQuantitySold from './pages/reports/ProductQuantitySold';
 import CustomerSalesReport from './pages/reports/CustomerSalesReport';
 import UserActivityPerformanceReport from './pages/reports/UserActivityPerformanceReport';
 import PrintOrder from './pages/PrintOrder';
+import PrintBill from './pages/PrintBill';
 import WalletPage from './pages/Wallet';
-import { UserRole, isEmployeeRole } from './types';
+import { hasAdminAccess, isEmployeeRole } from './types';
 
 // Inner app component that uses auth context
 const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ user, profile, isLoading }) => {
@@ -72,8 +75,9 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
   // Profile is always loaded along with user by AuthProvider, never null during normal operation
   const isAuthenticated = !!user;
   const activeUser = profile || user;
-  const isAdmin = activeUser?.role === UserRole.ADMIN;
+  const isAdmin = hasAdminAccess(activeUser?.role);
   const isEmployee = isEmployeeRole(activeUser?.role);
+  const writeFreezeEnabled = WRITE_FREEZE_ENABLED;
   
   return (
     <Routes>
@@ -95,10 +99,10 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? <Layout><Orders /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/orders/new" element={
-        isAuthenticated ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/edit/:id" element={
-        isAuthenticated ? <Layout><OrderForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/:id" element={
         isAuthenticated ? <Layout><OrderDetails /></Layout> : <Navigate to="/login" replace />
@@ -111,13 +115,16 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? <Layout><Bills /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/bills/new" element={
-        isAuthenticated ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/edit/:id" element={
-        isAuthenticated ? <Layout><BillForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/:id" element={
         isAuthenticated ? <Layout><BillDetails /></Layout> : <Navigate to="/login" replace />
+      } />
+      <Route path="/print-bill/:id" element={
+        isAuthenticated ? <PrintBill /> : <Navigate to="/login" replace />
       } />
 
       <Route path="/banking/accounts" element={
@@ -134,17 +141,17 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? <Navigate to="/banking/transactions" replace /> : <Navigate to="/login" replace />
       } />
       <Route path="/transactions/new/:type" element={
-        isAuthenticated ? <Layout><TransactionForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to="/login" replace />
       } />
 
       <Route path="/customers" element={
         isAuthenticated ? <Layout><Customers /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/customers/new" element={
-        isAuthenticated ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/customers/edit/:id" element={
-        isAuthenticated ? <Layout><CustomerForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/customers/:id" element={
         isAuthenticated ? <Layout><CustomerDetails /></Layout> : <Navigate to="/login" replace />
@@ -154,10 +161,10 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? <Layout><Vendors /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/new" element={
-        isAuthenticated ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/edit/:id" element={
-        isAuthenticated ? <Layout><VendorForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/:id" element={
         isAuthenticated ? <Layout><VendorDetails /></Layout> : <Navigate to="/login" replace />
@@ -167,20 +174,20 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? <Layout><Products /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/products/new" element={
-        isAuthenticated ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/products/edit/:id" element={
-        isAuthenticated ? <Layout><ProductForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to="/login" replace />
       } />
 
       <Route path="/users" element={
         isAuthenticated ? <Layout><Users /></Layout> : <Navigate to="/login" replace />
       } />
       <Route path="/users/new" element={
-        isAuthenticated ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/users/edit/:id" element={
-        isAuthenticated ? <Layout><UserForm /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to="/login" replace />
       } />
       <Route path="/users/:id" element={
         isAuthenticated ? <Layout><UserDetails /></Layout> : <Navigate to="/login" replace />
@@ -193,6 +200,13 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated
           ? isAdmin
             ? <Layout><Payroll /></Layout>
+            : <Navigate to="/wallet" replace />
+          : <Navigate to="/login" replace />
+      } />
+      <Route path="/recycle-bin" element={
+        isAuthenticated
+          ? isAdmin
+            ? <Layout><RecycleBin /></Layout>
             : <Navigate to="/wallet" replace />
           : <Navigate to="/login" replace />
       } />

@@ -7,7 +7,7 @@ import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
 import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults } from '../src/hooks/useQueries';
-import { useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useCreateTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { buildLocalDateTime, formatDate, getTodayDate } from '../utils';
 
@@ -22,7 +22,6 @@ const TransactionForm: React.FC = () => {
   const { data: paymentMethods = [] } = usePaymentMethods();
   const { data: allCategories = [] } = useCategories();
   const createTransactionMutation = useCreateTransaction();
-  const updateAccountMutation = useUpdateAccount();
   const toast = useToastNotifications();
 
   const categories = useMemo(() => allCategories.filter(c => c.type === (isIncome ? 'Income' : 'Expense')), [allCategories, isIncome]);
@@ -50,7 +49,7 @@ const TransactionForm: React.FC = () => {
     }
   };
 
-  const isLoading = createTransactionMutation.isPending || updateAccountMutation.isPending;
+  const isLoading = createTransactionMutation.isPending;
 
   const handleSave = async () => {
     // Validate mandatory fields
@@ -108,15 +107,7 @@ const TransactionForm: React.FC = () => {
         }
       };
 
-      // Create transaction in Supabase
       await createTransactionMutation.mutateAsync(transaction);
-
-      // Update account balance in Supabase
-      const account = accounts.find(a => a.id === form.accountId);
-      if (account) {
-        const newBalance = isIncome ? account.currentBalance + form.amount : account.currentBalance - form.amount;
-        await updateAccountMutation.mutateAsync({ id: form.accountId, updates: { currentBalance: newBalance } });
-      }
 
       navigate('/transactions');
     } catch (err) {

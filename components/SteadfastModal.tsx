@@ -133,11 +133,18 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
         );
 
         const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}${trackingOrConsignment ? ` (Tracking: ${trackingOrConsignment})` : ''}`;
+        const pickedHistory = `Marked as picked automatically after successful Steadfast submission${courierStatus ? ` (Courier status: ${courierStatus})` : ''} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
         console.log('[SteadfastModal] Setting courier history:', historyText);
-        const updates: any = { history: { ...order.history, courier: historyText } };
+        const updates: any = {
+          status: OrderStatus.PICKED,
+          history: {
+            ...order.history,
+            courier: historyText,
+            picked: pickedHistory,
+          },
+        };
 
         if (trackingOrConsignment) updates.steadfastConsignmentId = String(trackingOrConsignment);
-        if (courierStatus === 'pending') updates.status = OrderStatus.PROCESSING;
 
         await updateOrder.mutateAsync({ id: order.id, updates });
         

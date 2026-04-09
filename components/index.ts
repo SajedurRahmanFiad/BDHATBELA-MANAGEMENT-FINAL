@@ -27,6 +27,8 @@ export { default as FilterBar } from './FilterBar';
 export { default as PaymentModal } from './PaymentModal';
 
 export { default as CommonPaymentModal } from './CommonPaymentModal';
+export { default as OrderCompletionModal } from './OrderCompletionModal';
+export type { OrderCompletionFormState } from './OrderCompletionModal';
 
 export { default as SteadfastModal } from './SteadfastModal';
 

@@ -1,0 +1,73 @@
+param(
+  [string]$DocumentRootFolder = 'admin.bdhatbela.com',
+  [string]$BackendFolder = 'bdhatbela_app',
+  [string]$PackageName = 'cpanel-admin-package',
+  [switch]$SkipBuild,
+  [switch]$NoZip
+)
+
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$deployRoot = Join-Path $repoRoot 'deploy'
+$templateRoot = Join-Path $deployRoot 'cpanel-template'
+$packageRoot = Join-Path $deployRoot $PackageName
+$publicRoot = Join-Path $packageRoot $DocumentRootFolder
+$appRoot = Join-Path $packageRoot $BackendFolder
+$zipPath = Join-Path $deployRoot ($PackageName + '.zip')
+
+if (-not $SkipBuild) {
+  Write-Host 'Building frontend...'
+  Push-Location $repoRoot
+  try {
+    npm run build
+  }
+  finally {
+    Pop-Location
+  }
+}
+
+if (Test-Path $packageRoot) {
+  Remove-Item $packageRoot -Recurse -Force
+}
+
+if (Test-Path $zipPath) {
+  Remove-Item $zipPath -Force
+}
+
+New-Item -ItemType Directory -Path $publicRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $appRoot -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $publicRoot 'api') -Force | Out-Null
+
+Write-Host 'Copying frontend build...'
+Copy-Item -Path (Join-Path $repoRoot 'dist\*') -Destination $publicRoot -Recurse -Force
+
+Write-Host 'Copying cPanel frontend template...'
+Copy-Item -LiteralPath (Join-Path $templateRoot 'public_html\.htaccess') -Destination (Join-Path $publicRoot '.htaccess') -Force
+Copy-Item -LiteralPath (Join-Path $templateRoot 'public_html\api\.htaccess') -Destination (Join-Path $publicRoot 'api\.htaccess') -Force
+Copy-Item -LiteralPath (Join-Path $templateRoot 'public_html\api\index.php') -Destination (Join-Path $publicRoot 'api\index.php') -Force
+
+Write-Host 'Copying backend app...'
+Copy-Item -Path (Join-Path $repoRoot 'backend') -Destination (Join-Path $appRoot 'backend') -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $templateRoot 'bdhatbela_app\.env.example') -Destination (Join-Path $appRoot '.env.example') -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Destination (Join-Path $appRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'CPANEL_DEPLOYMENT.md') -Destination (Join-Path $packageRoot 'CPANEL_DEPLOYMENT.md') -Force
+
+$backendEnv = Join-Path $appRoot 'backend\.env'
+$backendEnvLocal = Join-Path $appRoot 'backend\.env.local'
+if (Test-Path $backendEnv) { Remove-Item $backendEnv -Force }
+if (Test-Path $backendEnvLocal) { Remove-Item $backendEnvLocal -Force }
+
+if (-not $NoZip) {
+  Write-Host 'Creating ZIP package...'
+  Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -Force
+}
+
+Write-Host ''
+Write-Host 'cPanel package is ready.'
+Write-Host "Docroot: $DocumentRootFolder"
+Write-Host "Backend: $BackendFolder"
+Write-Host "Folder: $packageRoot"
+if (-not $NoZip) {
+  Write-Host "Zip:    $zipPath"
+}

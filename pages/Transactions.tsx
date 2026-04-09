@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Transaction, UserRole, isEmployeeRole } from '../types';
+import { Transaction, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, IconButton } from '../components';
@@ -90,7 +90,7 @@ const Transactions: React.FC = () => {
   const createdByIds = useMemo(() => {
     if (effectiveCreatedByFilter === 'all') return undefined;
     if (effectiveCreatedByFilter === 'admins') {
-      return users.filter(u => u.role === UserRole.ADMIN).map(u => u.id);
+      return users.filter(u => hasAdminAccess(u.role)).map(u => u.id);
     }
     if (effectiveCreatedByFilter === 'employees') {
       return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
@@ -174,11 +174,11 @@ const Transactions: React.FC = () => {
       return;
     }
     
-    if (!confirm('Are you sure you want to delete this transaction?')) return;
+    if (!confirm('Move this transaction to the recycle bin? You can restore it later.')) return;
     try {
       await deleteTransactionMutation.mutateAsync(transactionId);
       // Cache updated deterministically by mutation hook
-      toast.success('Transaction deleted successfully');
+      toast.success('Transaction moved to the recycle bin');
     } catch (err) {
       console.error('Failed to delete transaction:', err);
       toast.error('Failed to delete transaction');
@@ -293,11 +293,11 @@ const Transactions: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Users</option>
-            {users.some(u => u.role === UserRole.ADMIN) && <option value="admins">All Admins</option>}
+            {users.some(u => hasAdminAccess(u.role)) && <option value="admins">Admin Access</option>}
             {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
             <optgroup label="Specific Users">
               {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} {u.role === UserRole.ADMIN ? '(Admin)' : '(Employee)'}</option>
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
               ))}
             </optgroup>
           </select>

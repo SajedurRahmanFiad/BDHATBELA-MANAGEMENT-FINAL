@@ -2,13 +2,14 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
-import { OrderStatus, Order, UserRole, Transaction, isEmployeeRole } from '../types';
+import { OrderStatus, Order, UserRole, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
-import { Button, CommonPaymentModal, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
+import { Button, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
-import { useOrder, useCustomer, useUsers, useProductImagesByIds, useAccounts, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
-import { useUpdateOrder, useCreateOrder, useCreateTransaction, useUpdateAccount } from '../src/hooks/useMutations';
+import { useOrder, useCustomer, useUsers, useProductImagesByIds, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useUpdateOrder, useCreateOrder, useCompletePickedOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useAuth } from '../src/contexts/AuthProvider';
 import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
@@ -19,8 +20,19 @@ const OrderDetails: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToastNotifications();
-  const user = db.currentUser;
-  const isAdmin = user.role === UserRole.ADMIN;
+  const { user: authUser } = useAuth();
+  const user = authUser || db.currentUser;
+  const isAdmin = hasAdminAccess(user?.role);
+  const createCompletionForm = (activeOrder?: Order | null): OrderCompletionFormState => ({
+    outcome: 'Delivered',
+    date: getTodayDate(),
+    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    accountId: '',
+    amount: activeOrder ? Math.max(activeOrder.total - activeOrder.paidAmount, 0) : 0,
+    paymentMethod: '',
+    categoryId: '',
+    note: '',
+  });
   
   // Query data
   const { data: order, isPending: orderLoading, error: orderError } = useOrder(id || '');
@@ -31,39 +43,34 @@ const OrderDetails: React.FC = () => {
     [order?.items]
   );
   const { data: productImages = {} } = useProductImagesByIds(orderItemProductIds);
-  const { data: accounts = [] } = useAccounts();
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   
   // Mutations
   const updateMutation = useUpdateOrder();
   const createOrderMutation = useCreateOrder();
-  const createTransactionMutation = useCreateTransaction();
-  const updateAccountMutation = useUpdateAccount();
+  const completePickedOrderMutation = useCompletePickedOrder();
   
   // Modal and form state
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showSteadfast, setShowSteadfast] = useState(false);
   const [showCarryBee, setShowCarryBee] = useState(false);
   const [showPaperfly, setShowPaperfly] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({
-    date: getTodayDate(),
-    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    accountId: db.settings.defaults.accountId || '',
-    amount: 0
-  });
+  const [completionForm, setCompletionForm] = useState<OrderCompletionFormState>(createCompletionForm());
   const [isActionOpen, setIsActionOpen] = useState(false);
   
   // Get customer and created by user from query results
   // `customer` is obtained via `useCustomer` above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
-  const isEmployee = isEmployeeRole(user.role);
-  const isOwner = order ? order.createdBy === user.id : false;
+  const isEmployee = isEmployeeRole(user?.role);
+  const isOwner = order ? order.createdBy === user?.id : false;
   const canEmployeeEditDraft = isEmployee && isOwner && order?.status === OrderStatus.ON_HOLD;
-  const canManageProcessing = isAdmin || (user.role === UserRole.EMPLOYEE1 && isOwner);
+  const canManageProcessing = isAdmin || user?.role === UserRole.EMPLOYEE1;
+  const completionHistory = order?.history?.returned || order?.history?.completed || order?.history?.payment || '';
   
   const loading = orderLoading;
 
+  if (!user) return <div className="p-8 text-center text-gray-500">Loading order access...</div>;
   if (loading) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
   if (orderError || !order) return <div className="p-8 text-center text-gray-500">{orderError?.message || 'Order not found.'}</div>;
   const courierHistoryLower = String(order.history?.courier || '').toLowerCase();
@@ -98,120 +105,60 @@ const OrderDetails: React.FC = () => {
     await updateStatus(OrderStatus.PICKED, 'picked', historyText);
   };
 
-  const handleLifecyclePayment = async () => {
-    // Try to find account in cached data, fallback to provided ID if not found
-    // (accounts might not have fully loaded when payment modal opens)
-    let account = accounts.find(a => a.id === paymentForm.accountId);
-    
-    if (!account) {
-      // If account not found in cache, it might not be in the list, so just verify it has an ID
-      // The backend will validate that the account exists
-      if (!paymentForm.accountId) {
-        toast.error('Please select an account');
-        return;
-      }
-      // Account not in visible list, but proceed with the ID provided by user
-      // (backend RLS will validate it exists and belongs to user)
-      account = { 
-        id: paymentForm.accountId, 
-        name: 'Selected Account',
-        type: 'Bank',
-        openingBalance: 0,
-        currentBalance: 0
-      };
-    }
+  const handleCompletePickedOrder = async () => {
+    if (!order) return;
 
-    const updatedPaid = order.paidAmount + paymentForm.amount;
-    const fullDatetime = buildLocalDateTime(paymentForm.date, paymentForm.time);
-    if (!fullDatetime) {
-      toast.error('Please enter a valid payment date and time');
+    if (!completionForm.accountId) {
+      toast.error('Please select an account');
       return;
     }
-    const isoDatetime = fullDatetime.toISOString();
-    const historyText = `Payment of ${formatCurrency(paymentForm.amount)} received by ${user.name} on ${fullDatetime.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${fullDatetime.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
-    
-    // Check if this is a partial payment (indicates order has remaining balance to track)
-    const shouldCreateShippingExpense = paymentForm.amount < order.total;
-    
-    // Mark as completed when any payment is added
-    const status = OrderStatus.COMPLETED;
-    
-    const updatedOrder = { 
-      ...order, 
-      paidAmount: updatedPaid,
-      status,
-      history: { ...order.history, payment: historyText },
-      paidAt: isoDatetime,
-    };
+    if (completionForm.amount <= 0) {
+      toast.error(completionForm.outcome === 'Returned' ? 'Please enter the return expense amount' : 'Please enter the received amount');
+      return;
+    }
+    if (completionForm.outcome === 'Returned' && !completionForm.paymentMethod) {
+      toast.error('Please select a payment method');
+      return;
+    }
+    if (completionForm.outcome === 'Returned' && !completionForm.categoryId) {
+      toast.error('Please select an expense category');
+      return;
+    }
 
-    // Use mutations with sequential flow
+    const fullDatetime = buildLocalDateTime(completionForm.date, completionForm.time);
+    if (!fullDatetime) {
+      toast.error('Please enter a valid date and time');
+      return;
+    }
+
     try {
-      // SEQUENTIAL: Step 1 - Create income transaction FIRST (record full order total for revenue recognition)
-      const incomeTxn: Transaction = {
-        id: Math.random().toString(36).substr(2, 9),
-        date: isoDatetime,
-        type: 'Income',
-        category: db.settings.defaults.incomeCategoryId || 'income_sales',
-        accountId: paymentForm.accountId,
-        amount: order.total,
-        description: `Payment for Order #${order.orderNumber}`,
-        referenceId: order.id,
-        contactId: order.customerId,
-        paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-        createdBy: user.id
-      };
-      await createTransactionMutation.mutateAsync(incomeTxn as any);
+      await completePickedOrderMutation.mutateAsync({
+        orderId: order.id,
+        outcome: completionForm.outcome,
+        date: fullDatetime.toISOString(),
+        accountId: completionForm.accountId,
+        amount: completionForm.amount,
+        paymentMethod: completionForm.outcome === 'Returned' ? completionForm.paymentMethod : undefined,
+        categoryId: completionForm.outcome === 'Returned' ? completionForm.categoryId : undefined,
+        note: completionForm.outcome === 'Returned' ? completionForm.note : undefined,
+      });
 
-      // SEQUENTIAL: Step 2 - Create expense transaction for remaining balance (including shipping et al)
-      if (shouldCreateShippingExpense) {
-        const remainingAmount = order.total - paymentForm.amount;
-        const shippingExpenseTxn: Transaction = {
-          id: Math.random().toString(36).substr(2, 9),
-          date: isoDatetime,
-          type: 'Expense',
-          category: 'expense_shipping',
-          accountId: paymentForm.accountId,
-          amount: remainingAmount,
-          description: `Shipping costs for Order #${order.orderNumber}`,
-          paymentMethod: db.settings.defaults.paymentMethod || 'Cash',
-          createdBy: user.id
-        };
-        await createTransactionMutation.mutateAsync(shippingExpenseTxn as any);
-      }
-
-      // PARALLEL: Step 3 - Update account balance and order status together
-      const balanceChange = paymentForm.amount;
-      const results = await Promise.allSettled([
-        updateMutation.mutateAsync({ id: id!, updates: updatedOrder }),
-        updateAccountMutation.mutateAsync({
-          id: paymentForm.accountId,
-          updates: { currentBalance: account.currentBalance + balanceChange }
-        })
-      ]);
-      
-      // Check if both mutations succeeded
-      if (results[0].status === 'rejected' || results[1].status === 'rejected') {
-        const orderStatus = results[0].status === 'rejected' ? 'failed' : 'succeeded';
-        const accountStatus = results[1].status === 'rejected' ? 'failed' : 'succeeded';
-        throw new Error(`Payment update failed: Order update ${orderStatus}, Account update ${accountStatus}`);
-      }
-
-      setShowPaymentModal(false);
-      toast.success('Payment recorded successfully');
+      setShowCompletionModal(false);
+      setCompletionForm(createCompletionForm());
+      toast.success(
+        completionForm.outcome === 'Returned'
+          ? `Order #${order.orderNumber} marked as returned`
+          : `Order #${order.orderNumber} marked as delivered`
+      );
     } catch (err) {
-      console.error('Failed to record payment:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to record payment');
+      console.error('Failed to finalize order:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to finalize order');
     }
   };
 
-  const openPayment = () => {
-    setPaymentForm({
-      date: getTodayDate(),
-      time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-      accountId: '',
-      amount: order.total - order.paidAmount
-    });
-    setShowPaymentModal(true);
+  const openCompletion = () => {
+    setCompletionForm(createCompletionForm(order));
+    setShowCompletionModal(true);
   };
 
   const extractSteadfastTrackingFromHistory = (historyText?: string) => {
@@ -220,7 +167,6 @@ const OrderDetails: React.FC = () => {
     const patterns = [
       /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
       /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
-      /steadfast\.com\.bd\/t\/([a-z0-9-]+)/i,
     ];
     for (const pattern of patterns) {
       const match = text.match(pattern);
@@ -238,7 +184,11 @@ const OrderDetails: React.FC = () => {
     const courierHistory = String(order.history?.courier || '').toLowerCase();
 
     if (steadfastTracking) {
-      window.open(`https://steadfast.com.bd/t/${encodeURIComponent(steadfastTracking)}`, '_blank', 'noopener,noreferrer');
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(steadfastTracking).catch(() => undefined);
+      }
+      toast.success(`Steadfast tracking code copied: ${steadfastTracking}`);
+      window.open('https://steadfast.com.bd/tracking', '_blank', 'noopener,noreferrer');
       setIsActionOpen(false);
       return;
     }
@@ -352,9 +302,9 @@ const OrderDetails: React.FC = () => {
                       {ICONS.Edit} Edit Order
                     </button>
                   )}
-                  {isAdmin && order.status !== OrderStatus.COMPLETED && (
-                    <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={openPayment}>
-                      {ICONS.Banking} Add Payment
+                  {isAdmin && order.status === OrderStatus.PICKED && (
+                    <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={() => { openCompletion(); setIsActionOpen(false); }}>
+                      {ICONS.Check} Mark as Completed
                     </button>
                   )}
                   {sentToAnyCourier && (
@@ -367,7 +317,7 @@ const OrderDetails: React.FC = () => {
                   )}
                   <div className="border-t my-1"></div>
                   {isAdmin && (
-                    <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
+                    <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
                       {ICONS.Delete} Cancel Order
                     </button>
                   )}
@@ -540,7 +490,7 @@ const OrderDetails: React.FC = () => {
                 {sentToAnyCourier ? (
                   <p className="text-xs text-gray-700 leading-relaxed font-bold bg-gray-50 p-3 rounded-xl">{order.history.courier}</p>
                 ) : (
-                  (!isEmployee && order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier) && (
+                  (!isEmployee && order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier) && (
                     <>
                       <button 
                         onClick={() => setShowSteadfast(true)}
@@ -596,21 +546,33 @@ const OrderDetails: React.FC = () => {
             </div>
           ) : null}
 
-          {/* Payment Section */}
-          {order.history.payment || !isEmployee ? (
+          {/* Completion Section */}
+          {completionHistory || !isEmployee ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">4. Payment</h3>
-                <div className={`p-1 rounded-full ${order.paidAmount >= order.total ? 'bg-[#ebf4ff]0 text-white' : 'bg-gray-200 text-gray-400'}`}>
-                  {ICONS.Banking}
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">4. Completion</h3>
+                <div className={`p-1 rounded-full ${order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED ? 'bg-[#ebf4ff]0 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                  {ICONS.Check}
                 </div>
               </div>
               <div className="p-5 space-y-3">
-                {order.history.payment ? (
+                {completionHistory ? (
                   <div className="space-y-2">
-                    <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
-                      {order.history.payment}
-                    </p>
+                    {order.history.completed && (
+                      <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
+                        {order.history.completed}
+                      </p>
+                    )}
+                    {order.history.payment && (
+                      <p className="text-xs text-emerald-600 leading-relaxed font-bold bg-emerald-50 p-3 rounded-xl">
+                        {order.history.payment}
+                      </p>
+                    )}
+                    {order.history.returned && (
+                      <p className="text-xs text-orange-700 leading-relaxed font-bold bg-orange-50 p-3 rounded-xl">
+                        {order.history.returned}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   !isEmployee && (
@@ -620,11 +582,17 @@ const OrderDetails: React.FC = () => {
                         <p className="text-lg font-black text-gray-900">{formatCurrency(order.total - order.paidAmount)}</p>
                       </div>
                       <button 
-                        onClick={openPayment}
+                        onClick={openCompletion}
+                        disabled={order.status !== OrderStatus.PICKED}
                         className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                       >
-                        Add Payment
+                        Mark as Completed
                       </button>
+                      {order.status !== OrderStatus.PICKED && (
+                        <p className="text-xs font-medium text-gray-400">
+                          Picked orders can be finalized as delivered or returned from here.
+                        </p>
+                      )}
                     </div>
                   )
                 )}
@@ -634,16 +602,14 @@ const OrderDetails: React.FC = () => {
         </div>
       </div>
 
-      <CommonPaymentModal
-        isOpen={showPaymentModal}
-        onClose={() => setShowPaymentModal(false)}
-        onSubmit={handleLifecyclePayment}
-        accounts={accounts}
-        paymentForm={paymentForm}
-        setPaymentForm={setPaymentForm}
-        isLoading={updateMutation.isPending || createTransactionMutation.isPending || updateAccountMutation.isPending}
-        title="Record Payment"
-        buttonText="Add Payment"
+      <OrderCompletionModal
+        isOpen={showCompletionModal}
+        onClose={() => setShowCompletionModal(false)}
+        onSubmit={handleCompletePickedOrder}
+        order={order}
+        form={completionForm}
+        setForm={setCompletionForm}
+        isLoading={completePickedOrderMutation.isPending}
       />
 
       <SteadfastModal 

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { loginUser, fetchUserById, fetchAccounts } from '../services/supabaseQueries';
+import { clearAuthToken, setAuthToken } from '../services/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { db, saveDb } from '../../db';
 
@@ -29,12 +30,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         console.log('[Auth] Initializing - restoring session from localStorage...');
         const storedId = localStorage.getItem('currentUserId');
+        const storedToken = localStorage.getItem('authToken');
 
-        if (!storedId) {
+        if (!storedId || !storedToken) {
           console.log('[Auth] No saved session - user is logged out');
           if (mounted) {
             setUser(null);
             db.currentUser = null as any;
+            clearAuthToken();
+            localStorage.removeItem('currentUserId');
             saveDb();
             setIsLoading(false);
           }
@@ -108,11 +112,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signIn = async (phoneOrEmail: string, password: string) => {
-    const phone = phoneOrEmail.includes('@') ? phoneOrEmail.split('@')[0] : phoneOrEmail;
+    const phone = (phoneOrEmail.includes('@') ? phoneOrEmail.split('@')[0] : phoneOrEmail).trim();
     console.log('[Auth] signIn called with phone:', phone);
 
     try {
-      const { user: dbUser, error: loginError } = await loginUser(phone, password);
+      const { user: dbUser, token, error: loginError } = await loginUser(phone, password);
 
       if (loginError || !dbUser) {
         console.error('[Auth] signIn failed:', loginError);
@@ -127,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(dbUser);
       db.currentUser = dbUser as any;
       saveDb();
+      setAuthToken(token || '');
 
       // Store only user ID persistently (allows multi-device login)
       localStorage.setItem('currentUserId', dbUser.id);
@@ -142,7 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {
           // ignore
         }
-      return { data: { user: dbUser }, error: null };
+      return { data: { user: dbUser, profileLoaded: true }, error: null };
     } catch (err: any) {
       console.error('[Auth] signIn exception:', err?.message || err);
       return { error: { message: err?.message || 'Login failed' } };
@@ -156,6 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     db.currentUser = null as any;
     saveDb();
+    clearAuthToken();
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('currentUserId');
     localStorage.removeItem('userProfile');

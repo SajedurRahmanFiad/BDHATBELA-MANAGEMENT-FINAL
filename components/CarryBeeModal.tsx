@@ -5,7 +5,7 @@ import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarr
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
 import { db } from '../db';
-import { OrderStatus, type Order, type Customer } from '../types';
+import { type Order, type Customer } from '../types';
 
 interface CarryBeeModalProps {
   isOpen: boolean;
@@ -330,14 +330,11 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                       );
 
                       const historyText = `Sent to CarryBee by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
-                      const pickedHistory = `Marked as picked automatically after successful CarryBee submission on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
 
                       const updates: any = {
-                        status: OrderStatus.PICKED,
                         history: {
                           ...order.history,
                           courier: historyText,
-                          picked: pickedHistory,
                         },
                       };
                       if (consignmentId) updates.carrybeeConsignmentId = consignmentId;

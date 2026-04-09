@@ -4,6 +4,7 @@ import {
   fetchCustomersPage,
   fetchCustomerById,
   fetchOrders,
+  fetchDashboardSnapshot,
   fetchOrdersPage,
   fetchOrderById,
   fetchOrdersByCustomerId,
@@ -59,6 +60,7 @@ import type {
   User,
   Vendor,
   Product,
+  DashboardSnapshot,
   PayrollPayment,
   PayrollSettings,
   PayrollSummaryRow,
@@ -110,6 +112,31 @@ export function useOrders(): UseQueryResult<Order[], Error> {
     queryKey: ['orders'],
     queryFn: fetchOrders,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDashboardSnapshot(
+  filterRange: string = 'All Time',
+  customDates: { from: string; to: string } = { from: '', to: '' }
+): UseQueryResult<DashboardSnapshot, Error> {
+  const normalizedCustomDates = {
+    from: String(customDates?.from || ''),
+    to: String(customDates?.to || ''),
+  };
+
+  return useQuery({
+    queryKey: ['dashboard', filterRange, normalizedCustomDates.from, normalizedCustomDates.to],
+    queryFn: () =>
+      fetchDashboardSnapshot({
+        filterRange,
+        customDates: normalizedCustomDates,
+      }),
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
   });
 }
 

@@ -1,58 +1,194 @@
-
-import React, { useState, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../db';
 import { Transaction } from '../types';
 import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults } from '../src/hooks/useQueries';
-import { useCreateTransaction } from '../src/hooks/useMutations';
+import { useAccounts, useCategories, usePaymentMethods, useSystemDefaults, useTransaction } from '../src/hooks/useQueries';
+import { useCreateTransaction, useUpdateTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { buildLocalDateTime, formatDate, getTodayDate } from '../utils';
+import { getPreservedRouteState } from '../src/utils/navigation';
+import { buildLocalDateTime, formatDate, getTodayDate, normalizeUtcTimestamp, openAttachmentPreview } from '../utils';
+
+type TransactionFormState = {
+  date: string;
+  time: string;
+  paymentMethod: string;
+  accountId: string;
+  amount: number;
+  description: string;
+  category: string;
+  attachmentName: string;
+  attachmentUrl: string;
+};
+
+const getDefaultTimeValue = (): string =>
+  new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+const createInitialFormState = (): TransactionFormState => ({
+  date: getTodayDate(),
+  time: getDefaultTimeValue(),
+  paymentMethod: 'Cash',
+  accountId: '',
+  amount: 0,
+  description: '',
+  category: '',
+  attachmentName: '',
+  attachmentUrl: '',
+});
+
+const toInputDateValue = (value?: string | null): string => {
+  const raw = normalizeUtcTimestamp(value) || String(value || '').trim();
+  if (!raw) return getTodayDate();
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return getTodayDate();
+
+  return parsed.toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
+};
+
+const toInputTimeValue = (value?: string | null): string => {
+  const raw = normalizeUtcTimestamp(value) || String(value || '').trim();
+  if (!raw) return getDefaultTimeValue();
+  if (raw.length <= 10) return '00:00';
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return getDefaultTimeValue();
+
+  return parsed.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Dhaka',
+  });
+};
 
 const TransactionForm: React.FC = () => {
-  const { type } = useParams<{ type: string }>();
+  const { id, type } = useParams<{ id?: string; type?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const user = db.currentUser;
-  const isIncome = type === 'income';
+  const isEdit = Boolean(id);
 
   const { data: accounts = [] } = useAccounts();
   const { data: systemDefaults } = useSystemDefaults();
   const { data: paymentMethods = [] } = usePaymentMethods();
   const { data: allCategories = [] } = useCategories();
+  const {
+    data: existingTransaction,
+    isPending: existingTransactionLoading,
+    error: existingTransactionError,
+  } = useTransaction(isEdit ? id : undefined);
   const createTransactionMutation = useCreateTransaction();
+  const updateTransactionMutation = useUpdateTransaction();
   const toast = useToastNotifications();
 
-  const categories = useMemo(() => allCategories.filter(c => c.type === (isIncome ? 'Income' : 'Expense')), [allCategories, isIncome]);
+  const transactionType = isEdit
+    ? existingTransaction?.type
+    : type === 'expense'
+      ? 'Expense'
+      : 'Income';
+  const isIncome = transactionType === 'Income';
 
-  const [form, setForm] = useState({
-    date: getTodayDate(),
-    time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    paymentMethod: systemDefaults?.paymentMethod || 'Cash',
-    accountId: systemDefaults?.accountId || accounts[0]?.id || '',
-    amount: 0,
-    description: '',
-    category: isIncome ? (systemDefaults?.incomeCategoryId || '') : (systemDefaults?.expenseCategoryId || ''),
-    attachmentName: '',
-    attachmentUrl: ''
-  });
+  const categories = useMemo(
+    () => allCategories.filter((category) => category.type === transactionType),
+    [allCategories, transactionType]
+  );
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setForm({...form, attachmentName: file.name, attachmentUrl: reader.result as string});
+  const [form, setForm] = useState<TransactionFormState>(createInitialFormState);
+  const initializedEditRef = useRef(false);
+
+  useEffect(() => {
+    if (isEdit) return;
+
+    setForm((current) => {
+      const defaultCategory = isIncome ? systemDefaults?.incomeCategoryId : systemDefaults?.expenseCategoryId;
+      const nextState = {
+        ...current,
+        paymentMethod: current.paymentMethod || systemDefaults?.paymentMethod || 'Cash',
+        accountId: current.accountId || systemDefaults?.accountId || accounts[0]?.id || '',
+        category: current.category || defaultCategory || categories[0]?.id || '',
       };
-      reader.readAsDataURL(file);
+
+      if (
+        nextState.paymentMethod === current.paymentMethod &&
+        nextState.accountId === current.accountId &&
+        nextState.category === current.category
+      ) {
+        return current;
+      }
+
+      return nextState;
+    });
+  }, [
+    isEdit,
+    isIncome,
+    accounts,
+    categories,
+    systemDefaults?.accountId,
+    systemDefaults?.paymentMethod,
+    systemDefaults?.incomeCategoryId,
+    systemDefaults?.expenseCategoryId,
+  ]);
+
+  useEffect(() => {
+    if (!isEdit || !existingTransaction || initializedEditRef.current) return;
+
+    setForm({
+      date: toInputDateValue(existingTransaction.date || existingTransaction.createdAt),
+      time: toInputTimeValue(existingTransaction.date || existingTransaction.createdAt),
+      paymentMethod: existingTransaction.paymentMethod || systemDefaults?.paymentMethod || 'Cash',
+      accountId: existingTransaction.accountId || systemDefaults?.accountId || accounts[0]?.id || '',
+      amount: existingTransaction.amount,
+      description: existingTransaction.description || '',
+      category: existingTransaction.category || '',
+      attachmentName: existingTransaction.attachmentName || '',
+      attachmentUrl: existingTransaction.attachmentUrl || '',
+    });
+    initializedEditRef.current = true;
+  }, [
+    isEdit,
+    existingTransaction,
+    accounts,
+    systemDefaults?.accountId,
+    systemDefaults?.paymentMethod,
+  ]);
+
+  const handleClose = () => {
+    const navState = getPreservedRouteState(location.state);
+
+    if (navState.backMode === 'history' && window.history.length > 1) {
+      navigate(-1);
+      return;
     }
+
+    if (navState.from) {
+      navigate(navState.from);
+      return;
+    }
+
+    navigate('/transactions');
   };
 
-  const isLoading = createTransactionMutation.isPending;
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm((current) => ({
+        ...current,
+        attachmentName: file.name,
+        attachmentUrl: reader.result as string,
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const isLoading = createTransactionMutation.isPending || updateTransactionMutation.isPending;
 
   const handleSave = async () => {
-    // Validate mandatory fields
     if (form.amount <= 0) {
       toast.warning('Amount must be greater than 0');
       return;
@@ -72,11 +208,15 @@ const TransactionForm: React.FC = () => {
     }
 
     try {
-      // Validate balance for expense/purchase transactions
       if (!isIncome) {
-        const account = accounts.find(a => a.id === form.accountId);
-        if (account && account.currentBalance < form.amount) {
-          toast.error(`Insufficient balance. Account has ${formatCurrency(account.currentBalance)} but transaction requires ${formatCurrency(form.amount)}`);
+        const account = accounts.find((entry) => entry.id === form.accountId);
+        const reclaimedAmount = isEdit && existingTransaction?.type === 'Expense' && existingTransaction.accountId === form.accountId
+          ? existingTransaction.amount
+          : 0;
+        const availableBalance = (account?.currentBalance || 0) + reclaimedAmount;
+
+        if (account && availableBalance < form.amount) {
+          toast.error(`Insufficient balance. Account has ${formatCurrency(availableBalance)} available but transaction requires ${formatCurrency(form.amount)}`);
           return;
         }
       }
@@ -91,7 +231,7 @@ const TransactionForm: React.FC = () => {
       const timeStr = form.time;
       const isoDatetime = localDateTime.toISOString();
 
-      const transaction: Omit<Transaction, 'id'> = {
+      const transactionPayload: Partial<Transaction> = {
         type: isIncome ? 'Income' : 'Expense',
         date: isoDatetime,
         paymentMethod: form.paymentMethod,
@@ -101,28 +241,80 @@ const TransactionForm: React.FC = () => {
         category: form.category,
         attachmentName: form.attachmentName,
         attachmentUrl: form.attachmentUrl,
-        createdBy: user.id,
-        history: {
-          created: `Created by ${user.name} on ${dateStr}, at ${timeStr}`
-        }
       };
 
-      await createTransactionMutation.mutateAsync(transaction);
+      if (isEdit && existingTransaction) {
+        await updateTransactionMutation.mutateAsync({
+          id: existingTransaction.id,
+          updates: transactionPayload,
+        });
+        toast.success(`${isIncome ? 'Income' : 'Expense'} updated successfully`);
+      } else {
+        const transaction: Omit<Transaction, 'id'> = {
+          ...transactionPayload,
+          createdBy: user.id,
+          history: {
+            created: `Created by ${user.name} on ${dateStr}, at ${timeStr}`,
+          },
+        } as Omit<Transaction, 'id'>;
 
-      navigate('/transactions');
-    } catch (err) {
-      console.error('Failed to save transaction:', err);
-      toast.error('Failed to save transaction: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        await createTransactionMutation.mutateAsync(transaction);
+        toast.success(`${isIncome ? 'Income' : 'Expense'} recorded successfully`);
+      }
+
+      handleClose();
+    } catch (error) {
+      console.error('Failed to save transaction:', error);
+      toast.error(`Failed to ${isEdit ? 'update' : 'save'} transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Not Authenticated</h2>
+        <p className="text-gray-500 mb-6">Please log in first.</p>
+        <Button onClick={() => navigate('/login')} variant="primary">Back to Login</Button>
+      </div>
+    );
+  }
+
+  if (isEdit && existingTransactionLoading) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Loading...</h2>
+        <p className="text-gray-500 mb-6">Fetching transaction details...</p>
+      </div>
+    );
+  }
+
+  if (isEdit && (existingTransactionError || !existingTransaction)) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Transaction Not Found</h2>
+        <p className="text-gray-500 mb-6">{existingTransactionError?.message || 'This transaction could not be loaded.'}</p>
+        <Button onClick={handleClose} variant="primary">Back to Transactions</Button>
+      </div>
+    );
+  }
+
+  if (isEdit && existingTransaction?.type === 'Transfer') {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Transfer Editing Unsupported</h2>
+        <p className="text-gray-500 mb-6">Transfers should continue to be managed from the transfer workflow.</p>
+        <Button onClick={handleClose} variant="primary">Back to Transactions</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-4 duration-500">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Record {isIncome ? 'Income' : 'Expense'}</h2>
+          <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">{isEdit ? 'Edit' : 'Record'} {isIncome ? 'Income' : 'Expense'}</h2>
         </div>
-        <button onClick={() => navigate(-1)} className="p-3 text-gray-400 hover:text-gray-600 bg-white border border-gray-100 rounded-lg shadow-sm">
+        <button onClick={handleClose} className="p-3 text-gray-400 hover:text-gray-600 bg-white border border-gray-100 rounded-lg shadow-sm">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l18 18"></path></svg>
         </button>
       </div>
@@ -131,30 +323,30 @@ const TransactionForm: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Amount (BDT)</label>
-            <input 
-              type="number" 
-              className={`w-full text-lg font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? '${theme.colors.primary[600]}' : 'text-red-600'}`}
+            <input
+              type="number"
+              className={`w-full text-lg font-black px-6 py-4 bg-gray-50 border-2 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl transition-all outline-none ${isIncome ? theme.colors.primary.text : 'text-red-600'}`}
               value={form.amount}
-              onChange={e => setForm({...form, amount: parseFloat(e.target.value) || 0})}
+              onChange={(event) => setForm({ ...form, amount: parseFloat(event.target.value) || 0 })}
               placeholder="0.00"
             />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Date</label>
-            <input 
-              type="date" 
+            <input
+              type="date"
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold"
               value={form.date}
-              onChange={e => setForm({...form, date: e.target.value})}
+              onChange={(event) => setForm({ ...form, date: event.target.value })}
             />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Time</label>
-            <input 
-              type="time" 
+            <input
+              type="time"
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg text-lg font-bold"
               value={form.time}
-              onChange={e => setForm({...form, time: e.target.value})}
+              onChange={(event) => setForm({ ...form, time: event.target.value })}
             />
           </div>
         </div>
@@ -162,26 +354,26 @@ const TransactionForm: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Connected Account</label>
-            <select 
+            <select
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl font-bold"
               value={form.accountId}
-              onChange={e => setForm({...form, accountId: e.target.value})}
+              onChange={(event) => setForm({ ...form, accountId: event.target.value })}
             >
-              {accounts.map(acc => (
-                <option key={acc.id} value={acc.id}>{acc.name}</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>{account.name}</option>
               ))}
             </select>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Category</label>
-            <select 
+            <select
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl font-bold"
               value={form.category}
-              onChange={e => setForm({...form, category: e.target.value})}
+              onChange={(event) => setForm({ ...form, category: event.target.value })}
             >
               <option value="">Select a category</option>
-              {categories.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>{category.name}</option>
               ))}
             </select>
           </div>
@@ -190,57 +382,71 @@ const TransactionForm: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Payment Method</label>
-            <select 
+            <select
               className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-xl font-bold"
               value={form.paymentMethod}
-              onChange={e => setForm({...form, paymentMethod: e.target.value})}
+              onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })}
             >
-              {paymentMethods.map(pm => (
-                <option key={pm.id} value={pm.name}>{pm.name}</option>
+              {paymentMethods.map((paymentMethod) => (
+                <option key={paymentMethod.id} value={paymentMethod.name}>{paymentMethod.name}</option>
               ))}
             </select>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Attachment</label>
             <div className="relative">
-              <input 
-                type="file" 
+              <input
+                type="file"
                 className="hidden"
                 id="file-upload"
                 onChange={handleFileUpload}
               />
-              <label 
+              <label
                 htmlFor="file-upload"
                 className="w-full px-6 py-4 bg-gray-50 border-transparent hover:bg-gray-100 rounded-lg font-bold pl-14 flex items-center cursor-pointer transition-colors"
               >
-                {form.attachmentName || 'Choose file to upload'}
+                {form.attachmentName || (isEdit ? 'Keep existing file or upload a new one' : 'Choose file to upload')}
               </label>
               <div className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400">
                 {ICONS.Print}
               </div>
             </div>
+            {form.attachmentUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!openAttachmentPreview(form.attachmentUrl)) {
+                    toast.error('Unable to open attachment');
+                  }
+                }}
+                className="mt-3 inline-flex items-center gap-2 px-3 py-2 text-xs font-bold text-[#0f2f57] bg-[#ebf4ff] hover:bg-[#dbe9fa] rounded-lg transition-colors"
+              >
+                {ICONS.View}
+                <span>View attachment</span>
+              </button>
+            )}
           </div>
         </div>
 
         <div className="space-y-2">
           <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Description</label>
-          <textarea 
+          <textarea
             className="w-full px-6 py-4 bg-gray-50 border-transparent focus:border-[#3c5a82] focus:bg-white rounded-lg font-medium h-32 outline-none"
             placeholder="What was this transaction for?"
             value={form.description}
-            onChange={e => setForm({...form, description: e.target.value})}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
           />
         </div>
 
-        <Button 
+        <Button
           onClick={handleSave}
-          variant={isIncome ? "primary" : "danger"}
+          variant={isIncome ? 'primary' : 'danger'}
           size="lg"
           className="w-full"
           disabled={isLoading}
           loading={isLoading}
         >
-          Finalize {isIncome ? 'Income' : 'Expense'}
+          {isEdit ? 'Update' : 'Finalize'} {isIncome ? 'Income' : 'Expense'}
         </Button>
       </div>
     </div>
@@ -248,5 +454,3 @@ const TransactionForm: React.FC = () => {
 };
 
 export default TransactionForm;
-
-

@@ -267,6 +267,54 @@ export const formatDateTimeParts = (
   };
 };
 
+export const openAttachmentPreview = (attachmentUrl?: string | null): boolean => {
+  const raw = String(attachmentUrl || '').trim();
+  if (!raw || typeof window === 'undefined') return false;
+
+  let previewUrl = raw;
+  let shouldRevoke = false;
+
+  try {
+    if (raw.startsWith('data:')) {
+      const [metadata, encodedPayload = ''] = raw.split(',', 2);
+      const mimeType = metadata.match(/^data:([^;]+)/i)?.[1] || 'application/octet-stream';
+      const isBase64 = /;base64/i.test(metadata);
+      const decodedPayload = isBase64 ? atob(encodedPayload) : decodeURIComponent(encodedPayload);
+      const bytes = new Uint8Array(decodedPayload.length);
+
+      for (let index = 0; index < decodedPayload.length; index += 1) {
+        bytes[index] = decodedPayload.charCodeAt(index);
+      }
+
+      previewUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      shouldRevoke = true;
+    }
+
+    const openedWindow = window.open(previewUrl, '_blank', 'noopener,noreferrer');
+
+    if (!openedWindow) {
+      const fallbackLink = document.createElement('a');
+      fallbackLink.href = previewUrl;
+      fallbackLink.target = '_blank';
+      fallbackLink.rel = 'noopener noreferrer';
+      document.body.appendChild(fallbackLink);
+      fallbackLink.click();
+      fallbackLink.remove();
+    }
+
+    if (shouldRevoke) {
+      window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000);
+    }
+
+    return true;
+  } catch (_error) {
+    if (shouldRevoke) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    return false;
+  }
+};
+
 /**
  * Get today's date in YYYY-MM-DD format
  */

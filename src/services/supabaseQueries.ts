@@ -8,6 +8,7 @@ import type {
   PayrollSettings,
   PayrollSummaryRow,
   Product,
+  DashboardSnapshot,
   RecycleBinEntityType,
   RecycleBinItem,
   Transaction,
@@ -49,6 +50,9 @@ export async function fetchCustomersPage(page: number = 1, pageSize: number = DE
 export async function fetchCustomersMini() { return call<Array<{ id: string; name: string; phone?: string }>>('fetchCustomersMini'); }
 
 export async function fetchOrders() { return call<Order[]>('fetchOrders'); }
+export async function fetchDashboardSnapshot(params?: { filterRange?: string; customDates?: { from?: string; to?: string } }) {
+  return call<DashboardSnapshot>('fetchDashboardSnapshot', params || {});
+}
 export async function fetchOrdersPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }) {
   return call<{ data: Order[]; count: number }>('fetchOrdersPage', { page, pageSize, filters });
 }

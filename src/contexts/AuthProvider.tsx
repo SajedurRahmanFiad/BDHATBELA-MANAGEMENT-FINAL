@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser, fetchUserById, fetchAccounts } from '../services/supabaseQueries';
+import { loginUser, fetchUserById, fetchAccounts, fetchDashboardSnapshot } from '../services/supabaseQueries';
 import { clearAuthToken, setAuthToken } from '../services/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { db, saveDb } from '../../db';
@@ -80,6 +80,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Product rows can be very large (image payloads), so avoid eager prefetch.
             try {
               queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+              queryClient.prefetchQuery({
+                queryKey: ['dashboard', 'All Time', '', ''],
+                queryFn: () => fetchDashboardSnapshot({ filterRange: 'All Time', customDates: { from: '', to: '' } }),
+                staleTime: 10 * 1000,
+              }).catch(() => {});
             } catch (e) {
               // ignore prefetch errors
             }
@@ -144,6 +149,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Avoid prefetching products because image fields can be very large.
         try {
           queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+          queryClient.prefetchQuery({
+            queryKey: ['dashboard', 'All Time', '', ''],
+            queryFn: () => fetchDashboardSnapshot({ filterRange: 'All Time', customDates: { from: '', to: '' } }),
+            staleTime: 10 * 1000,
+          }).catch(() => {});
         } catch (e) {
           // ignore
         }

@@ -195,6 +195,82 @@ export interface Transaction {
   creatorName?: string;
 }
 
+export interface DashboardOrderMetrics {
+  total: number;
+  onHold: number;
+  processing: number;
+  picked: number;
+  completed: number;
+  returned: number;
+  cancelled: number;
+}
+
+export interface DashboardCashFlowPoint {
+  name: string;
+  income: number;
+  expense: number;
+  profit: number;
+}
+
+export interface DashboardExpenseCategory {
+  name: string;
+  value: number;
+}
+
+export interface DashboardTopProduct {
+  name: string;
+  qty: number;
+}
+
+export interface DashboardTopCustomer {
+  name: string;
+  orders: number;
+  amount: number;
+}
+
+export interface DashboardAdminSnapshot {
+  totalSales: number;
+  totalPurchases: number;
+  otherExpenses: number;
+  totalProfit: number;
+  orderCounts: DashboardOrderMetrics;
+  orderTotals: DashboardOrderMetrics;
+  monthlyData: DashboardCashFlowPoint[];
+  expenseByCategory: DashboardExpenseCategory[];
+  topSoldProducts: DashboardTopProduct[];
+  topCustomers: DashboardTopCustomer[];
+}
+
+export interface DashboardEmployeeStatusSnapshot {
+  status: OrderStatus;
+  label: string;
+  value: number;
+}
+
+export interface DashboardEmployeeComparisonEntry {
+  userId: string;
+  name: string;
+  role: string;
+  orderCount: number;
+  isCurrentUser: boolean;
+}
+
+export interface DashboardEmployeeSnapshot {
+  myTotalCreated: number;
+  myCreatedToday: number;
+  myPendingOrders: number;
+  walletBalance: number;
+  employeeStatusSnapshot: DashboardEmployeeStatusSnapshot[];
+  employeeComparisonRows: DashboardEmployeeComparisonEntry[];
+}
+
+export interface DashboardSnapshot {
+  role: 'admin' | 'employee';
+  admin?: DashboardAdminSnapshot;
+  employee?: DashboardEmployeeSnapshot;
+  refreshedAt: string;
+}
+
 export interface Settings {
   company: {
     name: string;

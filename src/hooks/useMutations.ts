@@ -148,8 +148,13 @@ function matchesFiltersForResource(resource: string, row: any, filters: any): bo
 }
 
 // Helper: invalidate all cached pages for a resource (including paginated keys)
+function invalidateDashboardQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['dashboard'], exact: false });
+}
+
 function invalidateResourceQueries(queryClient: ReturnType<typeof useQueryClient>, resource: string) {
   queryClient.invalidateQueries({ queryKey: [resource], exact: false });
+  invalidateDashboardQueries(queryClient);
 }
 
 function invalidateRecycleBin(queryClient: ReturnType<typeof useQueryClient>) {
@@ -621,6 +626,7 @@ export function useUpdateOrder(): UseMutationResult<Order, Error, { id: string; 
       queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'] });
       queryClient.invalidateQueries({ queryKey: ['payroll'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      invalidateDashboardQueries(queryClient);
 
       // Stock can change when status/items change
       if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
@@ -645,6 +651,7 @@ export function useCompletePickedOrder(): UseMutationResult<Order, Error, Comple
       queryClient.invalidateQueries({ queryKey: ['employeeOrderCounts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['payroll'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['wallet'], exact: false });
+      invalidateDashboardQueries(queryClient);
     },
   });
 }
@@ -874,6 +881,7 @@ export function useUpdateBill(): UseMutationResult<Bill, Error, { id: string; up
       queryClient.invalidateQueries({ queryKey: ['bill', data.id] });
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
       queryClient.invalidateQueries({ queryKey: ['billsByVendorId'] });
+      invalidateDashboardQueries(queryClient);
 
       // Stock can change when status/items change
       if (variables?.updates?.status !== undefined || variables?.updates?.items !== undefined) {
@@ -1121,6 +1129,70 @@ export function useCreateTransaction(): UseMutationResult<Transaction, Error, Pa
       invalidateResourceQueries(queryClient, 'transactions');
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       invalidateRecycleBin(queryClient);
+    },
+  });
+}
+
+export function useUpdateTransaction(): UseMutationResult<Transaction, Error, { id: string; updates: Partial<Transaction> }, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, updates }) => updateTransaction(id, updates),
+    onMutate: async ({ id, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['transactions'] });
+      await queryClient.cancelQueries({ queryKey: ['transaction', id] });
+
+      const previousTransactions = queryClient.getQueryData<Transaction[]>(['transactions']);
+      const previousTransaction = queryClient.getQueryData<Transaction>(['transaction', id]);
+
+      if (previousTransactions) {
+        queryClient.setQueryData(
+          ['transactions'],
+          previousTransactions.map((transaction) => (
+            transaction.id === id ? { ...transaction, ...updates } : transaction
+          ))
+        );
+      }
+
+      if (previousTransaction) {
+        queryClient.setQueryData(['transaction', id], { ...previousTransaction, ...updates });
+      }
+
+      return { previousTransactions, previousTransaction };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previousTransactions) {
+        queryClient.setQueryData(['transactions'], context.previousTransactions);
+      }
+      if (context?.previousTransaction) {
+        queryClient.setQueryData(['transaction', variables.id], context.previousTransaction);
+      }
+    },
+    onSuccess: (data) => {
+      try {
+        const previous = queryClient.getQueryData<Transaction[]>(['transactions']) || [];
+        queryClient.setQueryData(
+          ['transactions'],
+          previous.map((transaction) => (transaction.id === data.id ? data : transaction))
+        );
+      } catch (e) {}
+
+      const pages = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      pages.forEach(([key, value]) => {
+        try {
+          if (value && (value as any).data && Array.isArray((value as any).data)) {
+            queryClient.setQueryData(key as any, {
+              ...(value as any),
+              data: (value as any).data.map((transaction: any) => (
+                transaction.id === data.id ? data : transaction
+              )),
+            });
+          }
+        } catch (e) {}
+      });
+
+      queryClient.setQueryData(['transaction', data.id], data);
+      invalidateResourceQueries(queryClient, 'transactions');
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
 }
@@ -2204,6 +2276,7 @@ export function useUpdatePayrollSettings(): UseMutationResult<
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'payroll'] });
+      invalidateDashboardQueries(queryClient);
     },
   });
 }
@@ -2230,6 +2303,7 @@ export function useMarkPayrollPaid(): UseMutationResult<
     mutationFn: markPayrollPaid,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payroll'] });
+      invalidateDashboardQueries(queryClient);
     },
   });
 }
@@ -2259,6 +2333,7 @@ export function useUpdateWalletSettings(): UseMutationResult<
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'wallet'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      invalidateDashboardQueries(queryClient);
     },
   });
 }
@@ -2284,6 +2359,7 @@ export function usePayEmployeeWallet(): UseMutationResult<
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      invalidateDashboardQueries(queryClient);
     },
   });
 }

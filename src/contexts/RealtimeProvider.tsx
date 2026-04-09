@@ -33,6 +33,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (!cancelled && (carryBeeResult.updated > 0 || paperflyResult.updated > 0 || steadfastResult.updated > 0)) {
           queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+          queryClient.invalidateQueries({ queryKey: ['dashboard'], exact: false });
           queryClient.invalidateQueries({ queryKey: ['wallet'], exact: false });
           queryClient.invalidateQueries({ queryKey: ['payroll'], exact: false });
         }

@@ -143,6 +143,9 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
       <Route path="/transactions/new/:type" element={
         isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to="/login" replace />
       } />
+      <Route path="/transactions/edit/:id" element={
+        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to="/login" replace />
+      } />
 
       <Route path="/customers" element={
         isAuthenticated ? <Layout><Customers /></Layout> : <Navigate to="/login" replace />

@@ -26,7 +26,8 @@ import {
   Check,
   AlertCircle,
   Info,
-  Wallet
+  Wallet,
+  Eye
 } from 'lucide-react';
 
 // Fixed missing properties on ICONS object by adding 'Users' and 'Briefcase' keys
@@ -54,6 +55,7 @@ export const ICONS = {
   Print: <Printer size={18} />,
   Download: <Download size={18} />,
   Duplicate: <Copy size={18} />,
+  View: <Eye size={18} />,
   Edit: <Edit size={18} />,
   Delete: <Trash2 size={18} />,
   Transfer: <ArrowRightLeft size={18} />,

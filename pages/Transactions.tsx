@@ -1,20 +1,18 @@
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import PortalMenu from '../components/PortalMenu';
 import { Transaction, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
-import { Button, TableLoadingSkeleton, IconButton } from '../components';
-import { theme } from '../theme';
+import { Button, TableLoadingSkeleton } from '../components';
 import { useTransactionsPage, useUsers, useCategories, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
-import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
-import { formatDateTimeParts, getDateTimeFilters } from '../utils';
+import { formatDateTimeParts, getDateTimeFilters, openAttachmentPreview } from '../utils';
 
 const Transactions: React.FC = () => {
   const navigate = useNavigate();
@@ -41,8 +39,11 @@ const Transactions: React.FC = () => {
   const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>(urlTypeTab);
   const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
   const [page, setPage] = useState<number>(urlPage);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const previousSearchQueryRef = React.useRef(searchQuery);
-  
+
   const { data: users = [] } = useUsers();
 
   useEffect(() => {
@@ -86,16 +87,14 @@ const Transactions: React.FC = () => {
     [effectiveFilterRange, effectiveCustomDates]
   );
 
-  // Compute createdByIds based on createdByFilter
   const createdByIds = useMemo(() => {
     if (effectiveCreatedByFilter === 'all') return undefined;
     if (effectiveCreatedByFilter === 'admins') {
-      return users.filter(u => hasAdminAccess(u.role)).map(u => u.id);
+      return users.filter((user) => hasAdminAccess(user.role)).map((user) => user.id);
     }
     if (effectiveCreatedByFilter === 'employees') {
-      return users.filter(u => isEmployeeRole(u.role)).map(u => u.id);
+      return users.filter((user) => isEmployeeRole(user.role)).map((user) => user.id);
     }
-    // Specific user ID
     return [effectiveCreatedByFilter];
   }, [effectiveCreatedByFilter, users]);
 
@@ -109,10 +108,7 @@ const Transactions: React.FC = () => {
   const transactions = transactionsPage?.data ?? [];
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
-  // Instead of loading entire customers/vendors tables, only fetch rows referenced by the current page.
-  // Relational contact/account names are now included in the paginated transactions payload
   const { data: allCategories = [] } = useCategories();
-  const deleteTransactionMutation = useDeleteTransaction();
 
   useEffect(() => {
     if (shouldHydrateFromUrl) return;
@@ -142,7 +138,6 @@ const Transactions: React.FC = () => {
     setSearchParams,
   ]);
 
-  // Wrapper functions that reset page AND apply filter (atomic operation)
   const handleTypeTabChange = (type: 'All' | 'Income' | 'Expense' | 'Transfer') => {
     setPage(1);
     setTypeTab(type);
@@ -151,7 +146,6 @@ const Transactions: React.FC = () => {
   const handleFilterRangeChange = (range: FilterRange) => {
     setPage(1);
     setFilterRange(range);
-    // Clear customDates when switching away from 'Custom' to prevent stale date values
     if (range !== 'Custom') {
       setCustomDates({ from: '', to: '' });
     }
@@ -167,72 +161,57 @@ const Transactions: React.FC = () => {
     setCreatedByFilter(filter);
   };
 
-  const handleDelete = async (transactionId: string) => {
-    // Prevent deletion of unsaved transactions (temp IDs)
-    if (transactionId.startsWith('temp-')) {
-      toast.error('Cannot delete unsaved transactions. Please refresh and try again.');
-      return;
-    }
-    
-    if (!confirm('Move this transaction to the recycle bin? You can restore it later.')) return;
-    try {
-      await deleteTransactionMutation.mutateAsync(transactionId);
-      // Cache updated deterministically by mutation hook
-      toast.success('Transaction moved to the recycle bin');
-    } catch (err) {
-      console.error('Failed to delete transaction:', err);
-      toast.error('Failed to delete transaction');
-    }
-  };
-
-  // Create Maps for O(1) lookups instead of O(n) array searching
-  const userMap = useMemo(() => {
-    return new Map(users.map(u => [u.id, u]));
-  }, [users]);
+  const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
 
   const getCreatorName = (transaction: Transaction) => {
     if (!transaction.createdBy?.trim()) return null;
     const user = userMap.get(transaction.createdBy);
     if (user?.name) return user.name;
-    
-    // Fallback: extract creator name from history field
+
     if (transaction.history?.created) {
       const match = transaction.history.created.match(/Created by (.+?) on/);
       if (match) return match[1];
     }
-    
+
     return null;
   };
 
-  const getContactName = (contactId: string, t?: Transaction) => {
-    // Prefer relational name included in transaction row
-    if (t && (t as any).contactName) return { name: (t as any).contactName, type: ((t as any).contactType as any) || 'Customer' };
+  const getContactName = (contactId: string, transaction?: Transaction) => {
+    if (transaction?.contactName) {
+      return {
+        name: transaction.contactName,
+        type: transaction.contactType || 'Customer',
+      };
+    }
     if (!contactId) return null;
+
     const customer = queryClient.getQueryData<any>(['customer', contactId]);
     if (customer) return { name: customer.name, type: 'Customer' };
+
     const vendor = queryClient.getQueryData<any>(['vendor', contactId]);
     if (vendor) return { name: vendor.name, type: 'Vendor' };
+
     return null;
   };
 
   const filteredTransactions = useMemo(() => {
-    let results = transactions
-      .filter(t => effectiveTypeTab === 'All' || t.type === effectiveTypeTab);
+    let results = transactions.filter((transaction) => (
+      effectiveTypeTab === 'All' || transaction.type === effectiveTypeTab
+    ));
 
-    // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      results = results.filter(transaction => {
-        const contact = transaction.contactId ? getContactName(transaction.contactId) : null;
+      results = results.filter((transaction) => {
+        const contact = transaction.contactId ? getContactName(transaction.contactId, transaction) : null;
         const creator = getCreatorName(transaction);
-        const category = allCategories.find(c => c.id === transaction.category)?.name || transaction.category || '';
-        
+        const category = allCategories.find((entry) => entry.id === transaction.category)?.name || transaction.category || '';
+
         return (
           transaction.description.toLowerCase().includes(query) ||
           category.toLowerCase().includes(query) ||
           transaction.type.toLowerCase().includes(query) ||
-          (contact?.name.toLowerCase().includes(query)) ||
-          (creator?.toLowerCase?.().includes(query)) ||
+          Boolean(contact?.name.toLowerCase().includes(query)) ||
+          Boolean(creator?.toLowerCase?.().includes(query)) ||
           formatCurrency(transaction.amount).includes(query)
         );
       });
@@ -249,7 +228,6 @@ const Transactions: React.FC = () => {
   const handleRowClick = (transaction: Transaction) => {
     if (!transaction.referenceId) return;
 
-    // Reference routing is deterministic by transaction type/category in this app.
     if (transaction.type === 'Income') {
       navigate(`/orders/${transaction.referenceId}`, { state: buildHistoryBackState(location) });
       return;
@@ -257,6 +235,25 @@ const Transactions: React.FC = () => {
 
     if (transaction.type === 'Expense' && transaction.category === 'expense_purchases') {
       navigate(`/bills/${transaction.referenceId}`, { state: buildHistoryBackState(location) });
+    }
+  };
+
+  const canEditTransaction = (transaction: Transaction) => !transaction.referenceId && transaction.type !== 'Transfer';
+  const canViewAttachment = (transaction: Transaction) => Boolean(transaction.attachmentUrl?.trim());
+  const hasRowActions = (transaction: Transaction) => canEditTransaction(transaction) || canViewAttachment(transaction);
+
+  const closeActionsMenu = () => {
+    setOpenActionsMenu(null);
+    setAnchorEl(null);
+  };
+
+  const handleEditTransaction = (transaction: Transaction) => {
+    navigate(`/transactions/edit/${transaction.id}`, { state: buildHistoryBackState(location) });
+  };
+
+  const handleViewAttachment = (transaction: Transaction) => {
+    if (!transaction.attachmentUrl || !openAttachmentPreview(transaction.attachmentUrl)) {
+      toast.error('Attachment could not be opened.');
     }
   };
 
@@ -272,7 +269,7 @@ const Transactions: React.FC = () => {
         </div>
       </div>
 
-      <FilterBar 
+      <FilterBar
         title="Transactions"
         filterRange={effectiveFilterRange}
         setFilterRange={handleFilterRangeChange}
@@ -283,28 +280,27 @@ const Transactions: React.FC = () => {
         statusOptions={['Income', 'Expense', 'Transfer']}
       />
 
-      {/* Created By Filter Dropdown */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="flex items-center gap-4 flex-wrap">
           <label className="text-sm font-bold text-gray-700">Created By:</label>
           <select
             value={effectiveCreatedByFilter}
-            onChange={(e) => handleCreatedByFilterChange(e.target.value)}
+            onChange={(event) => handleCreatedByFilterChange(event.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Users</option>
-            {users.some(u => hasAdminAccess(u.role)) && <option value="admins">Admin Access</option>}
-            {users.some(u => isEmployeeRole(u.role)) && <option value="employees">All Employees</option>}
+            {users.some((user) => hasAdminAccess(user.role)) && <option value="admins">Admin Access</option>}
+            {users.some((user) => isEmployeeRole(user.role)) && <option value="employees">All Employees</option>}
             <optgroup label="Specific Users">
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>{user.name} ({user.role})</option>
               ))}
             </optgroup>
           </select>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -314,31 +310,157 @@ const Transactions: React.FC = () => {
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Contact</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest"><>Category <br></br> Notes</></th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Amount</th>
+                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest sm:hidden">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-                  {transactionsLoading ? (
+              {transactionsLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredTransactions.length === 0 ? (
-                <tr><td colSpan={7} className="px-6 py-16 text-center text-gray-400 italic font-medium">No transactions found.</td></tr>
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center text-gray-400 italic font-medium">No transactions found.</td>
+                </tr>
               ) : (
-                filteredTransactions.map((t) => {
-                  const contact = t.contactId ? getContactName(t.contactId, t) : null;
-                  const creator = getCreatorName(t);
-                  const hasLink = !!t.referenceId && (
-                    t.type === 'Income' ||
-                    (t.type === 'Expense' && t.category === 'expense_purchases')
+                filteredTransactions.map((transaction) => {
+                  const contact = transaction.contactId ? getContactName(transaction.contactId, transaction) : null;
+                  const creator = getCreatorName(transaction);
+                  const hasLink = Boolean(transaction.referenceId) && (
+                    transaction.type === 'Income' ||
+                    (transaction.type === 'Expense' && transaction.category === 'expense_purchases')
                   );
-                  const isLinkedTransaction = !!t.referenceId;
-                  const { date: dateStr, time: timeStr } = formatDateAndTime(t.date, t.createdAt);
-                  
+                  const isLinkedTransaction = Boolean(transaction.referenceId);
+                  const canEdit = canEditTransaction(transaction);
+                  const canPreviewAttachment = canViewAttachment(transaction);
+                  const showActions = hasRowActions(transaction);
+                  const { date: dateStr, time: timeStr } = formatDateAndTime(transaction.date, transaction.createdAt);
+
                   return (
-                    <tr key={t.id} onClick={() => handleRowClick(t)} className={`hover:bg-gray-50 transition-all group ${hasLink ? 'cursor-pointer' : ''}`}>
-                      <td className="px-6 py-5 text-sm font-bold text-gray-700"><div className="flex flex-col"><span className="font-bold text-gray-900">{dateStr}</span><span className="text-[11px] text-gray-400 font-medium">{timeStr}</span></div></td>
-                      <td className="px-6 py-5"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${t.type === 'Income' ? `bg-[#ebf4ff]` : t.type === 'Expense' ? 'bg-red-50 text-red-600' : `bg-[#e6f0ff]`}`}>{t.type}</span></td>
-                      <td className="px-6 py-5">{isLinkedTransaction ? (contact ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{contact.name}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>) : (creator ? (<div className="flex flex-col"><span className="text-sm font-bold text-gray-900">{creator}</span><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Created By</span></div>) : <span className="text-gray-300 font-bold text-xs">—</span>)}</td>
-                      <td className="px-6 py-5"><div className="flex flex-col"><p className="text-sm font-bold text-gray-800">{allCategories.find(c => c.id === t.category)?.name || t.category}</p><p className="text-xs text-gray-400 italic max-w-xs truncate">{t.description}</p></div></td>
-                      <td className="px-6 py-5 text-right"><span className={`font-black text-base ${t.type === 'Income' ? 'text-emerald-600' : t.type === 'Expense' ? 'text-red-600' : 'text-black'}`}>{t.type === 'Income' ? '+' : t.type === 'Expense' ? '-' : ''}{formatCurrency(t.amount)}</span></td>
+                    <tr
+                      key={transaction.id}
+                      onMouseEnter={() => setHoveredRow(transaction.id)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                      onClick={() => handleRowClick(transaction)}
+                      className={`group relative hover:bg-gray-50 transition-all ${hasLink ? 'cursor-pointer' : ''}`}
+                    >
+                      <td className="px-6 py-5 text-sm font-bold text-gray-700">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-gray-900">{dateStr}</span>
+                          <span className="text-[11px] text-gray-400 font-medium">{timeStr}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${transaction.type === 'Income' ? 'bg-[#ebf4ff]' : transaction.type === 'Expense' ? 'bg-red-50 text-red-600' : 'bg-[#e6f0ff]'}`}>
+                          {transaction.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5">
+                        {isLinkedTransaction ? (
+                          contact ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-gray-900">{contact.name}</span>
+                              <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">{contact.type}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300 font-bold text-xs">-</span>
+                          )
+                        ) : creator ? (
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold text-gray-900">{creator}</span>
+                            <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Created By</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 font-bold text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col">
+                          <p className="text-sm font-bold text-gray-800">{allCategories.find((entry) => entry.id === transaction.category)?.name || transaction.category}</p>
+                          <p className="text-xs text-gray-400 italic max-w-xs truncate">{transaction.description}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <span className={`font-black text-base ${transaction.type === 'Income' ? 'text-emerald-600' : transaction.type === 'Expense' ? 'text-red-600' : 'text-black'}`}>
+                          {transaction.type === 'Income' ? '+' : transaction.type === 'Expense' ? '-' : ''}
+                          {formatCurrency(transaction.amount)}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={(event) => event.stopPropagation()}>
+                        {showActions && (
+                          <div className="relative z-[999]">
+                            <button
+                              onClick={(event) => {
+                                const target = event.currentTarget as HTMLElement;
+                                if (openActionsMenu === transaction.id) {
+                                  closeActionsMenu();
+                                } else {
+                                  setOpenActionsMenu(transaction.id);
+                                  setAnchorEl(target);
+                                }
+                              }}
+                              className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
+                            >
+                              {ICONS.More}
+                            </button>
+                            <PortalMenu anchorEl={anchorEl} open={openActionsMenu === transaction.id} onClose={closeActionsMenu}>
+                              <>
+                                {canEdit && (
+                                  <button
+                                    onClick={() => {
+                                      handleEditTransaction(transaction);
+                                      closeActionsMenu();
+                                    }}
+                                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700"
+                                  >
+                                    {ICONS.Edit} Edit
+                                  </button>
+                                )}
+                                {canEdit && canPreviewAttachment && <div className="border-t my-1"></div>}
+                                {canPreviewAttachment && (
+                                  <button
+                                    onClick={() => {
+                                      handleViewAttachment(transaction);
+                                      closeActionsMenu();
+                                    }}
+                                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                                  >
+                                    {ICONS.View} View Attachment
+                                  </button>
+                                )}
+                              </>
+                            </PortalMenu>
+                          </div>
+                        )}
+                      </td>
+
+                      {hoveredRow === transaction.id && showActions && (
+                        <td
+                          className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
+                            {canEdit && (
+                              <button
+                                onClick={() => handleEditTransaction(transaction)}
+                                className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all"
+                                title="Edit"
+                              >
+                                {ICONS.Edit}
+                              </button>
+                            )}
+                            {canEdit && canPreviewAttachment && <div className="h-5 w-px bg-gray-100 mx-1"></div>}
+                            {canPreviewAttachment && (
+                              <button
+                                onClick={() => handleViewAttachment(transaction)}
+                                className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all"
+                                title="View attachment"
+                              >
+                                {ICONS.View}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -347,10 +469,10 @@ const Transactions: React.FC = () => {
           </table>
         </div>
       </div>
-        <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={transactionsLoading} />
+
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(nextPage) => setPage(nextPage)} disabled={transactionsLoading} />
     </div>
   );
 };
 
 export default Transactions;
-

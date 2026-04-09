@@ -608,6 +608,531 @@ final class OperationsApi extends BaseService
         return $results;
     }
 
+    /**
+     * @return array<string, string|null>
+     */
+    private function buildDashboardDateFilters(array $params): array
+    {
+        $filterRange = trim((string) ($params['filterRange'] ?? 'All Time'));
+        $customDates = is_array($params['customDates'] ?? null) ? $params['customDates'] : [];
+        $localTimezone = new \DateTimeZone($this->config->timezone());
+        $utcTimezone = new \DateTimeZone('UTC');
+        $nowLocal = new \DateTimeImmutable('now', $localTimezone);
+
+        $fromLocal = null;
+        $toLocal = null;
+
+        if ($filterRange === 'Today') {
+            $fromLocal = $nowLocal->setTime(0, 0, 0);
+            $toLocal = $nowLocal->setTime(23, 59, 59);
+        } elseif ($filterRange === 'This Week') {
+            $dayOfWeek = (int) $nowLocal->format('w');
+            $fromLocal = $nowLocal->modify("-{$dayOfWeek} days")->setTime(0, 0, 0);
+            $toLocal = $nowLocal->setTime(23, 59, 59);
+        } elseif ($filterRange === 'This Month') {
+            $fromLocal = $nowLocal->modify('first day of this month')->setTime(0, 0, 0);
+            $toLocal = $nowLocal->setTime(23, 59, 59);
+        } elseif ($filterRange === 'This Year') {
+            $fromLocal = $nowLocal->setDate((int) $nowLocal->format('Y'), 1, 1)->setTime(0, 0, 0);
+            $toLocal = $nowLocal->setTime(23, 59, 59);
+        } elseif ($filterRange === 'Custom') {
+            $fromValue = trim((string) ($customDates['from'] ?? ''));
+            $toValue = trim((string) ($customDates['to'] ?? ''));
+
+            if ($fromValue !== '') {
+                $candidate = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $fromValue . ' 00:00:00', $localTimezone);
+                if ($candidate instanceof \DateTimeImmutable) {
+                    $fromLocal = $candidate;
+                }
+            }
+
+            if ($toValue !== '') {
+                $candidate = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $toValue . ' 23:59:59', $localTimezone);
+                if ($candidate instanceof \DateTimeImmutable) {
+                    $toLocal = $candidate;
+                }
+            }
+        }
+
+        if ($fromLocal instanceof \DateTimeImmutable && $toLocal instanceof \DateTimeImmutable && $fromLocal > $toLocal) {
+            [$fromLocal, $toLocal] = [$toLocal, $fromLocal];
+        }
+
+        $currentYear = (int) $nowLocal->format('Y');
+        $currentYearStartLocal = $nowLocal->setDate($currentYear, 1, 1)->setTime(0, 0, 0);
+        $nextYearStartLocal = $nowLocal->setDate($currentYear + 1, 1, 1)->setTime(0, 0, 0);
+
+        return [
+            'filterRange' => $filterRange,
+            'fromDateTime' => $fromLocal instanceof \DateTimeImmutable ? $fromLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s') : null,
+            'toDateTime' => $toLocal instanceof \DateTimeImmutable ? $toLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s') : null,
+            'fromDate' => $fromLocal instanceof \DateTimeImmutable ? $fromLocal->format('Y-m-d') : null,
+            'toDate' => $toLocal instanceof \DateTimeImmutable ? $toLocal->format('Y-m-d') : null,
+            'todayStartUtc' => $nowLocal->setTime(0, 0, 0)->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+            'todayEndUtc' => $nowLocal->setTime(23, 59, 59)->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+            'currentYearStartUtc' => $currentYearStartLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+            'nextYearStartUtc' => $nextYearStartLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
+     * @param array<string, string|null> $filters
+     * @param array<int, string> $conditions
+     * @param array<string, mixed> $bindings
+     */
+    private function applyDashboardDateTimeBounds(
+        string $column,
+        array $filters,
+        array &$conditions,
+        array &$bindings,
+        string $bindingPrefix
+    ): void {
+        if (!empty($filters['fromDateTime'])) {
+            $conditions[] = "{$column} >= :{$bindingPrefix}_from";
+            $bindings[":{$bindingPrefix}_from"] = $filters['fromDateTime'];
+        }
+
+        if (!empty($filters['toDateTime'])) {
+            $conditions[] = "{$column} <= :{$bindingPrefix}_to";
+            $bindings[":{$bindingPrefix}_to"] = $filters['toDateTime'];
+        }
+    }
+
+    /**
+     * @param array<string, string|null> $filters
+     * @param array<int, string> $conditions
+     * @param array<string, mixed> $bindings
+     */
+    private function applyDashboardDateBounds(
+        string $column,
+        array $filters,
+        array &$conditions,
+        array &$bindings,
+        string $bindingPrefix
+    ): void {
+        if (!empty($filters['fromDate'])) {
+            $conditions[] = "{$column} >= :{$bindingPrefix}_from_date";
+            $bindings[":{$bindingPrefix}_from_date"] = $filters['fromDate'];
+        }
+
+        if (!empty($filters['toDate'])) {
+            $conditions[] = "{$column} <= :{$bindingPrefix}_to_date";
+            $bindings[":{$bindingPrefix}_to_date"] = $filters['toDate'];
+        }
+    }
+
+    /**
+     * @param array<string, string|null> $filters
+     * @return array<string, mixed>
+     */
+    private function buildDashboardAdminSnapshot(array $filters): array
+    {
+        $statusKeyMap = [
+            'On Hold' => 'onHold',
+            'Processing' => 'processing',
+            'Picked' => 'picked',
+            'Completed' => 'completed',
+            'Returned' => 'returned',
+            'Cancelled' => 'cancelled',
+        ];
+
+        $baseMetrics = [
+            'total' => 0,
+            'onHold' => 0,
+            'processing' => 0,
+            'picked' => 0,
+            'completed' => 0,
+            'returned' => 0,
+            'cancelled' => 0,
+        ];
+
+        $orderConditions = ['deleted_at IS NULL'];
+        $orderBindings = [];
+        $this->applyDashboardDateTimeBounds('created_at', $filters, $orderConditions, $orderBindings, 'dashboard_order');
+
+        $transactionConditions = ['deleted_at IS NULL'];
+        $transactionBindings = [];
+        $this->applyDashboardDateTimeBounds('created_at', $filters, $transactionConditions, $transactionBindings, 'dashboard_txn');
+
+        $billConditions = ['deleted_at IS NULL'];
+        $billBindings = [];
+        $this->applyDashboardDateTimeBounds('created_at', $filters, $billConditions, $billBindings, 'dashboard_bill');
+
+        $orderRows = $this->database->fetchAll(
+            'SELECT status, COUNT(*) AS count, COALESCE(SUM(total), 0) AS total
+             FROM orders
+             WHERE ' . implode(' AND ', $orderConditions) . '
+             GROUP BY status',
+            $orderBindings
+        );
+
+        $orderCounts = $baseMetrics;
+        $orderTotals = $baseMetrics;
+        foreach ($orderRows as $row) {
+            $status = trim((string) ($row['status'] ?? ''));
+            $key = $statusKeyMap[$status] ?? null;
+            if ($key === null) {
+                continue;
+            }
+
+            $count = (int) ($row['count'] ?? 0);
+            $total = (float) ($row['total'] ?? 0);
+
+            $orderCounts[$key] = $count;
+            $orderTotals[$key] = $total;
+            $orderCounts['total'] += $count;
+            $orderTotals['total'] += $total;
+        }
+
+        $transactionSummary = $this->database->fetchOne(
+            'SELECT
+                COALESCE(SUM(CASE WHEN type = \'Income\' AND reference_id IS NOT NULL THEN amount ELSE 0 END), 0) AS salesFromTransactions,
+                COALESCE(SUM(CASE WHEN type = \'Expense\' AND category = \'expense_purchases\' THEN amount ELSE 0 END), 0) AS purchasesFromTransactions,
+                COALESCE(SUM(CASE WHEN type = \'Expense\' AND COALESCE(category, \'\') <> \'expense_purchases\' THEN amount ELSE 0 END), 0) AS otherExpenses
+             FROM transactions
+             WHERE ' . implode(' AND ', $transactionConditions),
+            $transactionBindings
+        ) ?? [];
+
+        $billSummary = $this->database->fetchOne(
+            'SELECT COALESCE(SUM(total), 0) AS totalPurchases
+             FROM bills
+             WHERE ' . implode(' AND ', $billConditions),
+            $billBindings
+        ) ?? [];
+
+        $salesFromTransactions = (float) ($transactionSummary['salesFromTransactions'] ?? 0);
+        $purchasesFromTransactions = (float) ($transactionSummary['purchasesFromTransactions'] ?? 0);
+        $otherExpenses = (float) ($transactionSummary['otherExpenses'] ?? 0);
+        $completedOrderSales = (float) ($orderTotals['completed'] ?? 0);
+        $billPurchases = (float) ($billSummary['totalPurchases'] ?? 0);
+
+        $totalSales = $salesFromTransactions > 0 ? $salesFromTransactions : $completedOrderSales;
+        $totalPurchases = $purchasesFromTransactions > 0 ? $purchasesFromTransactions : $billPurchases;
+        $totalProfit = $totalSales - $totalPurchases - $otherExpenses;
+
+        $expenseConditions = [
+            't.deleted_at IS NULL',
+            "t.type = 'Expense'",
+            "COALESCE(t.category, '') <> 'expense_purchases'",
+        ];
+        $expenseBindings = [];
+        $this->applyDashboardDateTimeBounds('t.created_at', $filters, $expenseConditions, $expenseBindings, 'dashboard_expense');
+
+        $expenseRows = $this->database->fetchAll(
+            'SELECT
+                COALESCE(NULLIF(c.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS name,
+                COALESCE(SUM(t.amount), 0) AS value
+             FROM transactions t
+             LEFT JOIN categories c ON c.id = t.category
+             WHERE ' . implode(' AND ', $expenseConditions) . '
+             GROUP BY name
+             ORDER BY value DESC',
+            $expenseBindings
+        );
+
+        $expenseByCategory = [];
+        if ($totalPurchases > 0) {
+            $expenseByCategory[] = [
+                'name' => 'Purchases',
+                'value' => $totalPurchases,
+            ];
+        }
+
+        foreach ($expenseRows as $row) {
+            $expenseByCategory[] = [
+                'name' => (string) ($row['name'] ?? 'Uncategorized'),
+                'value' => (float) ($row['value'] ?? 0),
+            ];
+        }
+
+        if ($expenseByCategory === []) {
+            $expenseByCategory[] = [
+                'name' => 'No Data',
+                'value' => 1,
+            ];
+        }
+
+        $localTimezone = new \DateTimeZone($this->config->timezone());
+        $monthlyData = [];
+        $monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        foreach ($monthLabels as $label) {
+            $monthlyData[$label] = [
+                'name' => $label,
+                'income' => 0,
+                'expense' => 0,
+                'profit' => 0,
+            ];
+        }
+
+        $monthlyRows = $this->database->fetchAll(
+            'SELECT date, type, amount
+             FROM transactions
+             WHERE deleted_at IS NULL
+               AND date >= :year_start
+               AND date < :next_year_start',
+            [
+                ':year_start' => $filters['currentYearStartUtc'],
+                ':next_year_start' => $filters['nextYearStartUtc'],
+            ]
+        );
+
+        foreach ($monthlyRows as $row) {
+            $date = $this->parseDateTimeValue((string) ($row['date'] ?? ''), $this->utcTimezone());
+            if (!$date instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $monthIndex = (int) $date->setTimezone($localTimezone)->format('n') - 1;
+            if (!isset($monthLabels[$monthIndex])) {
+                continue;
+            }
+
+            $label = $monthLabels[$monthIndex];
+            $amount = (float) ($row['amount'] ?? 0);
+            $type = (string) ($row['type'] ?? '');
+
+            if ($type === 'Income') {
+                $monthlyData[$label]['income'] += $amount;
+                $monthlyData[$label]['profit'] += $amount;
+            } elseif ($type === 'Expense') {
+                $monthlyData[$label]['expense'] -= $amount;
+                $monthlyData[$label]['profit'] -= $amount;
+            }
+        }
+
+        $topCustomerConditions = ['o.deleted_at IS NULL', 'o.status = :dashboard_completed_status'];
+        $topCustomerBindings = [':dashboard_completed_status' => 'Completed'];
+        $this->applyDashboardDateBounds('o.order_date', $filters, $topCustomerConditions, $topCustomerBindings, 'dashboard_top_customer');
+
+        $topCustomerRows = $this->database->fetchAll(
+            'SELECT
+                o.customer_id AS customerId,
+                COALESCE(NULLIF(c.name, \'\'), \'Unknown Customer\') AS customerName,
+                COUNT(*) AS orderCount,
+                COALESCE(SUM(o.total), 0) AS totalAmount
+             FROM orders o
+             LEFT JOIN customers c ON c.id = o.customer_id
+             WHERE ' . implode(' AND ', $topCustomerConditions) . '
+             GROUP BY o.customer_id, c.name
+             ORDER BY totalAmount DESC
+             LIMIT 5',
+            $topCustomerBindings
+        );
+
+        $topCustomers = array_map(
+            static fn (array $row): array => [
+                'name' => (string) ($row['customerName'] ?? 'Unknown Customer'),
+                'orders' => (int) ($row['orderCount'] ?? 0),
+                'amount' => (float) ($row['totalAmount'] ?? 0),
+            ],
+            $topCustomerRows
+        );
+
+        $topProductConditions = ['deleted_at IS NULL', 'status = :dashboard_top_product_status'];
+        $topProductBindings = [':dashboard_top_product_status' => 'Completed'];
+        $this->applyDashboardDateBounds('order_date', $filters, $topProductConditions, $topProductBindings, 'dashboard_top_product');
+
+        $topProductRows = $this->database->fetchAll(
+            'SELECT items
+             FROM orders
+             WHERE ' . implode(' AND ', $topProductConditions),
+            $topProductBindings
+        );
+
+        $productMap = [];
+        foreach ($topProductRows as $row) {
+            foreach ($this->jsonDecodeList($row['items'] ?? null) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $key = trim((string) ($item['productId'] ?? $item['productName'] ?? ''));
+                if ($key === '') {
+                    continue;
+                }
+
+                $productName = trim((string) ($item['productName'] ?? '')) ?: 'Unnamed Product';
+                $quantity = (int) ($item['quantity'] ?? 0);
+                if ($quantity <= 0) {
+                    continue;
+                }
+
+                if (!isset($productMap[$key])) {
+                    $productMap[$key] = [
+                        'name' => $productName,
+                        'qty' => 0,
+                    ];
+                }
+
+                $productMap[$key]['qty'] += $quantity;
+            }
+        }
+
+        $topSoldProducts = array_values($productMap);
+        usort($topSoldProducts, static function (array $left, array $right): int {
+            if ((int) $right['qty'] !== (int) $left['qty']) {
+                return (int) $right['qty'] <=> (int) $left['qty'];
+            }
+
+            return strcmp((string) $left['name'], (string) $right['name']);
+        });
+        $topSoldProducts = array_slice($topSoldProducts, 0, 5);
+
+        return [
+            'totalSales' => $totalSales,
+            'totalPurchases' => $totalPurchases,
+            'otherExpenses' => $otherExpenses,
+            'totalProfit' => $totalProfit,
+            'orderCounts' => $orderCounts,
+            'orderTotals' => $orderTotals,
+            'monthlyData' => array_values($monthlyData),
+            'expenseByCategory' => $expenseByCategory,
+            'topSoldProducts' => $topSoldProducts,
+            'topCustomers' => $topCustomers,
+        ];
+    }
+
+    /**
+     * @param array<string, string|null> $filters
+     * @return array<string, mixed>
+     */
+    private function buildDashboardEmployeeSnapshot(array $filters): array
+    {
+        $currentUser = $this->currentUser();
+        $currentUserId = (string) ($currentUser['id'] ?? '');
+
+        $summary = $this->database->fetchOne(
+            'SELECT
+                COUNT(*) AS totalCreated,
+                COALESCE(SUM(CASE WHEN created_at >= :today_start AND created_at <= :today_end THEN 1 ELSE 0 END), 0) AS createdToday,
+                COALESCE(SUM(CASE WHEN status = :on_hold THEN 1 ELSE 0 END), 0) AS pendingOrders
+             FROM orders
+             WHERE deleted_at IS NULL
+               AND created_by = :created_by',
+            [
+                ':today_start' => $filters['todayStartUtc'],
+                ':today_end' => $filters['todayEndUtc'],
+                ':on_hold' => 'On Hold',
+                ':created_by' => $currentUserId,
+            ]
+        ) ?? [];
+
+        $statusConditions = ['deleted_at IS NULL', 'created_by = :employee_status_created_by'];
+        $statusBindings = [':employee_status_created_by' => $currentUserId];
+        $this->applyDashboardDateTimeBounds('created_at', $filters, $statusConditions, $statusBindings, 'employee_status');
+
+        $statusRows = $this->database->fetchAll(
+            'SELECT status, COUNT(*) AS count
+             FROM orders
+             WHERE ' . implode(' AND ', $statusConditions) . '
+             GROUP BY status',
+            $statusBindings
+        );
+
+        $statusCounts = [
+            'On Hold' => 0,
+            'Processing' => 0,
+            'Picked' => 0,
+            'Completed' => 0,
+            'Returned' => 0,
+            'Cancelled' => 0,
+        ];
+
+        foreach ($statusRows as $row) {
+            $status = trim((string) ($row['status'] ?? ''));
+            if (!array_key_exists($status, $statusCounts)) {
+                continue;
+            }
+
+            $statusCounts[$status] = (int) ($row['count'] ?? 0);
+        }
+
+        $comparisonConditions = ['o.deleted_at IS NULL'];
+        $comparisonBindings = [];
+        $this->applyDashboardDateTimeBounds('o.created_at', $filters, $comparisonConditions, $comparisonBindings, 'employee_compare');
+
+        $comparisonRows = $this->database->fetchAll(
+            'SELECT
+                u.id AS userId,
+                u.name,
+                u.role,
+                COALESCE(COUNT(o.id), 0) AS orderCount
+             FROM users u
+             LEFT JOIN orders o
+               ON o.created_by = u.id
+              AND ' . implode(' AND ', $comparisonConditions) . '
+             WHERE u.deleted_at IS NULL
+               AND u.role IN (\'Employee\', \'Employee1\')
+             GROUP BY u.id, u.name, u.role',
+            $comparisonBindings
+        );
+
+        $employeeComparisonRows = array_map(
+            static fn (array $row): array => [
+                'userId' => (string) ($row['userId'] ?? ''),
+                'name' => (string) ($row['name'] ?? 'Unknown Employee'),
+                'role' => (string) ($row['role'] ?? 'Employee'),
+                'orderCount' => (int) ($row['orderCount'] ?? 0),
+                'isCurrentUser' => (string) ($row['userId'] ?? '') === $currentUserId,
+            ],
+            $comparisonRows
+        );
+
+        $employeeComparisonRows = array_values(array_filter(
+            $employeeComparisonRows,
+            static fn (array $row): bool => (int) ($row['orderCount'] ?? 0) > 0 || !empty($row['isCurrentUser'])
+        ));
+
+        usort($employeeComparisonRows, static function (array $left, array $right): int {
+            if ((int) ($right['orderCount'] ?? 0) !== (int) ($left['orderCount'] ?? 0)) {
+                return (int) ($right['orderCount'] ?? 0) <=> (int) ($left['orderCount'] ?? 0);
+            }
+
+            if (!empty($left['isCurrentUser']) && empty($right['isCurrentUser'])) {
+                return -1;
+            }
+
+            if (empty($left['isCurrentUser']) && !empty($right['isCurrentUser'])) {
+                return 1;
+            }
+
+            return strcmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+        });
+
+        $wallet = $this->fetchMyWallet();
+
+        return [
+            'myTotalCreated' => (int) ($summary['totalCreated'] ?? 0),
+            'myCreatedToday' => (int) ($summary['createdToday'] ?? 0),
+            'myPendingOrders' => (int) ($summary['pendingOrders'] ?? 0),
+            'walletBalance' => (float) ($wallet['currentBalance'] ?? 0),
+            'employeeStatusSnapshot' => [
+                ['status' => 'On Hold', 'label' => 'On Hold', 'value' => $statusCounts['On Hold']],
+                ['status' => 'Processing', 'label' => 'Processing', 'value' => $statusCounts['Processing']],
+                ['status' => 'Picked', 'label' => 'Picked', 'value' => $statusCounts['Picked']],
+                ['status' => 'Completed', 'label' => 'Completed', 'value' => $statusCounts['Completed']],
+                ['status' => 'Returned', 'label' => 'Returned', 'value' => $statusCounts['Returned']],
+                ['status' => 'Cancelled', 'label' => 'Cancelled', 'value' => $statusCounts['Cancelled']],
+            ],
+            'employeeComparisonRows' => $employeeComparisonRows,
+        ];
+    }
+
+    public function fetchDashboardSnapshot(array $params = []): array
+    {
+        $currentUser = $this->currentUser();
+        $filters = $this->buildDashboardDateFilters($params);
+        $isAdmin = $this->hasAdminAccess((string) ($currentUser['role'] ?? ''));
+
+        return [
+            'role' => $isAdmin ? 'admin' : 'employee',
+            'admin' => $isAdmin ? $this->buildDashboardAdminSnapshot($filters) : null,
+            'employee' => $isAdmin ? null : $this->buildDashboardEmployeeSnapshot($filters),
+            'refreshedAt' => gmdate('c'),
+        ];
+    }
+
     public function getNextOrderNumber(array $params = []): string
     {
         return $this->nextOrderNumberPreview();

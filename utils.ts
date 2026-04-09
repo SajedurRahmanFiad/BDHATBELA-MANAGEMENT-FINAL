@@ -302,3 +302,26 @@ export const sanitizePhoneInput = (value: string): string => {
   // join and truncate to 11 characters
   return (digits ? digits.join('') : '').slice(0, 11);
 };
+
+export const normalizePhoneSearchValue = (value: string): string => (
+  sanitizePhoneInput(value).replace(/[\u09E6-\u09EF]/g, (digit) => String(digit.charCodeAt(0) - 0x09E6))
+);
+
+export const matchesNamePhoneSearch = (
+  candidate: { name?: string | null; phone?: string | null },
+  rawQuery: string
+): boolean => {
+  const query = String(rawQuery || '').trim().toLowerCase();
+  if (!query) return true;
+
+  const normalizedQueryPhone = normalizePhoneSearchValue(rawQuery);
+  const candidateName = String(candidate.name || '').toLowerCase();
+  const candidatePhone = String(candidate.phone || '').toLowerCase();
+  const normalizedCandidatePhone = normalizePhoneSearchValue(String(candidate.phone || ''));
+
+  return (
+    candidateName.includes(query) ||
+    candidatePhone.includes(query) ||
+    (!!normalizedQueryPhone && normalizedCandidatePhone.includes(normalizedQueryPhone))
+  );
+};

@@ -6,12 +6,12 @@ import { Bill, BillStatus, OrderItem, Vendor, UserRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useBill } from '../src/hooks/useQueries';
+import { useBill, useVendor } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch, fetchVendorsPage } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchVendors, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { getTodayDate, sanitizePhoneInput } from '../utils';
+import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
@@ -99,9 +99,10 @@ const BillForm: React.FC = () => {
     return () => clearTimeout(t);
   }, [vendorSearchTerm]);
 
-  // Vendors: lazy-load first page when dropdown opens; server-side search when typing
+  // Vendors: show the first page by default, but search from the cached full list
+  // so phone lookups behave consistently while typing.
   const vendorPageSize = 20;
-  const { data: vendorsPage, isFetching: vendorsPageLoading } = useQuery({
+  const { data: vendorsPage } = useQuery({
     queryKey: ['vendors', 1, vendorPageSize, ''],
     queryFn: () => fetchVendorsPage(1, vendorPageSize, ''),
     enabled: showVendorSearch && !debouncedVendorSearch,
@@ -109,13 +110,14 @@ const BillForm: React.FC = () => {
     refetchOnWindowFocus: false,
   });
 
-  const { data: vendorsSearchResults, isFetching: vendorsSearchLoading } = useQuery({
-    queryKey: ['vendors', 'search', debouncedVendorSearch],
-    queryFn: () => fetchVendorsPage(1, vendorPageSize, debouncedVendorSearch),
-    enabled: showVendorSearch && !!debouncedVendorSearch,
+  const { data: vendorsSearchPool = [] } = useQuery({
+    queryKey: ['vendors'],
+    queryFn: fetchVendors,
+    enabled: showVendorSearch,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+  const { data: selectedVendorRecord } = useVendor(vendorId || undefined);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,8 +234,26 @@ const BillForm: React.FC = () => {
     }
   };
 
-  const visibleVendors = (debouncedVendorSearch ? (vendorsSearchResults?.data || []) : (vendorsPage?.data || []));
-  const selectedVendor = visibleVendors.find((v: any) => v.id === vendorId) || undefined;
+  const visibleVendors = React.useMemo(() => {
+    if (!debouncedVendorSearch) {
+      return vendorsPage?.data || [];
+    }
+
+    return vendorsSearchPool.filter((vendor) => matchesNamePhoneSearch(vendor, debouncedVendorSearch));
+  }, [vendorsPage?.data, vendorsSearchPool, debouncedVendorSearch]);
+  const selectedVendor =
+    selectedVendorRecord ||
+    visibleVendors.find((vendor) => vendor.id === vendorId) ||
+    (existingBillData?.vendorId === vendorId
+      ? {
+          id: existingBillData.vendorId,
+          name: existingBillData.vendorName || '',
+          phone: existingBillData.vendorPhone || '',
+          address: existingBillData.vendorAddress || '',
+          totalPurchases: 0,
+          dueAmount: 0,
+        }
+      : undefined);
 
   // If redirected back with a selectedVendorId in the URL, apply it and clean the URL
   const location = useLocation();
@@ -293,7 +313,7 @@ const BillForm: React.FC = () => {
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-300">
                       {ICONS.Search}
                     </div>
-                    <input autoFocus type="text" placeholder="Search business..." className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" value={vendorSearchTerm} onChange={(e) => setVendorSearchTerm(e.target.value)} />
+                    <input autoFocus type="text" placeholder="Search business or phone..." className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-[#3c5a82] text-sm font-medium" value={vendorSearchTerm} onChange={(e) => setVendorSearchTerm(e.target.value)} />
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-0.5 custom-scrollbar">
                     {(visibleVendors || []).map((v: any) => (

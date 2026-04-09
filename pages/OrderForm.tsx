@@ -8,13 +8,15 @@ import { Button } from '../components';
 import { theme } from '../theme';
 import { useCustomer, useOrder, useOrderSettings } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch, fetchCustomersPage, getNextOrderNumber, getErrorMessage } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchCustomersMini, fetchCustomersPage, getNextOrderNumber, getErrorMessage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
 import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { getTodayDate, sanitizePhoneInput } from '../utils';
+import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
+
+type CustomerSearchOption = Pick<Customer, 'id' | 'name'> & Partial<Customer>;
 
 const OrderForm: React.FC = () => {
   const { id } = useParams();
@@ -121,9 +123,10 @@ const OrderForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Customers: lazy-load the first page when dropdown opens; perform server-side search when typing.
+  // Customers: show the first page by default, but search from the lightweight full list
+  // so phone lookups work reliably while typing.
   const custPageSize = 20;
-  const { data: customersPage, isFetching: customersPageLoading } = useQuery({
+  const { data: customersPage } = useQuery({
     queryKey: ['customers', 1, custPageSize, ''],
     queryFn: () => fetchCustomersPage(1, custPageSize, ''),
     enabled: showCustomerSearch && !debouncedCustSearch,
@@ -131,10 +134,10 @@ const OrderForm: React.FC = () => {
     refetchOnWindowFocus: false,
   });
 
-  const { data: customersSearchResults, isFetching: customersSearchLoading } = useQuery({
-    queryKey: ['customers', 'search', debouncedCustSearch],
-    queryFn: () => fetchCustomersPage(1, custPageSize, debouncedCustSearch),
-    enabled: showCustomerSearch && !!debouncedCustSearch,
+  const { data: customersMini = [] } = useQuery({
+    queryKey: ['customersMini'],
+    queryFn: fetchCustomersMini,
+    enabled: showCustomerSearch,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -273,7 +276,7 @@ const OrderForm: React.FC = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleCustomerSelect = (customer: Customer) => {
+  const handleCustomerSelect = (customer: CustomerSearchOption) => {
     seedCustomerCache(customer);
     setCustomerId(customer.id);
     setShowCustomerSearch(false);
@@ -356,10 +359,16 @@ const OrderForm: React.FC = () => {
     }
   };
 
-  const baseVisibleCustomers = debouncedCustSearch ? (customersSearchResults?.data || []) : (customersPage?.data || []);
+  const baseVisibleCustomers = React.useMemo<CustomerSearchOption[]>(() => {
+    if (!debouncedCustSearch) {
+      return customersPage?.data || [];
+    }
+
+    return customersMini.filter((customer) => matchesNamePhoneSearch(customer, debouncedCustSearch));
+  }, [customersMini, customersPage?.data, debouncedCustSearch]);
   const selectedCustomer =
-    baseVisibleCustomers.find((customer) => customer.id === customerId) ||
     selectedCustomerRecord ||
+    baseVisibleCustomers.find((customer) => customer.id === customerId) ||
     (existingOrderData?.customerId === customerId
       ? {
           id: existingOrderData.customerId,

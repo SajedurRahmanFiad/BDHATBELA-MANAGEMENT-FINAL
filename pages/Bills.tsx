@@ -9,11 +9,11 @@ import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton } from '../components';
 import { theme } from '../theme';
-import { useBillsPage, useVendors, useUsers, useSystemDefaults } from '../src/hooks/useQueries';
+import { useBillsPage, useUsers, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
 import { useCreateBill, useDeleteBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
-import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, fetchBillById } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 import { formatDate, getBillActivityDate, getDateTimeFilters, getTodayDate } from '../utils';
@@ -24,8 +24,13 @@ const Bills: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const user = db.currentUser;
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadBills = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const [searchParams, setSearchParams] = useSearchParams();
   const currentSearchParams = searchParams.toString();
   const urlPage = getPositivePageParam(searchParams.get('page'));
@@ -102,11 +107,19 @@ const Bills: React.FC = () => {
     return [effectiveCreatedByFilter];
   }, [effectiveCreatedByFilter, users]);
 
-  const { data: billsPage, isFetching: billsLoading } = useBillsPage(effectivePage, pageSize, { from: timeFilters.from, to: timeFilters.to, search: searchQuery, createdByIds });
+  const { data: billsPage, isFetching: billsLoading } = useBillsPage(effectivePage, pageSize, {
+    status: effectiveStatusTab === 'All' ? undefined : effectiveStatusTab,
+    from: timeFilters.from,
+    to: timeFilters.to,
+    search: searchQuery,
+    createdByIds,
+  }, {
+    enabled: canLoadBills,
+  });
   const bills = billsPage?.data ?? [];
+  const showInitialBillsLoading = !canLoadBills || (billsLoading && bills.length === 0);
   const total = billsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const { data: vendors = [] } = useVendors();
 
   useEffect(() => {
     if (shouldHydrateFromUrl) return;
@@ -192,10 +205,16 @@ const Bills: React.FC = () => {
   };
 
   // Server-side filtering applied; keep client-side logic minimal
-  const filteredBills = bills.filter(b => effectiveStatusTab === 'All' || b.status === effectiveStatusTab);
+  const filteredBills = bills;
 
   const handleDuplicate = async (bill: Bill) => {
     try {
+      const sourceBill = await fetchBillById(bill.id);
+      if (!sourceBill) {
+        toast.error('Unable to load the source bill for duplication.');
+        return;
+      }
+
       const now = new Date();
       const dateStr = now.toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' });
       const timeStr = now.toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' });
@@ -203,16 +222,16 @@ const Bills: React.FC = () => {
       const newBillData: Omit<Bill, 'id'> = {
         billNumber: `PUR-${Math.floor(1000 + Math.random() * 9000)}`,
         billDate: getTodayDate(),
-        vendorId: bill.vendorId,
-        createdBy: user?.id || bill.createdBy,
+        vendorId: sourceBill.vendorId,
+        createdBy: user?.id || sourceBill.createdBy,
         status: BillStatus.ON_HOLD,
-        items: bill.items,
-        subtotal: bill.subtotal,
-        discount: bill.discount,
-        shipping: bill.shipping,
-        total: bill.total,
+        items: sourceBill.items,
+        subtotal: sourceBill.subtotal,
+        discount: sourceBill.discount,
+        shipping: sourceBill.shipping,
+        total: sourceBill.total,
         paidAmount: 0,
-        notes: bill.notes,
+        notes: sourceBill.notes,
         history: {
           created: `Created as duplicate on ${dateStr}, at ${timeStr}`
         }
@@ -287,6 +306,11 @@ const Bills: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
+        {billsLoading && bills.length > 0 && (
+          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
+            Updating bills...
+          </div>
+        )}
         <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full text-left">
             <thead>
@@ -300,7 +324,7 @@ const Bills: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {billsLoading ? (
+              {showInitialBillsLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredBills.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No purchase bills found for this period.</td></tr>
@@ -317,7 +341,7 @@ const Bills: React.FC = () => {
                     <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{formatDate(getBillActivityDate(bill))}</p>
                   </td>
                   <td className="px-6 py-5">
-                    <span className="text-sm font-bold text-gray-700">{bill.vendorName || vendors.find(v => v.id === bill.vendorId)?.name || 'Unknown Vendor'}</span>
+                    <span className="text-sm font-bold text-gray-700">{bill.vendorName || 'Unknown Vendor'}</span>
                     <p className="text-[10px] text-gray-400 font-medium mt-0.5">{bill.vendorPhone || ''}</p>
                   </td>
                   <td className="px-6 py-5 text-xs font-bold text-gray-500">{bill.creatorName || getCreatorName(bill) || '—'}</td>

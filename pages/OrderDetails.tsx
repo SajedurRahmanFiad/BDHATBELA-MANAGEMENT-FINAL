@@ -14,6 +14,7 @@ import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
 import { buildLocalDateTime, getTodayDate } from '../utils';
+import { getOrderCompanyPage } from '../src/utils/companyPages';
 
 const OrderDetails: React.FC = () => {
   const { id } = useParams();
@@ -67,6 +68,10 @@ const OrderDetails: React.FC = () => {
   const canEmployeeEditDraft = isEmployee && isOwner && order?.status === OrderStatus.ON_HOLD;
   const canManageProcessing = isAdmin || user?.role === UserRole.EMPLOYEE1;
   const completionHistory = order?.history?.returned || order?.history?.completed || order?.history?.payment || '';
+  const orderBranding = React.useMemo(
+    () => getOrderCompanyPage(order, companySettings || db.settings.company),
+    [companySettings, order],
+  );
   
   const loading = orderLoading;
 
@@ -222,6 +227,8 @@ const OrderDetails: React.FC = () => {
         orderNumber: db.settings.order.prefix + db.settings.order.nextNumber,
         orderDate: order.orderDate,
         customerId: order.customerId,
+        pageId: order.pageId,
+        pageSnapshot: order.pageSnapshot,
         createdBy: user.id,
         status: order.status,
         items: order.items,
@@ -334,9 +341,9 @@ const OrderDetails: React.FC = () => {
           <div className="p-3 sm:p-4 md:p-6 lg:p-10 space-y-3 sm:space-y-4 lg:space-y-5">
             <div className="flex flex-row justify-between items-start gap-3 sm:gap-4 lg:gap-6">
               <div className="flex-1 min-w-0">
-                {(companySettings?.logo || db.settings.company.logo) && (
+                {(orderBranding?.logo || db.settings.company.logo) && (
                   <img 
-                    src={companySettings?.logo || db.settings.company.logo} 
+                    src={orderBranding?.logo || db.settings.company.logo} 
                     className="rounded-lg object-cover mb-2 sm:mb-3 lg:mb-4 w-auto h-auto"
                     style={{ 
                       maxWidth: 'min(100px, 20%)',
@@ -344,10 +351,10 @@ const OrderDetails: React.FC = () => {
                     }}
                   />
                 )}
-                <h1 className="text-sm sm:text-base lg:text-xl font-black text-blue-600 uppercase tracking-tighter break-words">{companySettings?.name || db.settings.company.name}</h1>
+                <h1 className="text-sm sm:text-base lg:text-xl font-black text-blue-600 uppercase tracking-tighter break-words">{orderBranding?.name || db.settings.company.name}</h1>
                 <div className="mt-1 sm:mt-2 text-[9px] sm:text-[10px] lg:text-xs text-gray-400 font-medium space-y-0.5 sm:space-y-1">
-                  <p className="break-words">{companySettings?.address || db.settings.company.address}</p>
-                  <p className="text-[8px] sm:text-[9px] break-words">{companySettings?.phone || db.settings.company.phone} • {companySettings?.email || db.settings.company.email}</p>
+                  <p className="break-words">{orderBranding?.address || db.settings.company.address}</p>
+                  <p className="text-[8px] sm:text-[9px] break-words">{orderBranding?.phone || db.settings.company.phone} • {orderBranding?.email || db.settings.company.email}</p>
                 </div>
               </div>
               <div className="text-right flex-shrink-0">

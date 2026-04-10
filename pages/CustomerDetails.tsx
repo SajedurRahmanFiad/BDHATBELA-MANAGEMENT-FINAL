@@ -72,6 +72,8 @@ const CustomerDetails: React.FC = () => {
         orderNumber: newOrderNumber,
         orderDate: getTodayDate(),
         customerId: customer.id,
+        pageId: order.pageId,
+        pageSnapshot: order.pageSnapshot,
         createdBy: order.createdBy,
         status: OrderStatus.ON_HOLD,
         items: order.items,

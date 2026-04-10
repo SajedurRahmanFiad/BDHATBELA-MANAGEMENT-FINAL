@@ -57,6 +57,7 @@ import type {
   User,
   Vendor,
   Product,
+  CompanySettings,
   OrderStatus,
   PayrollPayment,
   PayrollSettings,
@@ -2117,7 +2118,7 @@ export function useDeleteUnit(): UseMutationResult<void, Error, string, unknown>
 
 // ========== SETTINGS ==========
 
-export function useUpdateCompanySettings(): UseMutationResult<any, Error, any, unknown> {
+export function useUpdateCompanySettings(): UseMutationResult<CompanySettings, Error, Partial<CompanySettings>, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updateCompanySettings,

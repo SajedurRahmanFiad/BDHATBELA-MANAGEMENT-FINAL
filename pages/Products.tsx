@@ -7,7 +7,7 @@ import { formatCurrency, ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import Pagination from '../src/components/Pagination';
 import { theme } from '../theme';
-import { useProductsPage, useSystemDefaults, useUsers } from '../src/hooks/useQueries';
+import { useProductImagesByIds, useProductsPage, useSystemDefaults, useUsers } from '../src/hooks/useQueries';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useDeleteProduct } from '../src/hooks/useMutations';
@@ -22,8 +22,13 @@ const Products: React.FC = () => {
   const toast = useToastNotifications();
   const { searchQuery } = useSearch();
   const { user } = useAuth();
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadProducts = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const [page, setPage] = useState<number>(1);
   const { data: users = [] } = useUsers();
 
@@ -42,8 +47,12 @@ const Products: React.FC = () => {
   );
   const effectivePage = useResettablePage(page, setPage, pageResetKey);
 
-  const { data: productsPage, isFetching } = useProductsPage(effectivePage, pageSize, searchQuery, undefined, createdByIds);
+  const { data: productsPage, isFetching } = useProductsPage(effectivePage, pageSize, searchQuery, undefined, createdByIds, {
+    enabled: canLoadProducts,
+  });
   const products = productsPage?.data ?? [];
+  const productIds = useMemo(() => products.map((product) => product.id), [products]);
+  const { data: productImages = {} } = useProductImagesByIds(productIds);
   const total = productsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteProductMutation = useDeleteProduct();
@@ -104,7 +113,7 @@ const Products: React.FC = () => {
             render: (_, product) => (
               <div className="flex items-center gap-4">
                 <img
-                  src={product.image || 'https://via.placeholder.com/100'}
+                  src={productImages[product.id] || 'https://via.placeholder.com/100'}
                   alt={product.name}
                   className="w-12 h-12 rounded-full object-cover border border-gray-100 shadow-sm"
                 />
@@ -178,7 +187,7 @@ const Products: React.FC = () => {
           }] : []),
         ]}
         data={filteredProducts}
-        loading={isFetching}
+        loading={!canLoadProducts || isFetching}
         emptyMessage="No products found"
       />
       <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(p) => setPage(p)} disabled={isFetching} />

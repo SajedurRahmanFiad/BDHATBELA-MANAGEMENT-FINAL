@@ -255,12 +255,9 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
 // App content component - safely uses auth context and passes to router
 const AppContent: React.FC = () => {
   const { user, profile, isLoading } = useAuth();
-  
-  console.log('[App] Render - user:', !!user, 'profile:', !!profile, 'isLoading:', isLoading);
 
   // Show loading screen during initial auth check or active loading
   if (isLoading) {
-    console.log('[App] Rendering loading screen');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -277,7 +274,6 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  console.log('[App] Root component rendering - setting up providers');
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

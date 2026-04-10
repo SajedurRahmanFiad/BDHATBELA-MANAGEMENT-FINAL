@@ -3,14 +3,14 @@ import { useParams } from 'react-router-dom';
 import { db } from '../db';
 import { formatCurrency } from '../constants';
 import { triggerPrintDialog } from '../src/utils/printUtils';
-import { useOrder, useCustomer, useUsers, useProductImagesByIds, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
-import { theme } from '../theme';
+import { useOrder, useCustomer, useProductImagesByIds, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { getOrderCompanyPage } from '../src/utils/companyPages';
 
 interface InvoiceContentProps {
   order: any;
   customer: any;
   productImages: Record<string, string>;
-  companySettings: any;
+  branding: any;
   invoiceSettings: any;
 }
 
@@ -18,7 +18,7 @@ const InvoiceContent: React.FC<InvoiceContentProps> = ({
   order,
   customer,
   productImages,
-  companySettings,
+  branding,
   invoiceSettings,
 }) => {
   return (
@@ -26,9 +26,9 @@ const InvoiceContent: React.FC<InvoiceContentProps> = ({
       {/* Invoice Header */}
           <div className="flex justify-between items-start">
             <div>
-              {(companySettings?.logo || db.settings.company.logo) && (
+              {(branding?.logo || db.settings.company.logo) && (
                 <img
-                  src={companySettings?.logo || db.settings.company.logo}
+                  src={branding?.logo || db.settings.company.logo}
                   className="rounded-lg object-cover mb-4"
                   style={{
                     width: invoiceSettings?.logoWidth || db.settings.invoice.logoWidth,
@@ -38,13 +38,13 @@ const InvoiceContent: React.FC<InvoiceContentProps> = ({
                 />
               )}
               <h1 className={`text-xl font-black uppercase tracking-tighter`}>
-                {companySettings?.name || db.settings.company.name}
+                {branding?.name || db.settings.company.name}
               </h1>
               <div className="mt-2 text-xs text-gray-400 font-medium space-y-1 print:text-gray-600">
-                <p>{companySettings?.address || db.settings.company.address}</p>
+                <p>{branding?.address || db.settings.company.address}</p>
                 <p>
-                  {companySettings?.phone || db.settings.company.phone} •{' '}
-                  {companySettings?.email || db.settings.company.email}
+                  {branding?.phone || db.settings.company.phone} •{' '}
+                  {branding?.email || db.settings.company.email}
                 </p>
               </div>
             </div>
@@ -188,7 +188,6 @@ const PrintOrder: React.FC = () => {
   const { id } = useParams();
   const { data: order, isPending: orderLoading } = useOrder(id || '');
   const { data: customer } = useCustomer(order ? order.customerId : undefined);
-  const { data: users = [] } = useUsers();
   const orderItemProductIds = useMemo(
     () => Array.from(new Set((order?.items || []).map((item: any) => String(item?.productId || '').trim()).filter(Boolean))),
     [order?.items]
@@ -197,9 +196,10 @@ const PrintOrder: React.FC = () => {
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   const printTriggeredRef = useRef(false);
-
-  // `customer` provided by useCustomer above
-  const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
+  const orderBranding = useMemo(
+    () => getOrderCompanyPage(order, companySettings || db.settings.company),
+    [companySettings, order],
+  );
 
   // Trigger print dialog when order data is loaded (only once)
   useEffect(() => {
@@ -227,7 +227,7 @@ const PrintOrder: React.FC = () => {
             order={order}
             customer={customer}
             productImages={productImages}
-            companySettings={companySettings}
+            branding={orderBranding}
             invoiceSettings={invoiceSettings}
           />
         </div>
@@ -238,7 +238,7 @@ const PrintOrder: React.FC = () => {
             order={order}
             customer={customer}
             productImages={productImages}
-            companySettings={companySettings}
+            branding={orderBranding}
             invoiceSettings={invoiceSettings}
           />
         </div>

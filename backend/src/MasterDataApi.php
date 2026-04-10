@@ -45,7 +45,10 @@ final class MasterDataApi extends BaseService
     public function fetchUsers(array $params = []): array
     {
         $rows = $this->database->fetchAll(
-            'SELECT * FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC, name ASC'
+            'SELECT id, name, phone, role, image, created_at, deleted_at, deleted_by
+             FROM users
+             WHERE deleted_at IS NULL
+             ORDER BY created_at DESC, name ASC'
         );
 
         return array_map(fn (array $row): array => $this->mapUser($row), $rows);
@@ -193,7 +196,10 @@ final class MasterDataApi extends BaseService
     public function fetchCustomers(array $params = []): array
     {
         $rows = $this->database->fetchAll(
-            'SELECT * FROM customers WHERE deleted_at IS NULL ORDER BY created_at DESC'
+            'SELECT id, name, phone, address, total_orders, due_amount, created_by, created_at, deleted_at, deleted_by
+             FROM customers
+             WHERE deleted_at IS NULL
+             ORDER BY created_at DESC'
         );
 
         return array_map(fn (array $row): array => $this->mapCustomer($row), $rows);
@@ -209,13 +215,19 @@ final class MasterDataApi extends BaseService
         $where = 'WHERE deleted_at IS NULL';
         $bindings = [];
         if ($search !== '') {
-            $where .= ' AND (name LIKE :search OR phone LIKE :search OR address LIKE :search)';
-            $bindings[':search'] = '%' . $search . '%';
+            $where .= ' AND (name LIKE :search_name OR phone LIKE :search_phone OR address LIKE :search_address)';
+            $bindings[':search_name'] = '%' . $search . '%';
+            $bindings[':search_phone'] = '%' . $search . '%';
+            $bindings[':search_address'] = '%' . $search . '%';
         }
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM customers {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM customers {$where} ORDER BY created_at DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT id, name, phone, address, total_orders, due_amount, created_by, created_at, deleted_at, deleted_by
+             FROM customers
+             {$where}
+             ORDER BY created_at DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 
@@ -311,7 +323,10 @@ final class MasterDataApi extends BaseService
     public function fetchVendors(array $params = []): array
     {
         $rows = $this->database->fetchAll(
-            'SELECT * FROM vendors WHERE deleted_at IS NULL ORDER BY created_at DESC'
+            'SELECT id, name, phone, address, total_purchases, due_amount, created_by, created_at, deleted_at, deleted_by
+             FROM vendors
+             WHERE deleted_at IS NULL
+             ORDER BY created_at DESC'
         );
 
         return array_map(fn (array $row): array => $this->mapVendor($row), $rows);
@@ -327,13 +342,19 @@ final class MasterDataApi extends BaseService
         $where = 'WHERE deleted_at IS NULL';
         $bindings = [];
         if ($search !== '') {
-            $where .= ' AND (name LIKE :search OR phone LIKE :search OR address LIKE :search)';
-            $bindings[':search'] = '%' . $search . '%';
+            $where .= ' AND (name LIKE :search_name OR phone LIKE :search_phone OR address LIKE :search_address)';
+            $bindings[':search_name'] = '%' . $search . '%';
+            $bindings[':search_phone'] = '%' . $search . '%';
+            $bindings[':search_address'] = '%' . $search . '%';
         }
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM vendors {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM vendors {$where} ORDER BY created_at DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT id, name, phone, address, total_purchases, due_amount, created_by, created_at, deleted_at, deleted_by
+             FROM vendors
+             {$where}
+             ORDER BY created_at DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 
@@ -418,7 +439,9 @@ final class MasterDataApi extends BaseService
     public function fetchProducts(array $params = []): array
     {
         $category = trim((string) ($params['category'] ?? ''));
-        $sql = 'SELECT * FROM products WHERE deleted_at IS NULL';
+        $sql = 'SELECT id, name, image, category, sale_price, purchase_price, stock, created_by, created_at, deleted_at, deleted_by
+                FROM products
+                WHERE deleted_at IS NULL';
         $bindings = [];
         if ($category !== '') {
             $sql .= ' AND category = :category';
@@ -458,7 +481,11 @@ final class MasterDataApi extends BaseService
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM products {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM products {$where} ORDER BY created_at DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT id, name, category, sale_price, purchase_price, stock, created_by, created_at, deleted_at, deleted_by
+             FROM products
+             {$where}
+             ORDER BY created_at DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 
@@ -874,13 +901,17 @@ final class MasterDataApi extends BaseService
     public function fetchCompanySettings(array $params = []): array
     {
         $row = $this->database->fetchOne('SELECT * FROM company_settings LIMIT 1');
+        $pages = $this->normalizeCompanyPages($row['pages'] ?? [], $row ?? []);
+        $globalPage = $this->getGlobalCompanyPage($pages);
+
         return [
-            'id' => (string) ($row['id'] ?? 'default'),
-            'name' => (string) ($row['name'] ?? 'Your Company'),
-            'phone' => (string) ($row['phone'] ?? '+880'),
-            'email' => (string) ($row['email'] ?? 'info@company.com'),
-            'address' => (string) ($row['address'] ?? ''),
-            'logo' => (string) ($row['logo'] ?? ''),
+            'id' => (string) ($row['id'] ?? 'company-default'),
+            'name' => (string) ($globalPage['name'] ?? 'Your Company'),
+            'phone' => (string) ($globalPage['phone'] ?? '+880'),
+            'email' => (string) ($globalPage['email'] ?? 'info@company.com'),
+            'address' => (string) ($globalPage['address'] ?? ''),
+            'logo' => (string) ($globalPage['logo'] ?? ''),
+            'pages' => $pages,
         ];
     }
 
@@ -888,15 +919,48 @@ final class MasterDataApi extends BaseService
     {
         $this->requireAdmin();
         $current = $this->fetchCompanySettings();
+        $pages = [];
+
+        if (array_key_exists('pages', $params)) {
+            $pages = $this->normalizeCompanyPages($params['pages'], $current);
+        } else {
+            $pages = $this->normalizeCompanyPages($current['pages'] ?? [], $current);
+            $globalIndex = 0;
+
+            foreach ($pages as $index => $page) {
+                if ((bool) ($page['isGlobalBranding'] ?? false)) {
+                    $globalIndex = $index;
+                    break;
+                }
+            }
+
+            $pages[$globalIndex] = $this->normalizeCompanyPage(
+                [
+                    ...$pages[$globalIndex],
+                    'name' => $params['name'] ?? $pages[$globalIndex]['name'],
+                    'phone' => $params['phone'] ?? $pages[$globalIndex]['phone'],
+                    'email' => $params['email'] ?? $pages[$globalIndex]['email'],
+                    'address' => array_key_exists('address', $params) ? $params['address'] : $pages[$globalIndex]['address'],
+                    'logo' => array_key_exists('logo', $params) ? $params['logo'] : $pages[$globalIndex]['logo'],
+                    'isGlobalBranding' => true,
+                ],
+                $globalIndex
+            );
+            $pages = $this->normalizeCompanyPages($pages, $current);
+        }
+
+        $globalPage = $this->getGlobalCompanyPage($pages);
+
         return $this->saveSingleton(
             'company_settings',
             'company-default',
             [
-                'name' => $params['name'] ?? $current['name'],
-                'phone' => $params['phone'] ?? $current['phone'],
-                'email' => $params['email'] ?? $current['email'],
-                'address' => array_key_exists('address', $params) ? $params['address'] : $current['address'],
-                'logo' => array_key_exists('logo', $params) ? $params['logo'] : $current['logo'],
+                'name' => $globalPage['name'] ?? $current['name'],
+                'phone' => $globalPage['phone'] ?? $current['phone'],
+                'email' => $globalPage['email'] ?? $current['email'],
+                'address' => $globalPage['address'] ?? $current['address'],
+                'logo' => $globalPage['logo'] ?? $current['logo'],
+                'pages' => $this->jsonEncode($pages),
             ],
             fn (): array => $this->fetchCompanySettings()
         );

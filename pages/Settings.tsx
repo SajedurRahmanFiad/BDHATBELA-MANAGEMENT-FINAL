@@ -5,7 +5,7 @@ import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { OrderStatus, hasAdminAccess, type Settings } from '../types';
+import { OrderStatus, hasAdminAccess, type CompanyPage, type Settings } from '../types';
 import { 
   useCategories, usePaymentMethods, useUnits,
   useCompanySettings, useOrderSettings, useInvoiceSettings, 
@@ -21,6 +21,7 @@ import { useAuth } from '../src/contexts/AuthProvider';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
 import { fetchCarryBeeStores } from '../src/services/supabaseQueries';
+import { normalizeCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
 
 const SettingsPage: React.FC = () => {
   const { user } = useAuth();
@@ -51,7 +52,7 @@ const SettingsPage: React.FC = () => {
   const toast = useToastNotifications();
 
   // Local state for forms (these need to be maintained locally until save)
-  const [companySettings, setCompanySettings] = useState({ name: '', phone: '', email: '', address: '', logo: '' });
+  const [companySettings, setCompanySettings] = useState<Settings['company']>(() => normalizeCompanySettings(db.settings.company));
   const [orderSettings, setOrderSettings] = useState({ prefix: 'ORD-', nextNumber: 1 });
   const [courierSettings, setCourierSettings] = useState({
     steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
@@ -89,7 +90,7 @@ const SettingsPage: React.FC = () => {
 
   // Initialize forms when data loads from React Query
   React.useEffect(() => {
-    if (companySettingsData) setCompanySettings(companySettingsData);
+    if (companySettingsData) setCompanySettings(normalizeCompanySettings(companySettingsData));
   }, [companySettingsData]);
 
   React.useEffect(() => {
@@ -164,6 +165,66 @@ const SettingsPage: React.FC = () => {
   }, [courierSettings.carryBee.baseUrl, courierSettings.carryBee.clientId, courierSettings.carryBee.clientSecret, courierSettings.carryBee.clientContext]);
 
   const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || walletLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
+  const updateCompanyPages = (updater: (pages: CompanyPage[]) => CompanyPage[]) => {
+    setCompanySettings((current) => normalizeCompanySettings({
+      ...current,
+      pages: updater(current.pages),
+    }));
+  };
+
+  const handleAddCompanyPage = () => {
+    updateCompanyPages((pages) => [
+      ...pages,
+      normalizeCompanyPage(
+        {
+          id: crypto.randomUUID(),
+          name: `Page ${pages.length + 1}`,
+          logo: '',
+          phone: '',
+          email: '',
+          address: '',
+          isGlobalBranding: false,
+        },
+        pages.length,
+      ),
+    ]);
+  };
+
+  const handleCompanyPageChange = (pageId: string, key: 'name' | 'logo' | 'phone' | 'email' | 'address', value: string) => {
+    updateCompanyPages((pages) =>
+      pages.map((page) => (page.id === pageId ? normalizeCompanyPage({ ...page, [key]: value }) : page)),
+    );
+  };
+
+  const handleCompanyPageLogoUpload = (pageId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleCompanyPageChange(pageId, 'logo', reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSetGlobalCompanyPage = (pageId: string) => {
+    updateCompanyPages((pages) =>
+      pages.map((page) => ({
+        ...page,
+        isGlobalBranding: page.id === pageId,
+      })),
+    );
+  };
+
+  const handleRemoveCompanyPage = (pageId: string) => {
+    updateCompanyPages((pages) => {
+      const remainingPages = pages.filter((page) => page.id !== pageId);
+      return remainingPages.length > 0 ? remainingPages : pages;
+    });
+  };
+
   const toggleWalletStatus = (status: OrderStatus) => {
     setWalletSettings((current) => ({
       ...current,
@@ -175,13 +236,20 @@ const SettingsPage: React.FC = () => {
   const togglePayrollStatus = toggleWalletStatus;
 
   const handleSave = async () => {
+    const normalizedCompany = normalizeCompanySettings(companySettings);
+    const hasUnnamedPage = normalizedCompany.pages.some((page) => !page.name.trim());
+    if (hasUnnamedPage) {
+      toast.warning('Please enter a page name for every company page.');
+      return;
+    }
+
     try {
       // Show toast immediately (optimistic UI)
       const toastId = toast.loading('Saving all settings...');
       
       // Save all settings in background without waiting
       batchUpdateMutation.mutateAsync({
-        company: companySettings,
+        company: normalizedCompany,
         order: orderSettings,
         invoice: invoiceSettings,
         defaults: systemDefaults,
@@ -189,7 +257,7 @@ const SettingsPage: React.FC = () => {
         wallet: walletSettings,
       }).then(() => {
         // Update mock db for backward compatibility
-        db.settings.company = companySettings;
+        db.settings.company = normalizedCompany;
         db.settings.order = orderSettings;
         db.settings.invoice = invoiceSettings;
         db.settings.defaults = systemDefaults;
@@ -209,17 +277,6 @@ const SettingsPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to initiate settings save:', err);
       toast.error('Failed to save settings: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    }
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setCompanySettings({...companySettings, logo: reader.result as string});
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -478,55 +535,123 @@ const SettingsPage: React.FC = () => {
         <div className="flex-1 bg-white p-8 rounded-xl border border-gray-100 shadow-sm min-h-[500px]">
           {activeTab === 'company' && (
             <div className="space-y-6 animate-in fade-in duration-300">
-              <h3 className="text-xl font-bold text-gray-800 border-b pb-4">Company Profile</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2 flex items-center gap-6 p-6 bg-gray-50 rounded-lg">
-                   <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border">
-                      {companySettings.logo && (
-                        <img src={companySettings.logo} className="w-full h-full object-cover" />
-                      )}
-                   </div>
-                   <div className="space-y-2">
-                     <p className="text-xs font-bold text-gray-400 uppercase">Company Logo</p>
-                     <input type="file" id="logo-input" className="hidden" onChange={handleLogoUpload} />
-                     <Button variant="primary" size="sm" onClick={() => document.getElementById('logo-input')?.click()}>Change Logo</Button>
-                   </div>
+              <div className="flex flex-col gap-4 border-b pb-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800">Company Pages</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Add as many pages as you need. The page marked as global branding becomes the default for new orders.
+                  </p>
                 </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Company Name</label>
-                  <input 
-                    type="text" 
-                    value={companySettings.name} 
-                    onChange={e => setCompanySettings({...companySettings, name: e.target.value})}
-                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Phone</label>
-                  <input 
-                    type="text" 
-                    value={companySettings.phone} 
-                    onChange={e => setCompanySettings({...companySettings, phone: e.target.value})}
-                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Email</label>
-                  <input 
-                    type="email" 
-                    value={companySettings.email} 
-                    onChange={e => setCompanySettings({...companySettings, email: e.target.value})}
-                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Office Address</label>
-                  <textarea 
-                    value={companySettings.address} 
-                    onChange={e => setCompanySettings({...companySettings, address: e.target.value})}
-                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl h-24 focus:ring-2 focus:ring-[#3c5a82] transition-all`} 
-                  />
-                </div>
+                <Button variant="primary" size="sm" onClick={handleAddCompanyPage}>
+                  {ICONS.Plus} Add Page
+                </Button>
+              </div>
+
+              <div className="space-y-6">
+                {companySettings.pages.map((page, index) => (
+                  <div key={page.id} className="rounded-2xl border border-gray-100 bg-gray-50/60 p-6 shadow-sm">
+                    <div className="border-b border-gray-100 pb-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-full border border-[#c7dff5] bg-[#ebf4ff] px-4 py-2 text-xs font-black uppercase tracking-widest text-[#0f2f57]">
+                          <input
+                            type="checkbox"
+                            checked={page.isGlobalBranding}
+                            onChange={() => handleSetGlobalCompanyPage(page.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-[#0f2f57] focus:ring-[#0f2f57]"
+                          />
+                          Global Branding
+                        </label>
+                        <button
+                          type="button"
+                          aria-label={`Remove page ${index + 1}`}
+                          title="Remove Page"
+                          onClick={() => handleRemoveCompanyPage(page.id)}
+                          disabled={companySettings.pages.length === 1}
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-red-100 text-red-500 transition-all hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-100 disabled:text-gray-300"
+                        >
+                          {ICONS.Delete}
+                        </button>
+                      </div>
+
+                      <div className="mt-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Page {index + 1}</p>
+                        <h4 className="mt-2 text-lg font-black text-gray-900">{page.name || `Page ${index + 1}`}</h4>
+                        <p className="mt-1 text-xs font-medium text-gray-500">
+                          This branding will be available in the order form page selector.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                      <div className="md:col-span-2 flex items-center gap-6 rounded-2xl border border-gray-100 bg-white p-6">
+                        <div className="h-20 w-20 overflow-hidden rounded-xl border bg-gray-50">
+                          {page.logo ? (
+                            <img src={page.logo} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] font-black uppercase tracking-widest text-gray-300">
+                              No Logo
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Logo</p>
+                          <input
+                            type="file"
+                            id={`logo-input-${page.id}`}
+                            className="hidden"
+                            onChange={(event) => handleCompanyPageLogoUpload(page.id, event)}
+                          />
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => document.getElementById(`logo-input-${page.id}`)?.click()}
+                          >
+                            {page.logo ? 'Change Logo' : 'Upload Logo'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2 space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Page Name</label>
+                        <input
+                          type="text"
+                          value={page.name}
+                          onChange={(event) => handleCompanyPageChange(page.id, 'name', event.target.value)}
+                          className="w-full rounded-xl border border-gray-100 bg-white px-4 py-3 transition-all focus:ring-2 focus:ring-[#3c5a82]"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Phone</label>
+                        <input
+                          type="text"
+                          value={page.phone}
+                          onChange={(event) => handleCompanyPageChange(page.id, 'phone', event.target.value)}
+                          className="w-full rounded-xl border border-gray-100 bg-white px-4 py-3 transition-all focus:ring-2 focus:ring-[#3c5a82]"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Email</label>
+                        <input
+                          type="email"
+                          value={page.email}
+                          onChange={(event) => handleCompanyPageChange(page.id, 'email', event.target.value)}
+                          className="w-full rounded-xl border border-gray-100 bg-white px-4 py-3 transition-all focus:ring-2 focus:ring-[#3c5a82]"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2 space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-widest text-gray-400">Office Address</label>
+                        <textarea
+                          value={page.address}
+                          onChange={(event) => handleCompanyPageChange(page.id, 'address', event.target.value)}
+                          className="h-24 w-full rounded-xl border border-gray-100 bg-white px-4 py-3 transition-all focus:ring-2 focus:ring-[#3c5a82]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

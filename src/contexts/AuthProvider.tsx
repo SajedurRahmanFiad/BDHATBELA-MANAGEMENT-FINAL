@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser, fetchUserById, fetchAccounts, fetchDashboardSnapshot } from '../services/supabaseQueries';
+import { loginUser, fetchUserById, fetchAccounts, fetchSystemDefaults } from '../services/supabaseQueries';
 import { clearAuthToken, setAuthToken } from '../services/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { db, saveDb } from '../../db';
@@ -20,20 +20,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const POLL_MS = 2500; // interval to poll for user details when only id stored
   const queryClient = useQueryClient();
 
-  console.log('[AuthProvider] Mounting - initializing context provider');
-
   // Initialize session from localStorage on mount
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
       try {
-        console.log('[Auth] Initializing - restoring session from localStorage...');
         const storedId = localStorage.getItem('currentUserId');
         const storedToken = localStorage.getItem('authToken');
 
         if (!storedId || !storedToken) {
-          console.log('[Auth] No saved session - user is logged out');
           if (mounted) {
             setUser(null);
             db.currentUser = null as any;
@@ -46,7 +42,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // We have a stored user ID - fetch full profile
-        console.log('[Auth] Found stored user ID, fetching full profile...');
         let retries = 0;
         const maxRetries = 5;
 
@@ -54,7 +49,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const fetched = await fetchUserById(storedId);
             if (fetched) {
-              console.log('[Auth] Fetched user profile:', fetched.name);
               return fetched;
             }
           } catch (err) {
@@ -75,21 +69,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(fetched);
             db.currentUser = fetched as any;
             saveDb();
-            console.log('[Auth] Session restored:', fetched.name);
-            // Prefetch only lightweight datasets at auth-time.
-            // Product rows can be very large (image payloads), so avoid eager prefetch.
             try {
               queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
-              queryClient.prefetchQuery({
-                queryKey: ['dashboard', 'All Time', '', ''],
-                queryFn: () => fetchDashboardSnapshot({ filterRange: 'All Time', customDates: { from: '', to: '' } }),
-                staleTime: 10 * 1000,
-              }).catch(() => {});
-            } catch (e) {
-              // ignore prefetch errors
-            }
+              queryClient.prefetchQuery({ queryKey: ['settings', 'defaults'], queryFn: () => fetchSystemDefaults(), staleTime: 60 * 60 * 1000 }).catch(() => {});
+            } catch (e) {}
           } else {
-            // Profile fetch failed after retries - clear session
             console.warn('[Auth] Could not restore profile, clearing session');
             setUser(null);
             db.currentUser = null as any;
@@ -118,21 +102,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (phoneOrEmail: string, password: string) => {
     const phone = (phoneOrEmail.includes('@') ? phoneOrEmail.split('@')[0] : phoneOrEmail).trim();
-    console.log('[Auth] signIn called with phone:', phone);
 
     try {
       const { user: dbUser, token, error: loginError } = await loginUser(phone, password);
 
       if (loginError || !dbUser) {
-        console.error('[Auth] signIn failed:', loginError);
         return { error: { message: loginError || 'Login failed' } };
       }
 
       await queryClient.cancelQueries();
       queryClient.clear();
 
-      // Sign in succeeded
-      console.log('[Auth] signIn successful for:', dbUser.phone);
       setUser(dbUser);
       db.currentUser = dbUser as any;
       saveDb();
@@ -144,19 +124,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       window.dispatchEvent(new Event('authChange'));
 
-      console.log('[Auth] User logged in:', dbUser.name);
-      // Prefetch only lightweight datasets for fast UI.
-      // Avoid prefetching products because image fields can be very large.
-        try {
-          queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
-          queryClient.prefetchQuery({
-            queryKey: ['dashboard', 'All Time', '', ''],
-            queryFn: () => fetchDashboardSnapshot({ filterRange: 'All Time', customDates: { from: '', to: '' } }),
-            staleTime: 10 * 1000,
-          }).catch(() => {});
-        } catch (e) {
-          // ignore
-        }
+      try {
+        queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
+        queryClient.prefetchQuery({ queryKey: ['settings', 'defaults'], queryFn: () => fetchSystemDefaults(), staleTime: 60 * 60 * 1000 }).catch(() => {});
+      } catch (e) {}
       return { data: { user: dbUser, profileLoaded: true }, error: null };
     } catch (err: any) {
       console.error('[Auth] signIn exception:', err?.message || err);
@@ -165,7 +136,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    console.log('[Auth] signOut called');
     await queryClient.cancelQueries();
     queryClient.clear();
     setUser(null);
@@ -178,10 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('userData');
     localStorage.removeItem('currentUser');
     window.dispatchEvent(new Event('authChange'));
-    console.log('[Auth] signOut completed');
   };
-
-  console.log('[AuthProvider] Rendering with state:', { userName: user?.name, isLoading });
 
   return (
     <AuthContext.Provider value={{ user, profile: user, isLoading, signIn, signOut }}>

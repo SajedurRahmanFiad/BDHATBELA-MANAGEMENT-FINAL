@@ -1,15 +1,16 @@
 
 import { User, UserRole, Order, OrderStatus, Bill, BillStatus, Customer, Vendor, Product, Account, Transaction, Settings } from './types';
+import { normalizeCompanySettings } from './src/utils/companyPages';
 
 // Default Settings (Only for UI, all data comes from the API)
 const defaultSettings: Settings = {
-  company: {
+  company: normalizeCompanySettings({
     name: 'BD Hatbela',
     logo: '',
     phone: '',
     email: '',
     address: '',
-  },
+  }),
   order: { prefix: 'BDH-', nextNumber: 1 },
   invoice: { title: 'Tax Invoice', logoWidth: 60, logoHeight: 60, footer: 'Thank you for shopping with BD Hatbela!' },
   defaults: { defaultAccountId: '', defaultPaymentMethod: 'Cash', incomeCategoryId: '', expenseCategoryId: '', recordsPerPage: 20 },
@@ -45,7 +46,7 @@ const mergedSettings: Settings = _storedSettings
   ? {
       ...defaultSettings,
       ..._storedSettings,
-      company: { ...defaultSettings.company, ...(_storedSettings as any).company },
+      company: normalizeCompanySettings({ ...defaultSettings.company, ...(_storedSettings as any).company }),
       order: { ...defaultSettings.order, ...(_storedSettings as any).order },
       invoice: { ...defaultSettings.invoice, ...(_storedSettings as any).invoice },
       defaults: {

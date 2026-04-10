@@ -24,8 +24,13 @@ const Customers: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { user } = useAuth();
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadCustomers = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const [searchParams, setSearchParams] = useSearchParams();
   const currentSearchParams = searchParams.toString();
   const urlPage = getPositivePageParam(searchParams.get('page'));
@@ -35,7 +40,9 @@ const Customers: React.FC = () => {
   const [page, setPage] = React.useState<number>(urlPage);
   const previousSearchQueryRef = React.useRef(searchQuery);
   const effectivePage = shouldHydrateFromUrl ? urlPage : page;
-  const { data: customersPage, isFetching, error } = useCustomersPage(effectivePage, pageSize, searchQuery);
+  const { data: customersPage, isFetching, error } = useCustomersPage(effectivePage, pageSize, searchQuery, {
+    enabled: canLoadCustomers,
+  });
   const customers = customersPage?.data ?? [];
   const total = customersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -199,7 +206,7 @@ const Customers: React.FC = () => {
           },
         ]}
         data={filteredCustomers}
-        loading={isFetching}
+        loading={!canLoadCustomers || isFetching}
         onRowClick={(customer) => navigate(`/customers/${customer.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No customers found"
       />

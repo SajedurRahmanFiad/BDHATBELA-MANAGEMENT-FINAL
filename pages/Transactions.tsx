@@ -19,8 +19,13 @@ const Transactions: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadTransactions = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const [searchParams, setSearchParams] = useSearchParams();
   const currentSearchParams = searchParams.toString();
   const urlPage = getPositivePageParam(searchParams.get('page'));
@@ -104,8 +109,11 @@ const Transactions: React.FC = () => {
     to: timeFilters.to,
     search: searchQuery,
     createdByIds,
+  }, {
+    enabled: canLoadTransactions,
   });
   const transactions = transactionsPage?.data ?? [];
+  const showInitialTransactionsLoading = !canLoadTransactions || (transactionsLoading && transactions.length === 0);
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const { data: allCategories = [] } = useCategories();
@@ -301,6 +309,11 @@ const Transactions: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
+        {transactionsLoading && transactions.length > 0 && (
+          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
+            Updating transactions...
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -314,7 +327,7 @@ const Transactions: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {transactionsLoading ? (
+              {showInitialTransactionsLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredTransactions.length === 0 ? (
                 <tr>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { fetchCompanySettings } from '../src/services/supabaseQueries';
+import { getGlobalCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -31,20 +32,26 @@ const Login: React.FC = () => {
     const loadSettings = async () => {
       try {
         const settings = await fetchCompanySettings();
+        const globalPage = getGlobalCompanyPage(normalizeCompanySettings(settings));
         setCompanySettings({
-          name: 'BD Hatbela',
-          logo: settings.logo || db.settings.company.logo
+          name: globalPage.name || db.settings.company.name,
+          logo: globalPage.logo || db.settings.company.logo
         });
       } catch (err) {
         console.error('Failed to load company settings:', err);
         setCompanySettings({
-          name: 'BD Hatbela',
+          name: db.settings.company.name || 'BD Hatbela',
           logo: db.settings.company.logo
         });
       }
     };
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    const pageTitle = companySettings.name?.trim() || 'Management';
+    document.title = `${pageTitle} - Management`;
+  }, [companySettings.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

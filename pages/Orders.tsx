@@ -12,7 +12,7 @@ import { useAuth } from '../src/contexts/AuthProvider';
 import { useOrdersPage, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
 import { useCompletePickedOrder, useCreateOrder } from '../src/hooks/useMutations';
-import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, fetchOrderById } from '../src/services/supabaseQueries';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { handlePrintOrder } from '../src/utils/printUtils';
@@ -38,8 +38,13 @@ const Orders: React.FC = () => {
     note: '',
   });
 
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadOrders = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const currentSearchParams = searchParams.toString();
@@ -142,8 +147,11 @@ const Orders: React.FC = () => {
     to: timeFilters.to,
     search: searchQuery,
     createdByIds,
+  }, {
+    enabled: canLoadOrders,
   });
   const orders = ordersPage?.data ?? [];
+  const showInitialOrdersLoading = !canLoadOrders || (ordersLoading && orders.length === 0);
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
 
@@ -223,22 +231,32 @@ const Orders: React.FC = () => {
       return;
     }
 
-    const newOrderNumber = `${orderSettings.prefix}${orderSettings.nextNumber}`;
-    const newOrder: Omit<Order, 'id'> = {
-      orderNumber: newOrderNumber,
-      orderDate: getTodayDate(),
-      customerId: order.customerId,
-      createdBy: user?.id || order.createdBy,
-      status: OrderStatus.ON_HOLD,
-      items: order.items,
-      subtotal: order.subtotal,
-      discount: order.discount,
-      shipping: order.shipping,
-      total: order.total,
-      paidAmount: 0,
-      history: order.history,
-    };
     try {
+      const sourceOrder = await fetchOrderById(order.id);
+      if (!sourceOrder) {
+        toast.error('Unable to load the source order for duplication.');
+        return;
+      }
+
+      const newOrderNumber = `${orderSettings.prefix}${orderSettings.nextNumber}`;
+      const newOrder: Omit<Order, 'id'> = {
+        orderNumber: newOrderNumber,
+        orderDate: getTodayDate(),
+        customerId: sourceOrder.customerId,
+        pageId: sourceOrder.pageId,
+        pageSnapshot: sourceOrder.pageSnapshot,
+        createdBy: user?.id || sourceOrder.createdBy,
+        status: OrderStatus.ON_HOLD,
+        items: sourceOrder.items,
+        subtotal: sourceOrder.subtotal,
+        discount: sourceOrder.discount,
+        shipping: sourceOrder.shipping,
+        total: sourceOrder.total,
+        paidAmount: 0,
+        history: sourceOrder.history,
+        notes: sourceOrder.notes,
+      };
+
       await createOrderMutation.mutateAsync(newOrder);
       // New orders appear on page 1 (newest-first) - cache is updated deterministically by the mutation hook
       toast.success('Order duplicated successfully');
@@ -406,6 +424,11 @@ const Orders: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
+        {ordersLoading && orders.length > 0 && (
+          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
+            Updating orders...
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -419,7 +442,7 @@ const Orders: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {ordersLoading ? (
+              {showInitialOrdersLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : displayedOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>

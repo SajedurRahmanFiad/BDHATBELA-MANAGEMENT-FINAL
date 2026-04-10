@@ -46,12 +46,19 @@ export const Table: React.FC<TableProps> = ({
     md: 'px-6 py-5',
     lg: 'px-6 py-6',
   }[size];
+  const showInitialLoading = loading && data.length === 0;
+  const showRefreshingState = loading && data.length > 0;
 
   const rowHoverClass = hover ? 'hover:bg-[#ebf4ff]/50 cursor-pointer transition-all' : '';
   const stripedClass = striped ? 'odd:bg-gray-50' : '';
 
   return (
     <div className={`${theme.card.base} overflow-visible`}>
+      {showRefreshingState && (
+        <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
+          Updating...
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead>
@@ -74,7 +81,7 @@ export const Table: React.FC<TableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {loading ? (
+            {showInitialLoading ? (
               <TableLoadingSkeleton columns={columns.length} rows={loadingRows} />
             ) : data.length === 0 ? (
               <tr>

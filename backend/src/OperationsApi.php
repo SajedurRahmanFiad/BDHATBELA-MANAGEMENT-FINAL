@@ -483,6 +483,55 @@ final class OperationsApi extends BaseService
         return ['next' => $next, 'billNumber' => 'Bill-' . $next];
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchCompanyPages(): array
+    {
+        $row = $this->database->fetchOne('SELECT * FROM company_settings LIMIT 1');
+        return $this->normalizeCompanyPages($row['pages'] ?? [], $row ?? []);
+    }
+
+    /**
+     * @return array{pageId: string|null, pageSnapshot: array<string, mixed>|null}
+     */
+    private function resolveOrderPageSelection(array $payload): array
+    {
+        $pages = $this->fetchCompanyPages();
+        $requestedPageId = trim((string) ($payload['pageId'] ?? $payload['page_id'] ?? ''));
+        $rawSnapshot = $payload['pageSnapshot'] ?? $payload['page_snapshot'] ?? null;
+        $requestedSnapshot = is_array($rawSnapshot) ? $rawSnapshot : $this->jsonDecodeAssoc($rawSnapshot);
+        $matchedPage = null;
+
+        if ($requestedPageId !== '') {
+            foreach ($pages as $index => $page) {
+                if ((string) ($page['id'] ?? '') === $requestedPageId) {
+                    $matchedPage = $this->normalizeCompanyPage($page, $index);
+                    break;
+                }
+            }
+        }
+
+        if ($matchedPage === null && $requestedSnapshot !== []) {
+            $matchedPage = $this->normalizeCompanyPage(
+                $requestedSnapshot,
+                0,
+                ['id' => $requestedPageId !== '' ? $requestedPageId : ($requestedSnapshot['id'] ?? 'company-default-page')]
+            );
+        }
+
+        if ($matchedPage === null) {
+            $matchedPage = $this->getGlobalCompanyPage($pages);
+        }
+
+        $resolvedId = trim((string) ($matchedPage['id'] ?? ''));
+
+        return [
+            'pageId' => $resolvedId !== '' ? $resolvedId : null,
+            'pageSnapshot' => $matchedPage !== [] ? $matchedPage : null,
+        ];
+    }
+
     private function fetchOrderRowById(string $id): ?array
     {
         return $this->database->fetchOne('SELECT * FROM orders_with_customer_creator WHERE id = :id LIMIT 1', [':id' => $id]);
@@ -500,6 +549,40 @@ final class OperationsApi extends BaseService
         );
 
         return array_map(fn (array $row): array => $this->mapOrder($row), $rows);
+    }
+
+    public function fetchOrderSearchPreview(array $params): array
+    {
+        $search = trim((string) ($params['search'] ?? ''));
+        $limit = max(1, min(20, (int) ($params['limit'] ?? 10)));
+
+        if ($search === '') {
+            return [];
+        }
+
+        $bindings = [
+            ':search_order' => '%' . $search . '%',
+            ':search_customer' => '%' . $search . '%',
+            ':search_phone' => '%' . $search . '%',
+        ];
+
+        $rows = $this->database->fetchAll(
+            "SELECT id, orderNumber, customerName, customerPhone
+             FROM orders_with_customer_creator
+             WHERE orderNumber LIKE :search_order
+                OR customerName LIKE :search_customer
+                OR customerPhone LIKE :search_phone
+             ORDER BY createdAt DESC
+             LIMIT {$limit}",
+            $bindings
+        );
+
+        return array_map(static fn (array $row): array => [
+            'id' => (string) ($row['id'] ?? ''),
+            'orderNumber' => (string) ($row['orderNumber'] ?? ''),
+            'customerName' => $row['customerName'] !== null ? (string) $row['customerName'] : null,
+            'customerPhone' => $row['customerPhone'] !== null ? (string) $row['customerPhone'] : null,
+        ], $rows);
     }
 
     public function fetchOrdersPage(array $params): array
@@ -547,7 +630,31 @@ final class OperationsApi extends BaseService
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM orders_with_customer_creator {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM orders_with_customer_creator {$where} ORDER BY createdAt DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT
+                id,
+                orderNumber,
+                orderDate,
+                customerId,
+                customerName,
+                customerPhone,
+                customerAddress,
+                createdBy,
+                creatorName,
+                status,
+                total,
+                notes,
+                history,
+                paidAmount,
+                createdAt,
+                deletedAt,
+                deletedBy,
+                carrybeeConsignmentId,
+                steadfastConsignmentId,
+                paperflyTrackingNumber
+             FROM orders_with_customer_creator
+             {$where}
+             ORDER BY createdAt DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 
@@ -1153,18 +1260,19 @@ final class OperationsApi extends BaseService
             $orderDate = $this->normalizeDateOnly((string) ($params['orderDate'] ?? '')) ?: gmdate('Y-m-d');
             $status = trim((string) ($params['status'] ?? 'On Hold'));
             $items = is_array($params['items'] ?? null) ? $params['items'] : [];
+            $pageSelection = $this->resolveOrderPageSelection($params);
             $stockUpdates = $this->applyOrderStockTransition('', $status, [], $items);
             $now = $this->database->nowUtc();
 
             $this->database->execute(
                 'INSERT INTO orders (
-                    id, order_number, order_seq, order_date, customer_id, created_by, status, items,
-                    subtotal, discount, shipping, total, paid_amount, notes, history,
+                    id, order_number, order_seq, order_date, customer_id, page_id, created_by, status, items,
+                    subtotal, discount, shipping, total, paid_amount, notes, history, page_snapshot,
                     carrybee_consignment_id, steadfast_consignment_id, paperfly_tracking_number,
                     created_at, updated_at
                 ) VALUES (
-                    :id, :order_number, :order_seq, :order_date, :customer_id, :created_by, :status, :items,
-                    :subtotal, :discount, :shipping, :total, :paid_amount, :notes, :history,
+                    :id, :order_number, :order_seq, :order_date, :customer_id, :page_id, :created_by, :status, :items,
+                    :subtotal, :discount, :shipping, :total, :paid_amount, :notes, :history, :page_snapshot,
                     :carrybee_consignment_id, :steadfast_consignment_id, :paperfly_tracking_number,
                     :created_at, :updated_at
                 )',
@@ -1174,6 +1282,7 @@ final class OperationsApi extends BaseService
                     ':order_seq' => $allocation['next'],
                     ':order_date' => $orderDate,
                     ':customer_id' => trim((string) ($params['customerId'] ?? '')),
+                    ':page_id' => $pageSelection['pageId'],
                     ':created_by' => (string) $actor['id'],
                     ':status' => $status,
                     ':items' => $this->jsonEncode($items),
@@ -1184,6 +1293,7 @@ final class OperationsApi extends BaseService
                     ':paid_amount' => $this->formatMoney($params['paidAmount'] ?? 0),
                     ':notes' => $this->nullableString($params['notes'] ?? null),
                     ':history' => $this->jsonEncode($params['history'] ?? []),
+                    ':page_snapshot' => $this->jsonEncode($pageSelection['pageSnapshot']),
                     ':carrybee_consignment_id' => $this->nullableString($params['carrybeeConsignmentId'] ?? $params['carrybee_consignment_id'] ?? null),
                     ':steadfast_consignment_id' => $this->nullableString($params['steadfastConsignmentId'] ?? $params['steadfast_consignment_id'] ?? null),
                     ':paperfly_tracking_number' => $this->nullableString($params['paperflyTrackingNumber'] ?? $params['paperfly_tracking_number'] ?? null),
@@ -1244,6 +1354,16 @@ final class OperationsApi extends BaseService
             $payload = [];
             if (array_key_exists('customerId', $updates)) {
                 $payload['customer_id'] = trim((string) $updates['customerId']);
+            }
+            if (
+                array_key_exists('pageId', $updates) ||
+                array_key_exists('page_id', $updates) ||
+                array_key_exists('pageSnapshot', $updates) ||
+                array_key_exists('page_snapshot', $updates)
+            ) {
+                $pageSelection = $this->resolveOrderPageSelection($updates);
+                $payload['page_id'] = $pageSelection['pageId'];
+                $payload['page_snapshot'] = $this->jsonEncode($pageSelection['pageSnapshot']);
             }
             if (array_key_exists('orderDate', $updates)) {
                 $payload['order_date'] = $this->normalizeDateOnly((string) $updates['orderDate']) ?: (string) $existingRow['order_date'];
@@ -1567,6 +1687,11 @@ final class OperationsApi extends BaseService
         $where = 'WHERE 1=1';
         $bindings = [];
 
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '' && $status !== 'All') {
+            $where .= ' AND status = :status';
+            $bindings[':status'] = $status;
+        }
         if (!empty($filters['from'])) {
             $where .= ' AND createdAt >= :from';
             $bindings[':from'] = $this->normalizeDateTimeInput((string) $filters['from']);
@@ -1594,7 +1719,27 @@ final class OperationsApi extends BaseService
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM bills_with_vendor_creator {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM bills_with_vendor_creator {$where} ORDER BY createdAt DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT
+                id,
+                billNumber,
+                billDate,
+                vendorId,
+                vendorName,
+                vendorPhone,
+                vendorAddress,
+                createdBy,
+                creatorName,
+                status,
+                total,
+                history,
+                paidAmount,
+                createdAt,
+                deletedAt,
+                deletedBy
+             FROM bills_with_vendor_creator
+             {$where}
+             ORDER BY createdAt DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 
@@ -1847,7 +1992,32 @@ final class OperationsApi extends BaseService
 
         $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM transactions_with_relations {$where}", $bindings);
         $rows = $this->database->fetchAll(
-            "SELECT * FROM transactions_with_relations {$where} ORDER BY createdAt DESC LIMIT {$pageSize} OFFSET {$offset}",
+            "SELECT
+                id,
+                date,
+                type,
+                category,
+                accountId,
+                accountName,
+                toAccountId,
+                amount,
+                description,
+                referenceId,
+                contactId,
+                contactName,
+                contactType,
+                paymentMethod,
+                attachmentName,
+                attachmentUrl,
+                createdBy,
+                creatorName,
+                createdAt,
+                deletedAt,
+                deletedBy
+             FROM transactions_with_relations
+             {$where}
+             ORDER BY createdAt DESC
+             LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
 

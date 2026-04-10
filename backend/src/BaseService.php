@@ -358,6 +358,102 @@ abstract class BaseService
     }
 
     /**
+     * @param array<string, mixed> $fallback
+     * @return array<string, mixed>
+     */
+    protected function normalizeCompanyPage($value, int $index = 0, array $fallback = []): array
+    {
+        $page = is_array($value) ? $value : [];
+        $fallbackName = trim((string) ($fallback['name'] ?? '')) ?: ($index === 0 ? 'BD Hatbela' : 'Page ' . ($index + 1));
+        $id = trim((string) ($page['id'] ?? $fallback['id'] ?? ''));
+
+        if ($id === '') {
+            $id = $index === 0 ? 'company-default-page' : 'company-page-' . ($index + 1);
+        }
+
+        return [
+            'id' => $id,
+            'name' => trim((string) ($page['name'] ?? $fallback['name'] ?? '')) ?: $fallbackName,
+            'logo' => (string) ($page['logo'] ?? $fallback['logo'] ?? ''),
+            'phone' => (string) ($page['phone'] ?? $fallback['phone'] ?? '+880'),
+            'email' => (string) ($page['email'] ?? $fallback['email'] ?? 'info@company.com'),
+            'address' => (string) ($page['address'] ?? $fallback['address'] ?? ''),
+            'isGlobalBranding' => (bool) ($page['isGlobalBranding'] ?? $page['is_global_branding'] ?? $fallback['isGlobalBranding'] ?? $fallback['is_global_branding'] ?? false),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $legacyRow
+     * @return array<int, array<string, mixed>>
+     */
+    protected function normalizeCompanyPages($value, array $legacyRow = []): array
+    {
+        $fallbackPage = $this->normalizeCompanyPage(
+            [
+                'id' => $legacyRow['id'] ?? 'company-default-page',
+                'name' => $legacyRow['name'] ?? 'BD Hatbela',
+                'logo' => $legacyRow['logo'] ?? '',
+                'phone' => $legacyRow['phone'] ?? '+880',
+                'email' => $legacyRow['email'] ?? 'info@company.com',
+                'address' => $legacyRow['address'] ?? '',
+                'isGlobalBranding' => true,
+            ],
+            0
+        );
+
+        $rawPages = $this->jsonDecodeList($value);
+        $pages = [];
+
+        foreach ($rawPages as $index => $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+
+            $pages[] = $this->normalizeCompanyPage($page, $index, $index === 0 ? $fallbackPage : []);
+        }
+
+        if ($pages === []) {
+            $pages[] = $fallbackPage;
+        }
+
+        $foundGlobal = false;
+        foreach ($pages as $index => $page) {
+            $isGlobal = (bool) ($page['isGlobalBranding'] ?? false) && !$foundGlobal;
+            if ($isGlobal) {
+                $foundGlobal = true;
+            }
+            $pages[$index]['isGlobalBranding'] = $isGlobal;
+        }
+
+        if (!$foundGlobal && isset($pages[0])) {
+            $pages[0]['isGlobalBranding'] = true;
+        }
+
+        return array_values($pages);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $pages
+     * @return array<string, mixed>
+     */
+    protected function getGlobalCompanyPage(array $pages): array
+    {
+        foreach ($pages as $index => $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+
+            if ((bool) ($page['isGlobalBranding'] ?? false)) {
+                return $this->normalizeCompanyPage($page, $index);
+            }
+        }
+
+        return isset($pages[0]) && is_array($pages[0])
+            ? $this->normalizeCompanyPage($pages[0], 0)
+            : $this->normalizeCompanyPage([], 0);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function mapCustomer(array $row): array
@@ -451,6 +547,8 @@ abstract class BaseService
      */
     protected function mapOrder(array $row): array
     {
+        $pageSnapshot = $this->jsonDecodeAssoc($row['page_snapshot'] ?? $row['pageSnapshot'] ?? []);
+
         return [
             'id' => (string) $row['id'],
             'orderNumber' => (string) ($row['order_number'] ?? $row['orderNumber'] ?? ''),
@@ -464,6 +562,8 @@ abstract class BaseService
             'shipping' => (float) ($row['shipping'] ?? 0),
             'total' => (float) ($row['total'] ?? $row['amount'] ?? 0),
             'notes' => $this->nullableString($row['notes'] ?? null),
+            'pageId' => $this->nullableString($row['page_id'] ?? $row['pageId'] ?? null),
+            'pageSnapshot' => $pageSnapshot !== [] ? $pageSnapshot : null,
             'carrybeeConsignmentId' => $this->nullableString($row['carrybee_consignment_id'] ?? $row['carrybeeConsignmentId'] ?? null),
             'steadfastConsignmentId' => $this->nullableString($row['steadfast_consignment_id'] ?? $row['steadfastConsignmentId'] ?? null),
             'paperflyTrackingNumber' => $this->nullableString($row['paperfly_tracking_number'] ?? $row['paperflyTrackingNumber'] ?? null),

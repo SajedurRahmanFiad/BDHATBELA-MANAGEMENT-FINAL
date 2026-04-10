@@ -2,6 +2,7 @@
 import type {
   Account,
   Bill,
+  CompanySettings,
   Customer,
   Order,
   PayrollPayment,
@@ -50,6 +51,9 @@ export async function fetchCustomersPage(page: number = 1, pageSize: number = DE
 export async function fetchCustomersMini() { return call<Array<{ id: string; name: string; phone?: string }>>('fetchCustomersMini'); }
 
 export async function fetchOrders() { return call<Order[]>('fetchOrders'); }
+export async function fetchOrderSearchPreview(search: string, limit: number = 10) {
+  return call<Array<{ id: string; orderNumber: string; customerName?: string; customerPhone?: string }>>('fetchOrderSearchPreview', { search, limit });
+}
 export async function fetchDashboardSnapshot(params?: { filterRange?: string; customDates?: { from?: string; to?: string } }) {
   return call<DashboardSnapshot>('fetchDashboardSnapshot', params || {});
 }
@@ -96,7 +100,7 @@ export async function deleteUser(id: string) { await remove('deleteUser', id); }
 export async function fetchVendorsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, search?: string) {
   return call<{ data: Vendor[]; count: number }>('fetchVendorsPage', { page, pageSize, search });
 }
-export async function fetchBillsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { from?: string; to?: string; search?: string; createdByIds?: string[] }) {
+export async function fetchBillsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }) {
   return call<{ data: Bill[]; count: number }>('fetchBillsPage', { page, pageSize, filters });
 }
 export async function fetchBills() { return call<Bill[]>('fetchBills'); }
@@ -147,8 +151,8 @@ export async function createUnit(unit: { name: string; shortName: string; descri
 export async function updateUnit(id: string, updates: Partial<{ name: string; shortName: string; description: string; }>) { return call<any>('updateUnit', { id, updates }); }
 export async function deleteUnit(id: string) { await remove('deleteUnit', id); }
 
-export async function fetchCompanySettings() { return call<any>('fetchCompanySettings'); }
-export async function updateCompanySettings(updates: { name?: string; phone?: string; email?: string; address?: string; logo?: string; }) { return call<any>('updateCompanySettings', updates); }
+export async function fetchCompanySettings() { return call<CompanySettings>('fetchCompanySettings'); }
+export async function updateCompanySettings(updates: Partial<CompanySettings>) { return call<CompanySettings>('updateCompanySettings', updates); }
 export async function fetchOrderSettings() { return call<any>('fetchOrderSettings'); }
 export async function updateOrderSettings(updates: { prefix?: string; nextNumber?: number; }) { return call<any>('updateOrderSettings', updates); }
 export async function fetchInvoiceSettings() { return call<any>('fetchInvoiceSettings'); }
@@ -201,6 +205,6 @@ export async function fetchPaperflyOrderTracking(params: { baseUrl: string; user
 export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncPaperflyOrderStatuses'); }
 export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncSteadfastDeliveryStatuses'); }
 
-export async function batchUpdateSettings(updates: { company?: { name?: string; phone?: string; email?: string; address?: string; logo?: string; }; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
+export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
   return call<any>('batchUpdateSettings', { updates });
 }

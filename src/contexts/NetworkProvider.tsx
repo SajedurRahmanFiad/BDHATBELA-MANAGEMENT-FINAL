@@ -21,10 +21,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [wasOffline, setWasOffline] = useState<boolean>(false);
 
   useEffect(() => {
-    console.log('[Network] Provider initialized - initial online status:', navigator.onLine);
-
     const handleOnline = () => {
-      console.log('[Network] Connection restored - refetching all queries');
       setIsOnline(true);
       setWasOffline(true);
       
@@ -34,7 +31,6 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     const handleOffline = () => {
-      console.log('[Network] Connection lost - offline mode activated');
       setIsOnline(false);
     };
 

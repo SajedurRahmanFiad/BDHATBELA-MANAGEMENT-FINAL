@@ -20,8 +20,13 @@ const Vendors: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { data: systemDefaults } = useSystemDefaults();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadVendors = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const [searchParams, setSearchParams] = useSearchParams();
   const currentSearchParams = searchParams.toString();
   const urlPage = getPositivePageParam(searchParams.get('page'));
@@ -31,7 +36,9 @@ const Vendors: React.FC = () => {
   const [page, setPage] = React.useState<number>(urlPage);
   const previousSearchQueryRef = React.useRef(searchQuery);
   const effectivePage = shouldHydrateFromUrl ? urlPage : page;
-  const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(effectivePage, pageSize, searchQuery);
+  const { data: vendorsPage = { data: [], count: 0 }, isFetching } = useVendorsPage(effectivePage, pageSize, searchQuery, {
+    enabled: canLoadVendors,
+  });
   const vendors = vendorsPage.data || [];
   const total = vendorsPage.count || 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -174,7 +181,7 @@ const Vendors: React.FC = () => {
           },
         ]}
         data={filteredVendors}
-        loading={isFetching}
+        loading={!canLoadVendors || isFetching}
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No vendors found"
       />

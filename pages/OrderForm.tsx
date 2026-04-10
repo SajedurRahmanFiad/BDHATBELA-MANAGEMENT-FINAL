@@ -1,12 +1,11 @@
 
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { db } from '../db';
 import { Customer, Order, OrderStatus, OrderItem, hasAdminAccess, isEmployeeRole } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useCustomer, useOrder, useOrderSettings } from '../src/hooks/useQueries';
+import { useCompanySettings, useCustomer, useOrder, useOrderSettings } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchCustomersMini, fetchCustomersPage, getNextOrderNumber, getErrorMessage } from '../src/services/supabaseQueries';
 import { useLocation } from 'react-router-dom';
@@ -15,6 +14,7 @@ import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
+import { buildOrderPageSnapshot, getGlobalCompanyPage, normalizeCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
 
 type CustomerSearchOption = Pick<Customer, 'id' | 'name'> & Partial<Customer>;
 
@@ -94,6 +94,7 @@ const OrderForm: React.FC = () => {
     : (debouncedSearch ? productsSearch : (productsMini || []));
   const { data: existingOrderData, isPending: existingOrderLoading } = useOrder(isEdit ? id : undefined);
   const { data: orderSettings } = useOrderSettings();
+  const { data: companySettings, isPending: companySettingsLoading } = useCompanySettings();
   
   // Mutations
   const createMutation = useCreateOrder();
@@ -102,6 +103,7 @@ const OrderForm: React.FC = () => {
 
   // Form state
   const [customerId, setCustomerId] = useState('');
+  const [pageId, setPageId] = useState('');
   const [orderDate, setOrderDate] = useState(getTodayDate());
   const [orderNumber, setOrderNumber] = useState('Generating...');
   const [orderNumberLoading, setOrderNumberLoading] = useState(false);
@@ -142,6 +144,27 @@ const OrderForm: React.FC = () => {
     refetchOnWindowFocus: false,
   });
   const { data: selectedCustomerRecord } = useCustomer(customerId || undefined);
+  const normalizedCompanySettings = React.useMemo(
+    () => normalizeCompanySettings(companySettings),
+    [companySettings],
+  );
+  const companyPages = normalizedCompanySettings.pages;
+  const archivedPageOption = React.useMemo(() => {
+    if (!existingOrderData?.pageSnapshot || Object.keys(existingOrderData.pageSnapshot).length === 0) {
+      return null;
+    }
+
+    const snapshotPage = normalizeCompanyPage(existingOrderData.pageSnapshot, companyPages.length);
+    return companyPages.some((page) => page.id === snapshotPage.id) ? null : snapshotPage;
+  }, [companyPages, existingOrderData?.pageSnapshot]);
+  const availablePages = React.useMemo(
+    () => (archivedPageOption ? [...companyPages, archivedPageOption] : companyPages),
+    [archivedPageOption, companyPages],
+  );
+  const selectedPage = React.useMemo(
+    () => availablePages.find((page) => page.id === pageId) || null,
+    [availablePages, pageId],
+  );
 
   const seedCustomerCache = (customer: Pick<Customer, 'id'> & Partial<Customer>) => {
     if (!customer.id) return;
@@ -183,6 +206,7 @@ const OrderForm: React.FC = () => {
         phone: existingOrderData.customerPhone,
         address: existingOrderData.customerAddress,
       });
+      setPageId(existingOrderData.pageId || existingOrderData.pageSnapshot?.id || '');
       setCustomerId(existingOrderData.customerId);
       setOrderDate(existingOrderData.orderDate);
       setOrderNumber(existingOrderData.orderNumber);
@@ -206,12 +230,31 @@ const OrderForm: React.FC = () => {
         })
         .finally(() => setOrderNumberLoading(false));
     }
-  }, [existingOrderData, isEdit, isEmployee, navigate, toast, user?.id]);
+  }, [existingOrderData, isEdit, isEmployee, navigate, normalizedCompanySettings, toast, user?.id]);
 
   // Reset the initialization flag when switching to a different order id
   React.useEffect(() => {
     initializedRef.current = false;
   }, [id]);
+
+  React.useEffect(() => {
+    if (companySettingsLoading || pageId || companyPages.length === 0) {
+      return;
+    }
+
+    if (isEdit && !existingOrderData) {
+      return;
+    }
+
+    const defaultPageId =
+      existingOrderData?.pageId ||
+      existingOrderData?.pageSnapshot?.id ||
+      getGlobalCompanyPage(normalizedCompanySettings).id;
+
+    if (defaultPageId) {
+      setPageId(defaultPageId);
+    }
+  }, [companyPages.length, companySettingsLoading, existingOrderData, isEdit, normalizedCompanySettings, pageId]);
 
   // If redirected back from creating a new customer, pre-select it (read query param first, then fallback to location.state)
   const location = useLocation();
@@ -284,8 +327,14 @@ const OrderForm: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!customerId || items.length === 0 || !orderNumber || orderNumber === 'Generating...' || orderNumber === 'ERROR') {
-      const msg = !customerId ? 'Please select a customer.' : !items.length ? 'Please add at least one product.' : 'Order number is still being generated. Please wait a moment.';
+    if (!pageId || !customerId || items.length === 0 || !orderNumber || orderNumber === 'Generating...' || orderNumber === 'ERROR') {
+      const msg = !pageId
+        ? 'Please select a page.'
+        : !customerId
+          ? 'Please select a customer.'
+          : !items.length
+            ? 'Please add at least one product.'
+            : 'Order number is still being generated. Please wait a moment.';
       setError(msg);
       toast.error(msg);
       return;
@@ -326,6 +375,8 @@ const OrderForm: React.FC = () => {
         orderNumber,
         orderDate,
         customerId: finalCustomerId,
+        pageId,
+        pageSnapshot: buildOrderPageSnapshot(selectedPage),
         createdBy: '', // Will be auto-set by server
         status: isEdit && existingOrderData ? existingOrderData.status : OrderStatus.ON_HOLD,
         items,
@@ -404,7 +455,29 @@ const OrderForm: React.FC = () => {
       </div>
 
       <div className="bg-white p-6 rounded-lg border border-gray-100 shadow-sm space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Select Page</label>
+            <select
+              value={pageId}
+              onChange={(event) => setPageId(event.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-[#3c5a82] focus:bg-white transition-all font-bold text-sm"
+            >
+              <option value="">Select Page...</option>
+              {availablePages.map((page) => (
+                <option key={page.id} value={page.id}>
+                  {page.name}
+                </option>
+              ))}
+            </select>
+            {selectedPage && (
+              <p className="ml-1 text-[10px] font-medium text-gray-500">
+                {selectedPage.phone}
+                {selectedPage.email ? ` • ${selectedPage.email}` : ''}
+              </p>
+            )}
+          </div>
+
           <div className="space-y-1 relative md:col-span-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Select Customer</label>
             <div className="relative">

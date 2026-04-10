@@ -85,6 +85,26 @@ export interface OrderItem {
   amount: number;
 }
 
+export interface CompanyPage {
+  id: string;
+  name: string;
+  logo: string;
+  phone: string;
+  email: string;
+  address: string;
+  isGlobalBranding: boolean;
+}
+
+export interface CompanySettings {
+  id?: string;
+  name: string;
+  logo: string;
+  phone: string;
+  email: string;
+  address: string;
+  pages: CompanyPage[];
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -101,6 +121,8 @@ export interface Order {
   shipping: number;
   total: number;
   notes?: string;
+  pageId?: string;
+  pageSnapshot?: CompanyPage | null;
   carrybeeConsignmentId?: string;
   steadfastConsignmentId?: string;
   paperflyTrackingNumber?: string;
@@ -272,13 +294,7 @@ export interface DashboardSnapshot {
 }
 
 export interface Settings {
-  company: {
-    name: string;
-    logo: string;
-    phone: string;
-    email: string;
-    address: string;
-  };
+  company: CompanySettings;
   order: {
     prefix: string;
     nextNumber: number;

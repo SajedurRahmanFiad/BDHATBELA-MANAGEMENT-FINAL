@@ -1,15 +1,15 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
 import { db } from '../db';
-import { hasAdminAccess, isEmployeeRole, Order } from '../types';
+import { hasAdminAccess, isEmployeeRole } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
-import { fetchCompanySettings } from '../src/services/supabaseQueries';
-import { useOrders } from '../src/hooks/useQueries';
+import { useCompanySettings, useOrderSearchPreview } from '../src/hooks/useQueries';
 import { buildHistoryBackState } from '../src/utils/navigation';
+import { getGlobalCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
 import IncidentModeBanner from './IncidentModeBanner';
 import { WRITE_FREEZE_ENABLED, WRITE_FREEZE_MESSAGE } from '../src/config/incidentMode';
 
@@ -87,27 +87,28 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigate = useNavigate();
   const { signOut, profile } = useAuth();
   const { searchQuery, setSearchQuery, clearSearch } = useSearch();
-  const { data: allOrders = [] } = useOrders();
+  const { data: fetchedCompanySettings } = useCompanySettings();
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [companySettings, setCompanySettings] = useState({ name: db.settings.company.name, logo: db.settings.company.logo });
+  const companySettings = useMemo(() => {
+    const normalizedCompany = normalizeCompanySettings(fetchedCompanySettings || db.settings.company);
+    const globalPage = getGlobalCompanyPage(normalizedCompany);
+
+    return {
+      name: globalPage?.name || db.settings.company.name,
+      logo: globalPage?.logo || db.settings.company.logo,
+    };
+  }, [fetchedCompanySettings]);
   
   // Use profile from Auth context if available, fallback to db.currentUser
   const user = profile || db.currentUser;
 
-  // Load company settings on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const settings = await fetchCompanySettings();
-        setCompanySettings(settings);
-      } catch (err) {
-        console.error('Failed to load company settings:', err);
-      }
-    };
-    loadSettings();
-  }, []);
+    const pageTitle = companySettings.name?.trim() || 'Management';
+    document.title = `${pageTitle} - Management`;
+  }, [companySettings.name]);
 
   // Update favicon links when company logo becomes available
   useEffect(() => {
@@ -177,18 +178,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     clearSearch();
   }, [location.pathname]);
 
-  // dashboard-specific filtered orders for dropdown
-  const dashboardResults: Order[] = useMemo(() => {
-    if (!location.pathname.startsWith('/dashboard') || !searchQuery) return [];
-    const q = searchQuery.toLowerCase();
-    return allOrders.filter(o => {
-      return (
-        o.orderNumber.toLowerCase().includes(q) ||
-        (o.customerName?.toLowerCase().includes(q) || false) ||
-        (o.customerPhone?.toLowerCase().includes(q) || false)
-      );
-    }).slice(0, 10);
-  }, [location.pathname, searchQuery, allOrders]);
+  const { data: dashboardResults = [] } = useOrderSearchPreview(deferredSearchQuery, 10, {
+    enabled: location.pathname.startsWith('/dashboard'),
+  });
 
   // Safety check: if user is somehow null (shouldn't happen with route guards), show loading
   if (!user) {

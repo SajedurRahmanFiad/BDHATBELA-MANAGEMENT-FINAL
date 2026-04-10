@@ -4,6 +4,7 @@ import {
   fetchCustomersPage,
   fetchCustomerById,
   fetchOrders,
+  fetchOrderSearchPreview,
   fetchDashboardSnapshot,
   fetchOrdersPage,
   fetchOrderById,
@@ -60,6 +61,7 @@ import type {
   User,
   Vendor,
   Product,
+  CompanySettings,
   DashboardSnapshot,
   PayrollPayment,
   PayrollSettings,
@@ -86,13 +88,14 @@ export function useCustomersPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
   search?: string,
+  options?: { enabled?: boolean },
 ): UseQueryResult<{ data: Customer[]; count: number }, Error> {
   return useQuery({
     queryKey: ['customers', page, pageSize, search],
     queryFn: () => fetchCustomersPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -131,12 +134,29 @@ export function useDashboardSnapshot(
         filterRange,
         customDates: normalizedCustomDates,
       }),
-    staleTime: 10 * 1000,
-    refetchInterval: 10 * 1000,
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: true,
     retry: 1,
+  });
+}
+
+export function useOrderSearchPreview(
+  search: string,
+  limit: number = 10,
+  options?: { enabled?: boolean }
+): UseQueryResult<Array<{ id: string; orderNumber: string; customerName?: string; customerPhone?: string }>, Error> {
+  const normalizedSearch = String(search || '').trim();
+
+  return useQuery({
+    queryKey: ['orders', 'search-preview', normalizedSearch, limit],
+    queryFn: () => fetchOrderSearchPreview(normalizedSearch, limit),
+    enabled: (options?.enabled ?? true) && normalizedSearch.length > 0,
+    staleTime: 30 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -144,14 +164,15 @@ export function useDashboardSnapshot(
 export function useOrdersPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
-  filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+  filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] },
+  options?: { enabled?: boolean }
 ): UseQueryResult<{ data: Order[]; count: number }, Error> {
   return useQuery({
     queryKey: ['orders', page, pageSize, filters],
     queryFn: () => fetchOrdersPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -200,14 +221,15 @@ export function useBills(): UseQueryResult<Bill[], Error> {
 export function useBillsPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
-  filters?: { from?: string; to?: string; search?: string; createdByIds?: string[] }
+  filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] },
+  options?: { enabled?: boolean }
 ): UseQueryResult<{ data: Bill[]; count: number }, Error> {
   return useQuery({
     queryKey: ['bills', page, pageSize, filters],
     queryFn: () => fetchBillsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -263,14 +285,15 @@ export function useTransactions(): UseQueryResult<Transaction[], Error> {
 export function useTransactionsPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
-  filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }
+  filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] },
+  options?: { enabled?: boolean }
 ): UseQueryResult<{ data: Transaction[]; count: number }, Error> {
   return useQuery({
     queryKey: ['transactions', page, pageSize, filters],
     queryFn: () => fetchTransactionsPage(page, pageSize, filters),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -327,14 +350,15 @@ export function useVendors(): UseQueryResult<Vendor[], Error> {
 export function useVendorsPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
-  search?: string
+  search?: string,
+  options?: { enabled?: boolean }
 ): UseQueryResult<{ data: Vendor[]; count: number }, Error> {
   return useQuery({
     queryKey: ['vendors', page, pageSize, search],
     queryFn: () => fetchVendorsPage(page, pageSize, search),
     placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -365,7 +389,8 @@ export function useProductsPage(
   pageSize: number = DEFAULT_PAGE_SIZE,
   search?: string,
   category?: string,
-  createdByIds?: string[]
+  createdByIds?: string[],
+  queryOptions?: { enabled?: boolean }
 ): UseQueryResult<{ data: Product[]; count: number }, Error> {
   const options: UseQueryOptions<
     { data: Product[]; count: number },
@@ -379,7 +404,7 @@ export function useProductsPage(
     staleTime: 15 * 60 * 1000,
     keepPreviousData: true,
     refetchOnWindowFocus: false,
-    refetchOnMount: 'always',
+    enabled: queryOptions?.enabled ?? true,
   };
 
   return useQuery(options);
@@ -487,7 +512,7 @@ export function useUnit(id: string | undefined): UseQueryResult<any | null, Erro
 
 // ========== SETTINGS ==========
 
-export function useCompanySettings(): UseQueryResult<any, Error> {
+export function useCompanySettings(): UseQueryResult<CompanySettings, Error> {
   return useQuery({
     queryKey: ['settings', 'company'],
     queryFn: fetchCompanySettings,

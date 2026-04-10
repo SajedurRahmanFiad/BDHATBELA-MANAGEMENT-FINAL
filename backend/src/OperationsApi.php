@@ -1408,12 +1408,20 @@ final class OperationsApi extends BaseService
                 $payload['paperfly_tracking_number'] = $this->nullableString($updates['paperflyTrackingNumber'] ?? $updates['paperfly_tracking_number'] ?? null);
             }
 
+            $affectsCustomerSummary =
+                array_key_exists('customerId', $updates) ||
+                array_key_exists('status', $updates) ||
+                array_key_exists('total', $updates) ||
+                array_key_exists('paidAmount', $updates);
+
             $this->touchUpdate('orders', $id, $payload);
             $this->applyResolvedProductStockUpdates($stockUpdates);
-            $this->syncCustomerOrderSummaries([
-                $previousCustomerId,
-                (string) ($payload['customer_id'] ?? $previousCustomerId),
-            ]);
+            if ($affectsCustomerSummary) {
+                $this->syncCustomerOrderSummaries([
+                    $previousCustomerId,
+                    (string) ($payload['customer_id'] ?? $previousCustomerId),
+                ]);
+            }
 
             $row = $this->fetchOrderRowById($id);
             if ($row === null) {

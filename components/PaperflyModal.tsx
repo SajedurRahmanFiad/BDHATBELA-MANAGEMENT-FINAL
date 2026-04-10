@@ -5,6 +5,7 @@ import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { submitPaperflyOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
 
 interface PaperflyModalProps {
@@ -17,6 +18,7 @@ interface PaperflyModalProps {
 export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, order, customer }) => {
   const queryClient = useQueryClient();
   const { data: courierSettings } = useCourierSettings();
+  const toast = useToastNotifications();
   const updateOrder = useUpdateOrder();
 
   const [storeName, setStoreName] = useState('');
@@ -117,10 +119,10 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
       }
 
       await updateOrder.mutateAsync({ id: order.id, updates });
-      await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
-      await queryClient.refetchQueries({ queryKey: ['order', order.id] });
 
       onClose();
+      void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+      toast.success('Order sent to Paperfly successfully');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {

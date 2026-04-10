@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { User, UserRole, hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
@@ -22,6 +22,30 @@ const Users: React.FC = () => {
   const roleFilter = (searchParams.get('role') as RoleFilter | null) || 'All';
   const { data: users = [], isPending: loading } = useUsers();
   const isAdmin = hasAdminAccess(user?.role);
+
+  // Track location to detect browser back navigation
+  const previousLocationRef = useRef<string>(location.pathname + location.search);
+  const [isNavigatingViaHistory, setIsNavigatingViaHistory] = React.useState(false);
+
+  React.useEffect(() => {
+    const currentLocation = location.pathname + location.search;
+    const prevLocation = previousLocationRef.current;
+
+    // Detect back navigation: same pathname but different search params
+    if (
+      location.pathname === prevLocation.split('?')[0] &&
+      currentLocation !== prevLocation &&
+      location.search !== ''
+    ) {
+      setIsNavigatingViaHistory(true);
+      const timer = setTimeout(() => setIsNavigatingViaHistory(false), 0);
+      previousLocationRef.current = currentLocation;
+      return () => clearTimeout(timer);
+    }
+
+    previousLocationRef.current = currentLocation;
+  }, [location.pathname, location.search]);
+
   const handleRoleFilterChange = (filter: RoleFilter) => {
     const next = new URLSearchParams(searchParams);
     if (filter === 'All') {
@@ -33,6 +57,8 @@ const Users: React.FC = () => {
   };
 
   React.useEffect(() => {
+    if (isNavigatingViaHistory) return;
+
     const params: Record<string, string> = {};
     if (searchQuery) params.search = searchQuery;
     if (roleFilter !== 'All') params.role = roleFilter;
@@ -40,7 +66,7 @@ const Users: React.FC = () => {
     if (new URLSearchParams(params).toString() !== currentSearchParams) {
       setSearchParams(params, { replace: true });
     }
-  }, [searchQuery, roleFilter, currentSearchParams, setSearchParams]);
+  }, [searchQuery, roleFilter, currentSearchParams, setSearchParams, isNavigatingViaHistory]);
 
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();

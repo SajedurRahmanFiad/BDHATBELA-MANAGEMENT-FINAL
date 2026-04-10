@@ -5,6 +5,7 @@ import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { submitSteadfastOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
 
 interface SteadfastModalProps {
@@ -17,6 +18,7 @@ interface SteadfastModalProps {
 export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose, order, customer }) => {
   const queryClient = useQueryClient();
   const { data: courierSettings } = useCourierSettings();
+  const toast = useToastNotifications();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const updateOrder = useUpdateOrder();
@@ -147,15 +149,13 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
         if (trackingOrConsignment) updates.steadfastConsignmentId = String(trackingOrConsignment);
 
         await updateOrder.mutateAsync({ id: order.id, updates });
-        
-        // Invalidate and refetch orders queries to ensure fresh data
-        await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
-        await queryClient.refetchQueries({ queryKey: ['order', order.id] });
         console.log('[SteadfastModal] Courier status updated and UI refreshed');
       } catch (err) {
         console.error('[SteadfastModal] Failed to update order:', err);
       }
       onClose();
+      void queryClient.invalidateQueries({ queryKey: ['orders'], exact: false });
+      toast.success('Order sent to Steadfast successfully');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMsg);

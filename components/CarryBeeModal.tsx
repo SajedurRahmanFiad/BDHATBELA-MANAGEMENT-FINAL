@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
 import { fetchCarryBeeCities, fetchCarryBeeZones, fetchCarryBeeAreas, submitCarryBeeOrder } from '../src/services/supabaseQueries';
 import { useCourierSettings } from '../src/hooks/useQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
+import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
 import { type Order, type Customer } from '../types';
 
@@ -20,8 +20,8 @@ interface Location {
 }
 
 export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, order, customer }) => {
-  const queryClient = useQueryClient();
   const { data: courierSettings } = useCourierSettings();
+  const toast = useToastNotifications();
   
   // State for basic fields
   const [weight, setWeight] = useState(1000);
@@ -307,7 +307,7 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
                   });
 
                   if (result.error) {
-                    alert(`Failed to send order: ${result.error}`);
+                    toast.error(`Failed to send order: ${result.error}`);
                   } else {
                     try {
                       // Extract consignment id from possible response shapes
@@ -341,21 +341,17 @@ export const CarryBeeModal: React.FC<CarryBeeModalProps> = ({ isOpen, onClose, o
 
                       console.log('[CarryBeeModal] Updating order with courier history:', updates);
                       await updateOrder.mutateAsync({ id: order.id, updates });
-                      
-                      // Refetch orders queries to ensure fresh data is displayed
-                      await queryClient.refetchQueries({ queryKey: ['orders'], type: 'active' });
-                      await queryClient.refetchQueries({ queryKey: ['order', order.id] });
                       console.log('[CarryBeeModal] Courier status updated and UI refreshed');
 
                     } catch (err) {
                       console.error('[CarryBeeModal] Failed to update order sent flag or consignment id:', err);
                     }
-                    alert('Order sent to CarryBee successfully!');
                     onClose();
+                    toast.success('Order sent to CarryBee successfully');
                   }
                 } catch (err) {
                   console.error('Error submitting order:', err);
-                  alert('Error sending order to CarryBee');
+                  toast.error('Error sending order to CarryBee');
                 } finally {
                   setSubmitting(false);
                 }

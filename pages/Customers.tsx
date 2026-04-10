@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Customer, hasAdminAccess } from '../types';
@@ -49,6 +49,29 @@ const Customers: React.FC = () => {
   const deleteCustomerMutation = useDeleteCustomer();
   const isAdmin = hasAdminAccess(user?.role);
 
+  // Track location to detect browser back navigation
+  const previousLocationRef = useRef<string>(location.pathname + location.search);
+  const [isNavigatingViaHistory, setIsNavigatingViaHistory] = React.useState(false);
+
+  React.useEffect(() => {
+    const currentLocation = location.pathname + location.search;
+    const prevLocation = previousLocationRef.current;
+
+    // Detect back navigation: same pathname but different search params
+    if (
+      location.pathname === prevLocation.split('?')[0] &&
+      currentLocation !== prevLocation &&
+      location.search !== ''
+    ) {
+      setIsNavigatingViaHistory(true);
+      const timer = setTimeout(() => setIsNavigatingViaHistory(false), 0);
+      previousLocationRef.current = currentLocation;
+      return () => clearTimeout(timer);
+    }
+
+    previousLocationRef.current = currentLocation;
+  }, [location.pathname, location.search]);
+
   useEffect(() => {
     if (!shouldHydrateFromUrl) return;
 
@@ -69,7 +92,7 @@ const Customers: React.FC = () => {
   }, [searchQuery, shouldHydrateFromUrl]);
 
   useEffect(() => {
-    if (shouldHydrateFromUrl) return;
+    if (shouldHydrateFromUrl || isNavigatingViaHistory) return;
 
     const params: Record<string, string> = {};
     if (effectivePage > 1) params.page = String(effectivePage);
@@ -78,7 +101,7 @@ const Customers: React.FC = () => {
     if (new URLSearchParams(params).toString() !== currentSearchParams) {
       setSearchParams(params, { replace: true });
     }
-  }, [shouldHydrateFromUrl, effectivePage, searchQuery, currentSearchParams, setSearchParams]);
+  }, [shouldHydrateFromUrl, isNavigatingViaHistory, effectivePage, searchQuery, currentSearchParams, setSearchParams]);
 
   // Server-side search is applied via the paginated hook. Keep client-side memo only for derived formatting.
   const filteredCustomers = customers;

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import PortalMenu from '../components/PortalMenu';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -157,8 +157,31 @@ const Orders: React.FC = () => {
 
   const { data: orderSettings } = useOrderSettings();
 
+  // Track location to detect browser back navigation
+  const previousLocationRef = useRef<string>(location.pathname + location.search);
+  const [isNavigatingViaHistory, setIsNavigatingViaHistory] = useState(false);
+
   useEffect(() => {
-    if (shouldHydrateFromUrl) return;
+    const currentLocation = location.pathname + location.search;
+    const prevLocation = previousLocationRef.current;
+
+    // Detect back navigation: same pathname but different search params
+    if (
+      location.pathname === prevLocation.split('?')[0] &&
+      currentLocation !== prevLocation &&
+      location.search !== ''
+    ) {
+      setIsNavigatingViaHistory(true);
+      const timer = setTimeout(() => setIsNavigatingViaHistory(false), 0);
+      previousLocationRef.current = currentLocation;
+      return () => clearTimeout(timer);
+    }
+
+    previousLocationRef.current = currentLocation;
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl || isNavigatingViaHistory) return;
 
     const params: Record<string, string> = {};
     if (effectivePage && effectivePage > 1) params.page = String(effectivePage);
@@ -174,6 +197,7 @@ const Orders: React.FC = () => {
     }
   }, [
     shouldHydrateFromUrl,
+    isNavigatingViaHistory,
     currentSearchParams,
     effectivePage,
     effectiveStatusTab,

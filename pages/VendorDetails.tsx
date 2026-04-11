@@ -6,6 +6,7 @@ import { formatCurrency, ICONS } from '../constants';
 import { theme } from '../theme';
 import { useVendor, useBillsByVendorId } from '../src/hooks/useQueries';
 import { buildHistoryBackState, getPreservedRouteState } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 
 const VendorDetails: React.FC = () => {
   const { id } = useParams();
@@ -14,6 +15,7 @@ const VendorDetails: React.FC = () => {
   const { data: vendor, isPending: loading } = useVendor(id || '');
   const { data: vendorBills = [] } = useBillsByVendorId(vendor?.id);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const { canAccessRecord } = useRolePermissions();
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading vendor details...</div>;
   if (!vendor) return <div className="p-8 text-center text-gray-500">Vendor not found.</div>;
@@ -126,7 +128,7 @@ const VendorDetails: React.FC = () => {
                           <span className="font-black text-gray-900">{formatCurrency(bill.total)}</span>
                         </td>
 
-                        {hoveredRow === bill.id && (
+                        {hoveredRow === bill.id && canAccessRecord(bill.createdBy, 'bills.editOwn', 'bills.editAny') && (
                           <td className="absolute inset-y-0 right-0 flex items-center pr-6 bg-gradient-to-l from-blue-50 via-blue-50 to-transparent">
                             <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-[#c7dff5] animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
                               <button title="Edit" onClick={() => navigate(`/bills/edit/${bill.id}`)} className={`p-2 text-gray-500 hover:${theme.colors.primary[600]} hover:bg-[#ebf4ff] rounded-md transition-colors`}>

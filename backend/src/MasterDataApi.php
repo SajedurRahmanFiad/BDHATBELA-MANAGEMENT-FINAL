@@ -1132,7 +1132,8 @@ final class MasterDataApi extends BaseService
 
             $permissions = $this->normalizeRolePermissions(
                 $roleConfig['permissions'] ?? null,
-                $this->defaultRolePermissions($roleName)
+                $this->defaultRolePermissions($roleName),
+                $roleName
             );
             $now = $this->database->nowUtc();
             $isCustom = !$this->isBuiltInPermissionRole($roleName);

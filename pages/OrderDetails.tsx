@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
-import { OrderStatus, Order, UserRole, hasAdminAccess, isEmployeeRole } from '../types';
+import { OrderStatus, Order } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
@@ -24,17 +24,7 @@ const OrderDetails: React.FC = () => {
   const toast = useToastNotifications();
   const { user: authUser } = useAuth();
   const user = authUser || db.currentUser;
-  const isAdmin = hasAdminAccess(user?.role);
-  const isEmployee = isEmployeeRole(user?.role);
-  const { can } = useRolePermissions();
-  const canEditOrders = can('orders.edit');
-  const canMoveOrdersToProcessing = can('orders.moveOnHoldToProcessing');
-  const canSendOrdersToCourier = can('orders.sendToCourier');
-  const canMoveOrdersToPicked = can('orders.moveToPicked');
-  const canMarkOrdersCompleted = can('orders.markCompleted');
-  const canMarkOrdersReturned = can('orders.markReturned');
-  const canFinalizeOrders = canMarkOrdersCompleted || canMarkOrdersReturned;
-  const canCancelOrders = can('orders.cancel');
+  const { can, canAccessRecord } = useRolePermissions();
   const createCompletionForm = (activeOrder?: Order | null): OrderCompletionFormState => ({
     outcome: 'Delivered',
     date: getTodayDate(),
@@ -74,10 +64,6 @@ const OrderDetails: React.FC = () => {
   // Get customer and created by user from query results
   // `customer` is obtained via `useCustomer` above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
-  const isOwner = order ? order.createdBy === user?.id : false;
-  const canEmployeeEditDraft = isEmployee && isOwner && order?.status === OrderStatus.ON_HOLD;
-  const canEditCurrentOrder = canEditOrders && (isAdmin || canEmployeeEditDraft || !isEmployee);
-  const canManageProcessing = canMoveOrdersToProcessing;
   const completionHistory = order?.history?.returned || order?.history?.completed || order?.history?.payment || '';
   const orderBranding = React.useMemo(
     () => getOrderCompanyPage(order, companySettings || db.settings.company),
@@ -89,6 +75,36 @@ const OrderDetails: React.FC = () => {
   if (!user) return <div className="p-8 text-center text-gray-500">Loading order access...</div>;
   if (loading) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
   if (orderError || !order) return <div className="p-8 text-center text-gray-500">{orderError?.message || 'Order not found.'}</div>;
+  const canEditCurrentOrder =
+    can('orders.editAny')
+    || (can('orders.editOwn') && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD);
+  const canMoveCurrentOrderToProcessing = canAccessRecord(
+    order.createdBy,
+    'orders.moveOnHoldToProcessingOwn',
+    'orders.moveOnHoldToProcessingAny',
+  );
+  const canSendCurrentOrderToCourierPermission = canAccessRecord(
+    order.createdBy,
+    'orders.sendToCourierOwn',
+    'orders.sendToCourierAny',
+  );
+  const canMoveCurrentOrderToPickedPermission = canAccessRecord(
+    order.createdBy,
+    'orders.moveToPickedOwn',
+    'orders.moveToPickedAny',
+  );
+  const canMarkCurrentOrderCompleted = canAccessRecord(
+    order.createdBy,
+    'orders.markCompletedOwn',
+    'orders.markCompletedAny',
+  );
+  const canMarkCurrentOrderReturned = canAccessRecord(
+    order.createdBy,
+    'orders.markReturnedOwn',
+    'orders.markReturnedAny',
+  );
+  const canFinalizeOrders = canMarkCurrentOrderCompleted || canMarkCurrentOrderReturned;
+  const canCancelCurrentOrder = canAccessRecord(order.createdBy, 'orders.cancelOwn', 'orders.cancelAny');
   const courierHistoryLower = String(order.history?.courier || '').toLowerCase();
   const sentToSteadfast = courierHistoryLower.includes('steadfast') || !!order.steadfastConsignmentId;
   const sentToCarryBee = courierHistoryLower.includes('carrybee') || !!order.carrybeeConsignmentId;
@@ -112,7 +128,7 @@ const OrderDetails: React.FC = () => {
   };
 
   const markProcessing = async () => {
-    if (!canMoveOrdersToProcessing) {
+    if (!canMoveCurrentOrderToProcessing) {
       toast.error('You do not have permission to move orders to processing.');
       return;
     }
@@ -121,7 +137,7 @@ const OrderDetails: React.FC = () => {
   };
 
   const markPicked = async () => {
-    if (!canMoveOrdersToPicked) {
+    if (!canMoveCurrentOrderToPickedPermission) {
       toast.error('You do not have permission to mark orders as picked.');
       return;
     }
@@ -132,11 +148,11 @@ const OrderDetails: React.FC = () => {
   const handleCompletePickedOrder = async () => {
     if (!order) return;
 
-    if (completionForm.outcome === 'Delivered' && !canMarkOrdersCompleted) {
+    if (completionForm.outcome === 'Delivered' && !canMarkCurrentOrderCompleted) {
       toast.error('You do not have permission to mark orders as completed.');
       return;
     }
-    if (completionForm.outcome === 'Returned' && !canMarkOrdersReturned) {
+    if (completionForm.outcome === 'Returned' && !canMarkCurrentOrderReturned) {
       toast.error('You do not have permission to mark orders as returned.');
       return;
     }
@@ -192,7 +208,7 @@ const OrderDetails: React.FC = () => {
   const openCompletion = () => {
     setCompletionForm({
       ...createCompletionForm(order),
-      outcome: canMarkOrdersCompleted ? 'Delivered' : 'Returned',
+      outcome: canMarkCurrentOrderCompleted ? 'Delivered' : 'Returned',
     });
     setShowCompletionModal(true);
   };
@@ -279,20 +295,20 @@ const OrderDetails: React.FC = () => {
   };
 
   const canSendCurrentOrderToCourier =
-    canSendOrdersToCourier
+    canSendCurrentOrderToCourierPermission
     && order.status !== OrderStatus.PICKED
     && order.status !== OrderStatus.COMPLETED
     && order.status !== OrderStatus.RETURNED
     && order.status !== OrderStatus.CANCELLED
     && order.status !== OrderStatus.ON_HOLD
     && !sentToAnyCourier;
-  const canMarkCurrentOrderPicked = canMoveOrdersToPicked && order.status === OrderStatus.PROCESSING;
+  const canMarkCurrentOrderPicked = canMoveCurrentOrderToPickedPermission && order.status === OrderStatus.PROCESSING;
   const canFinalizeCurrentOrder = canFinalizeOrders && order.status === OrderStatus.PICKED;
   const canShowActionsMenu =
     canEditCurrentOrder
     || canFinalizeCurrentOrder
     || sentToAnyCourier
-    || canCancelOrders;
+    || canCancelCurrentOrder;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -370,7 +386,7 @@ const OrderDetails: React.FC = () => {
                         {ICONS.Courier} Tracking
                       </button>
                     )}
-                    {canCancelOrders && (
+                    {canCancelCurrentOrder && (
                       <>
                         <div className="border-t my-1"></div>
                         <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
@@ -520,7 +536,7 @@ const OrderDetails: React.FC = () => {
           </div>
 
           {/* Process Section */}
-          {order.history?.processing || canManageProcessing || canSendCurrentOrderToCourier ? (
+          {order.history?.processing || canMoveCurrentOrderToProcessing || canSendCurrentOrderToCourier ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
@@ -534,7 +550,7 @@ const OrderDetails: React.FC = () => {
                     {order.history.processing}
                   </p>
                 ) : (
-                  canManageProcessing && (
+                  canMoveCurrentOrderToProcessing && (
                     <button 
                       disabled={order.status !== OrderStatus.ON_HOLD}
                       onClick={markProcessing}
@@ -576,7 +592,7 @@ const OrderDetails: React.FC = () => {
           ) : null}
 
           {/* Picked Section */}
-          {order.history.picked || canMoveOrdersToPicked ? (
+          {order.history.picked || canMoveCurrentOrderToPickedPermission ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">3. Courier Picked</h3>
@@ -590,7 +606,7 @@ const OrderDetails: React.FC = () => {
                     {order.history.picked}
                   </p>
                 ) : (
-                  canMoveOrdersToPicked && (
+                  canMoveCurrentOrderToPickedPermission && (
                     <button 
                       disabled={!canMarkCurrentOrderPicked}
                       onClick={markPicked}
@@ -668,8 +684,8 @@ const OrderDetails: React.FC = () => {
         form={completionForm}
         setForm={setCompletionForm}
         isLoading={completePickedOrderMutation.isPending}
-        allowDeliveredOutcome={canMarkOrdersCompleted}
-        allowReturnedOutcome={canMarkOrdersReturned}
+        allowDeliveredOutcome={canMarkCurrentOrderCompleted}
+        allowReturnedOutcome={canMarkCurrentOrderReturned}
       />
 
       <SteadfastModal 

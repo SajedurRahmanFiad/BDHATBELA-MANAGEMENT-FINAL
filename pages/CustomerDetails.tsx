@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Order, OrderStatus, hasAdminAccess, isEmployeeRole } from '../types';
+import { Order, OrderStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { useCustomer, useOrdersByCustomerId, useOrderSettings, useUsers } from '../src/hooks/useQueries';
 import { useCreateOrder } from '../src/hooks/useMutations';
@@ -28,12 +28,9 @@ const CustomerDetails: React.FC = () => {
   const createMutation = useCreateOrder();
   const toast = useToastNotifications();
 
-  const isAdmin = hasAdminAccess(user?.role);
-  const isEmployee = isEmployeeRole(user?.role);
-  const { can } = useRolePermissions();
+  const { can, canAccessRecord } = useRolePermissions();
   const canEditCustomers = can('customers.edit');
   const canCreateOrders = can('orders.create');
-  const canEditOrders = can('orders.edit');
   const userMap = useMemo(() => new Map(users.map((entry) => [entry.id, entry.name])), [users]);
 
   // Calculate totals from orders - MOVED TO TOP BEFORE CONDITIONALS
@@ -194,8 +191,11 @@ const CustomerDetails: React.FC = () => {
                       (() => {
                         const creatorName = order.creatorName || userMap.get(order.createdBy) || '—';
                         const canEditOrder =
-                          canEditOrders
-                          && (isAdmin || (isEmployee && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD) || !isEmployee);
+                          can('orders.editAny')
+                          || (
+                            canAccessRecord(order.createdBy, 'orders.editOwn', 'orders.editAny')
+                            && order.status === OrderStatus.ON_HOLD
+                          );
                         const canShowOrderActions = canEditOrder || canCreateOrders;
 
                         return (

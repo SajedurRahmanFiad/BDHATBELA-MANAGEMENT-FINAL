@@ -19,26 +19,40 @@ abstract class BaseService
         'dashboard.viewEmployee',
         'orders.view',
         'orders.create',
-        'orders.edit',
-        'orders.delete',
-        'orders.cancel',
-        'orders.moveOnHoldToProcessing',
-        'orders.sendToCourier',
-        'orders.moveToPicked',
-        'orders.markCompleted',
-        'orders.markReturned',
+        'orders.editOwn',
+        'orders.editAny',
+        'orders.deleteOwn',
+        'orders.deleteAny',
+        'orders.cancelOwn',
+        'orders.cancelAny',
+        'orders.moveOnHoldToProcessingOwn',
+        'orders.moveOnHoldToProcessingAny',
+        'orders.sendToCourierOwn',
+        'orders.sendToCourierAny',
+        'orders.moveToPickedOwn',
+        'orders.moveToPickedAny',
+        'orders.markCompletedOwn',
+        'orders.markCompletedAny',
+        'orders.markReturnedOwn',
+        'orders.markReturnedAny',
         'customers.view',
         'customers.create',
         'customers.edit',
         'customers.delete',
         'bills.view',
         'bills.create',
-        'bills.edit',
-        'bills.delete',
-        'bills.cancel',
-        'bills.moveOnHoldToProcessing',
-        'bills.markReceived',
-        'bills.markPaid',
+        'bills.editOwn',
+        'bills.editAny',
+        'bills.deleteOwn',
+        'bills.deleteAny',
+        'bills.cancelOwn',
+        'bills.cancelAny',
+        'bills.moveOnHoldToProcessingOwn',
+        'bills.moveOnHoldToProcessingAny',
+        'bills.markReceivedOwn',
+        'bills.markReceivedAny',
+        'bills.markPaidOwn',
+        'bills.markPaidAny',
         'transactions.view',
         'transactions.create',
         'transactions.edit',
@@ -67,7 +81,7 @@ abstract class BaseService
             'dashboard.viewEmployee' => true,
             'orders.view' => true,
             'orders.create' => true,
-            'orders.edit' => true,
+            'orders.editOwn' => true,
             'customers.view' => true,
             'customers.create' => true,
             'customers.edit' => true,
@@ -78,14 +92,38 @@ abstract class BaseService
             'dashboard.viewEmployee' => true,
             'orders.view' => true,
             'orders.create' => true,
-            'orders.edit' => true,
-            'orders.moveOnHoldToProcessing' => true,
+            'orders.editOwn' => true,
+            'orders.moveOnHoldToProcessingOwn' => true,
             'customers.view' => true,
             'customers.create' => true,
             'customers.edit' => true,
             'products.view' => true,
             'wallet.view' => true,
         ],
+    ];
+    protected const LEGACY_SCOPED_PERMISSION_KEYS = [
+        ['legacy' => 'orders.edit', 'own' => 'orders.editOwn', 'any' => 'orders.editAny'],
+        ['legacy' => 'orders.delete', 'own' => 'orders.deleteOwn', 'any' => 'orders.deleteAny'],
+        ['legacy' => 'orders.cancel', 'own' => 'orders.cancelOwn', 'any' => 'orders.cancelAny'],
+        [
+            'legacy' => 'orders.moveOnHoldToProcessing',
+            'own' => 'orders.moveOnHoldToProcessingOwn',
+            'any' => 'orders.moveOnHoldToProcessingAny',
+        ],
+        ['legacy' => 'orders.sendToCourier', 'own' => 'orders.sendToCourierOwn', 'any' => 'orders.sendToCourierAny'],
+        ['legacy' => 'orders.moveToPicked', 'own' => 'orders.moveToPickedOwn', 'any' => 'orders.moveToPickedAny'],
+        ['legacy' => 'orders.markCompleted', 'own' => 'orders.markCompletedOwn', 'any' => 'orders.markCompletedAny'],
+        ['legacy' => 'orders.markReturned', 'own' => 'orders.markReturnedOwn', 'any' => 'orders.markReturnedAny'],
+        ['legacy' => 'bills.edit', 'own' => 'bills.editOwn', 'any' => 'bills.editAny'],
+        ['legacy' => 'bills.delete', 'own' => 'bills.deleteOwn', 'any' => 'bills.deleteAny'],
+        ['legacy' => 'bills.cancel', 'own' => 'bills.cancelOwn', 'any' => 'bills.cancelAny'],
+        [
+            'legacy' => 'bills.moveOnHoldToProcessing',
+            'own' => 'bills.moveOnHoldToProcessingOwn',
+            'any' => 'bills.moveOnHoldToProcessingAny',
+        ],
+        ['legacy' => 'bills.markReceived', 'own' => 'bills.markReceivedOwn', 'any' => 'bills.markReceivedAny'],
+        ['legacy' => 'bills.markPaid', 'own' => 'bills.markPaidOwn', 'any' => 'bills.markPaidAny'],
     ];
 
     protected Database $database;
@@ -921,6 +959,11 @@ abstract class BaseService
         return in_array($this->normalizeRoleName($role), self::BUILT_IN_PERMISSION_ROLES, true);
     }
 
+    protected function legacyPermissionGrantsAnyAccess(string $role): bool
+    {
+        return !$this->isBuiltInPermissionRole($role);
+    }
+
     /**
      * @return array<string, bool>
      */
@@ -973,10 +1016,11 @@ abstract class BaseService
      * @param array<string, bool>|null $fallback
      * @return array<string, bool>
      */
-    protected function normalizeRolePermissions($value, ?array $fallback = null): array
+    protected function normalizeRolePermissions($value, ?array $fallback = null, ?string $roleName = null): array
     {
         $raw = is_array($value) ? $value : $this->jsonDecodeAssoc($value);
         $permissions = $this->blankRolePermissions();
+        $normalizedRole = $this->normalizeRoleName((string) ($roleName ?? ''));
 
         foreach (self::ROLE_PERMISSION_KEYS as $key) {
             if (array_key_exists($key, $raw)) {
@@ -986,6 +1030,24 @@ abstract class BaseService
 
             if ($fallback !== null && array_key_exists($key, $fallback)) {
                 $permissions[$key] = (bool) $fallback[$key];
+            }
+        }
+
+        foreach (self::LEGACY_SCOPED_PERMISSION_KEYS as $config) {
+            $legacyKey = (string) ($config['legacy'] ?? '');
+            $ownKey = (string) ($config['own'] ?? '');
+            $anyKey = (string) ($config['any'] ?? '');
+
+            if ($legacyKey === '' || !array_key_exists($legacyKey, $raw) || !is_bool($raw[$legacyKey])) {
+                continue;
+            }
+
+            if ($ownKey !== '' && !array_key_exists($ownKey, $raw)) {
+                $permissions[$ownKey] = (bool) $raw[$legacyKey];
+            }
+
+            if ($anyKey !== '' && !array_key_exists($anyKey, $raw)) {
+                $permissions[$anyKey] = (bool) $raw[$legacyKey] && $this->legacyPermissionGrantsAnyAccess($normalizedRole);
             }
         }
 
@@ -1038,7 +1100,7 @@ abstract class BaseService
             $rolesByName[$roleName] = [
                 'roleName' => $roleName,
                 'isCustom' => !$this->isBuiltInPermissionRole($roleName),
-                'permissions' => $this->normalizeRolePermissions($row['permissions'] ?? null, $defaultPermissions),
+                'permissions' => $this->normalizeRolePermissions($row['permissions'] ?? null, $defaultPermissions, $roleName),
                 'createdAt' => $this->toIso($row['created_at'] ?? null),
                 'updatedAt' => $this->toIso($row['updated_at'] ?? null),
             ];
@@ -1076,7 +1138,8 @@ abstract class BaseService
             if ($this->normalizeRoleName((string) ($roleConfig['roleName'] ?? '')) === $normalizedRole) {
                 return $this->normalizeRolePermissions(
                     $roleConfig['permissions'] ?? null,
-                    $this->defaultRolePermissions($normalizedRole)
+                    $this->defaultRolePermissions($normalizedRole),
+                    $normalizedRole
                 );
             }
         }
@@ -1098,6 +1161,27 @@ abstract class BaseService
     {
         $user = $this->currentUser();
         return $this->roleHasPermission((string) ($user['role'] ?? ''), $permission);
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     */
+    protected function userHasScopedPermissionForRecord(array $user, ?string $createdBy, string $ownPermission, string $anyPermission): bool
+    {
+        $role = (string) ($user['role'] ?? '');
+        if ($this->roleHasPermission($role, $anyPermission)) {
+            return true;
+        }
+
+        $normalizedCreatedBy = trim((string) ($createdBy ?? ''));
+        return $normalizedCreatedBy !== ''
+            && $normalizedCreatedBy === (string) ($user['id'] ?? '')
+            && $this->roleHasPermission($role, $ownPermission);
+    }
+
+    protected function currentUserHasScopedPermissionForRecord(?string $createdBy, string $ownPermission, string $anyPermission): bool
+    {
+        return $this->userHasScopedPermissionForRecord($this->currentUser(), $createdBy, $ownPermission, $anyPermission);
     }
 
     protected function isEmployeeRole(string $role): bool

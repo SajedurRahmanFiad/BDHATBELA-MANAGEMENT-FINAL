@@ -77,7 +77,7 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
   const isAuthenticated = !!user;
   const activeUser = profile || user;
   const isAdmin = hasAdminAccess(activeUser?.role);
-  const { can, canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
+  const { can, canAny, canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
   const writeFreezeEnabled = WRITE_FREEZE_ENABLED;
   const canViewDashboard = canViewAdminDashboard || canViewEmployeeDashboard;
   const defaultProtectedRoute = canViewDashboard
@@ -133,7 +133,7 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? (can('orders.create') ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/edit/:id" element={
-        isAuthenticated ? (can('orders.edit') ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
+        isAuthenticated ? (canAny(['orders.editOwn', 'orders.editAny']) ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/:id" element={
         isAuthenticated ? (can('orders.view') ? <Layout><OrderDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
@@ -149,7 +149,7 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
         isAuthenticated ? (can('bills.create') ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/edit/:id" element={
-        isAuthenticated ? (can('bills.edit') ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
+        isAuthenticated ? (canAny(['bills.editOwn', 'bills.editAny']) ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/:id" element={
         isAuthenticated ? (can('bills.view') ? <Layout><BillDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />

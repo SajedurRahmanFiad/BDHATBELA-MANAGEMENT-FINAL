@@ -27,13 +27,8 @@ const Orders: React.FC = () => {
   const toast = useToastNotifications();
   const { user, isLoading: authLoading } = useAuth();
   const isEmployee = isEmployeeRole(user?.role);
-  const { can } = useRolePermissions();
+  const { can, canAccessRecord } = useRolePermissions();
   const canCreateOrders = can('orders.create');
-  const canEditOrders = can('orders.edit');
-  const canSendOrdersToCourier = can('orders.sendToCourier');
-  const canMarkOrdersCompleted = can('orders.markCompleted');
-  const canMarkOrdersReturned = can('orders.markReturned');
-  const canFinalizePickedOrders = canMarkOrdersCompleted || canMarkOrdersReturned;
   const createCompletionForm = (order?: Order | null): OrderCompletionFormState => ({
     outcome: 'Delivered',
     date: getTodayDate(),
@@ -297,10 +292,21 @@ const Orders: React.FC = () => {
     }
   };
 
+  const canEditOrder = (order: Order) => {
+    if (can('orders.editAny')) return true;
+    return can('orders.editOwn') && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD;
+  };
+
+  const canDeliverOrder = (order: Order) =>
+    canAccessRecord(order.createdBy, 'orders.markCompletedOwn', 'orders.markCompletedAny');
+
+  const canReturnOrder = (order: Order) =>
+    canAccessRecord(order.createdBy, 'orders.markReturnedOwn', 'orders.markReturnedAny');
+
   const openCompletionModal = (order: Order) => {
     setCompletionForm({
       ...createCompletionForm(order),
-      outcome: canMarkOrdersCompleted ? 'Delivered' : 'Returned',
+      outcome: canDeliverOrder(order) ? 'Delivered' : 'Returned',
     });
     setCompletionOrder(order);
   };
@@ -309,11 +315,14 @@ const Orders: React.FC = () => {
     if (!completionOrder) return;
 
     try {
-      if (completionForm.outcome === 'Delivered' && !canMarkOrdersCompleted) {
+      const canMarkCompletionOrderDelivered = canDeliverOrder(completionOrder);
+      const canMarkCompletionOrderReturned = canReturnOrder(completionOrder);
+
+      if (completionForm.outcome === 'Delivered' && !canMarkCompletionOrderDelivered) {
         toast.error('You do not have permission to mark orders as completed.');
         return;
       }
-      if (completionForm.outcome === 'Returned' && !canMarkOrdersReturned) {
+      if (completionForm.outcome === 'Returned' && !canMarkCompletionOrderReturned) {
         toast.error('You do not have permission to mark orders as returned.');
         return;
       }
@@ -413,17 +422,8 @@ const Orders: React.FC = () => {
     toast.warning('Tracking unavailable');
   };
 
-  const canEditOrder = (order: Order) => {
-    if (!canEditOrders) return false;
-    if (hasAdminAccess(user?.role)) return true;
-    if (isEmployee) {
-      return order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD;
-    }
-    return true;
-  };
-
   const canSendOrderToCourier = (order: Order, sentToAnyCourier: boolean) => (
-    canSendOrdersToCourier
+    canAccessRecord(order.createdBy, 'orders.sendToCourierOwn', 'orders.sendToCourierAny')
       && order.status !== OrderStatus.PICKED
       && order.status !== OrderStatus.COMPLETED
       && order.status !== OrderStatus.RETURNED
@@ -481,7 +481,7 @@ const Orders: React.FC = () => {
           </select>
           {isEmployee && (
             <p className="text-xs font-semibold text-gray-500">
-              You can review all team orders here. Edit remains limited to your own draft orders.
+              Order actions follow your role permissions, including whether an action is limited to your own records or all users.
             </p>
           )}
         </div>
@@ -511,7 +511,6 @@ const Orders: React.FC = () => {
               ) : displayedOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
               ) : displayedOrders.map((order) => {
-                const isOwner = order.createdBy === user?.id;
                 const custName = order.customerName ?? 'Unknown';
                 const courierHistory = String(order.history?.courier || '').toLowerCase();
                 const sentToSteadfast = courierHistory.includes('steadfast') || !!order.steadfastConsignmentId;
@@ -519,7 +518,8 @@ const Orders: React.FC = () => {
                 const sentToPaperfly = courierHistory.includes('paperfly') || !!order.paperflyTrackingNumber;
                 const sentToAnyCourier = sentToSteadfast || sentToCarryBee || sentToPaperfly;
                 const canEditSelectedOrder = canEditOrder(order);
-                const canFinalizeSelectedOrder = order.status === OrderStatus.PICKED && canFinalizePickedOrders;
+                const canFinalizeSelectedOrder =
+                  order.status === OrderStatus.PICKED && (canDeliverOrder(order) || canReturnOrder(order));
                 const canSendSelectedOrderToCourier = canSendOrderToCourier(order, sentToAnyCourier);
                 const canTrackSelectedOrder = sentToAnyCourier;
                 const hasRowActions =
@@ -669,8 +669,8 @@ const Orders: React.FC = () => {
         form={completionForm}
         setForm={setCompletionForm}
         isLoading={completePickedOrderMutation.isPending}
-        allowDeliveredOutcome={canMarkOrdersCompleted}
-        allowReturnedOutcome={canMarkOrdersReturned}
+        allowDeliveredOutcome={completionOrder ? canDeliverOrder(completionOrder) : false}
+        allowReturnedOutcome={completionOrder ? canReturnOrder(completionOrder) : false}
       />
 
       <SteadfastModal 

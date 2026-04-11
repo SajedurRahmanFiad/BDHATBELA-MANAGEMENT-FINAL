@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { db } from '../db';
-import { Bill, BillStatus, OrderItem, Vendor, UserRole } from '../types';
+import { BillStatus, OrderItem } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -11,12 +11,14 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { fetchProductsMini, fetchProductsSearch, fetchVendors, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const user = db.currentUser;
+  const { canAccessRecord } = useRolePermissions();
   const isEdit = Boolean(id);
 
   // Safety check
@@ -125,6 +127,12 @@ const BillForm: React.FC = () => {
   // Initialize form with existing bill data when loaded
   React.useEffect(() => {
     if (existingBillData) {
+      if (isEdit && !canAccessRecord(existingBillData.createdBy, 'bills.editOwn', 'bills.editAny')) {
+        toast.warning('You do not have permission to edit this bill.');
+        navigate('/bills');
+        return;
+      }
+
       setVendorId(existingBillData.vendorId);
       setBillDate(existingBillData.billDate);
       setBillNumber(existingBillData.billNumber);
@@ -135,7 +143,7 @@ const BillForm: React.FC = () => {
     } else if (!isEdit) {
       setBillNumber(`PUR-${Math.floor(1000 + Math.random() * 9000)}`);
     }
-  }, [existingBillData, isEdit]);
+  }, [canAccessRecord, existingBillData, isEdit, navigate, toast]);
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const total = subtotal - discount + shipping;

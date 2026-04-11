@@ -10,6 +10,51 @@ import {
 export const RESERVED_PERMISSION_ROLES = [UserRole.ADMIN, UserRole.DEVELOPER] as const;
 export const BUILT_IN_PERMISSION_ROLES = [UserRole.EMPLOYEE, UserRole.EMPLOYEE1] as const;
 
+const LEGACY_SCOPED_PERMISSION_KEYS: Array<{
+  legacyKey: string;
+  ownKey: PermissionKey;
+  anyKey: PermissionKey;
+}> = [
+  { legacyKey: 'orders.edit', ownKey: 'orders.editOwn', anyKey: 'orders.editAny' },
+  { legacyKey: 'orders.delete', ownKey: 'orders.deleteOwn', anyKey: 'orders.deleteAny' },
+  { legacyKey: 'orders.cancel', ownKey: 'orders.cancelOwn', anyKey: 'orders.cancelAny' },
+  {
+    legacyKey: 'orders.moveOnHoldToProcessing',
+    ownKey: 'orders.moveOnHoldToProcessingOwn',
+    anyKey: 'orders.moveOnHoldToProcessingAny',
+  },
+  { legacyKey: 'orders.sendToCourier', ownKey: 'orders.sendToCourierOwn', anyKey: 'orders.sendToCourierAny' },
+  { legacyKey: 'orders.moveToPicked', ownKey: 'orders.moveToPickedOwn', anyKey: 'orders.moveToPickedAny' },
+  {
+    legacyKey: 'orders.markCompleted',
+    ownKey: 'orders.markCompletedOwn',
+    anyKey: 'orders.markCompletedAny',
+  },
+  {
+    legacyKey: 'orders.markReturned',
+    ownKey: 'orders.markReturnedOwn',
+    anyKey: 'orders.markReturnedAny',
+  },
+  { legacyKey: 'bills.edit', ownKey: 'bills.editOwn', anyKey: 'bills.editAny' },
+  { legacyKey: 'bills.delete', ownKey: 'bills.deleteOwn', anyKey: 'bills.deleteAny' },
+  { legacyKey: 'bills.cancel', ownKey: 'bills.cancelOwn', anyKey: 'bills.cancelAny' },
+  {
+    legacyKey: 'bills.moveOnHoldToProcessing',
+    ownKey: 'bills.moveOnHoldToProcessingOwn',
+    anyKey: 'bills.moveOnHoldToProcessingAny',
+  },
+  {
+    legacyKey: 'bills.markReceived',
+    ownKey: 'bills.markReceivedOwn',
+    anyKey: 'bills.markReceivedAny',
+  },
+  { legacyKey: 'bills.markPaid', ownKey: 'bills.markPaidOwn', anyKey: 'bills.markPaidAny' },
+];
+
+function legacyPermissionGrantsAnyAccess(roleName: string): boolean {
+  return !BUILT_IN_PERMISSION_ROLES.includes(normalizeRoleName(roleName) as (typeof BUILT_IN_PERMISSION_ROLES)[number]);
+}
+
 export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
     key: 'allPrivileges',
@@ -43,51 +88,99 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     section: 'Orders',
   },
   {
-    key: 'orders.edit',
-    label: 'Edit Orders',
-    description: 'Edit existing orders.',
+    key: 'orders.editOwn',
+    label: 'Edit Own Orders',
+    description: 'Edit orders created by the current user.',
     section: 'Orders',
   },
   {
-    key: 'orders.delete',
-    label: 'Delete Orders',
-    description: 'Archive or remove orders.',
+    key: 'orders.editAny',
+    label: 'Edit Any Orders',
+    description: 'Edit orders created by any user.',
     section: 'Orders',
   },
   {
-    key: 'orders.cancel',
-    label: 'Cancel Orders',
-    description: 'Mark orders as cancelled.',
+    key: 'orders.deleteOwn',
+    label: 'Delete Own Orders',
+    description: 'Archive or remove orders created by the current user.',
     section: 'Orders',
   },
   {
-    key: 'orders.moveOnHoldToProcessing',
-    label: 'Orders: On Hold to Processing',
-    description: 'Move order status from On Hold to Processing.',
+    key: 'orders.deleteAny',
+    label: 'Delete Any Orders',
+    description: 'Archive or remove orders created by any user.',
     section: 'Orders',
   },
   {
-    key: 'orders.sendToCourier',
-    label: 'Orders: Send to Courier',
-    description: 'Submit orders to courier services.',
+    key: 'orders.cancelOwn',
+    label: 'Cancel Own Orders',
+    description: 'Mark orders created by the current user as cancelled.',
     section: 'Orders',
   },
   {
-    key: 'orders.moveToPicked',
-    label: 'Orders: Move to Picked',
-    description: 'Mark courier orders as picked.',
+    key: 'orders.cancelAny',
+    label: 'Cancel Any Orders',
+    description: 'Mark orders created by any user as cancelled.',
     section: 'Orders',
   },
   {
-    key: 'orders.markCompleted',
-    label: 'Orders: Mark Completed',
-    description: 'Finalize delivered orders.',
+    key: 'orders.moveOnHoldToProcessingOwn',
+    label: 'Orders: On Hold to Processing (Own)',
+    description: 'Move the current user’s On Hold orders to Processing.',
     section: 'Orders',
   },
   {
-    key: 'orders.markReturned',
-    label: 'Orders: Mark Returned',
-    description: 'Finalize returned orders.',
+    key: 'orders.moveOnHoldToProcessingAny',
+    label: 'Orders: On Hold to Processing (Any)',
+    description: 'Move any user’s On Hold orders to Processing.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.sendToCourierOwn',
+    label: 'Orders: Send to Courier (Own)',
+    description: 'Submit the current user’s orders to courier services.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.sendToCourierAny',
+    label: 'Orders: Send to Courier (Any)',
+    description: 'Submit any user’s orders to courier services.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.moveToPickedOwn',
+    label: 'Orders: Move to Picked (Own)',
+    description: 'Mark the current user’s courier orders as picked.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.moveToPickedAny',
+    label: 'Orders: Move to Picked (Any)',
+    description: 'Mark any user’s courier orders as picked.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.markCompletedOwn',
+    label: 'Orders: Mark Completed (Own)',
+    description: 'Finalize delivered orders created by the current user.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.markCompletedAny',
+    label: 'Orders: Mark Completed (Any)',
+    description: 'Finalize delivered orders created by any user.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.markReturnedOwn',
+    label: 'Orders: Mark Returned (Own)',
+    description: 'Finalize returned orders created by the current user.',
+    section: 'Orders',
+  },
+  {
+    key: 'orders.markReturnedAny',
+    label: 'Orders: Mark Returned (Any)',
+    description: 'Finalize returned orders created by any user.',
     section: 'Orders',
   },
   {
@@ -127,39 +220,75 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     section: 'Bills',
   },
   {
-    key: 'bills.edit',
-    label: 'Edit Bills',
-    description: 'Edit existing bills.',
+    key: 'bills.editOwn',
+    label: 'Edit Own Bills',
+    description: 'Edit bills created by the current user.',
     section: 'Bills',
   },
   {
-    key: 'bills.delete',
-    label: 'Delete Bills',
-    description: 'Archive or remove bills.',
+    key: 'bills.editAny',
+    label: 'Edit Any Bills',
+    description: 'Edit bills created by any user.',
     section: 'Bills',
   },
   {
-    key: 'bills.cancel',
-    label: 'Cancel Bills',
-    description: 'Cancel bills when needed.',
+    key: 'bills.deleteOwn',
+    label: 'Delete Own Bills',
+    description: 'Archive or remove bills created by the current user.',
     section: 'Bills',
   },
   {
-    key: 'bills.moveOnHoldToProcessing',
-    label: 'Bills: On Hold to Processing',
-    description: 'Move bill status from On Hold to Processing.',
+    key: 'bills.deleteAny',
+    label: 'Delete Any Bills',
+    description: 'Archive or remove bills created by any user.',
     section: 'Bills',
   },
   {
-    key: 'bills.markReceived',
-    label: 'Bills: Mark Received',
-    description: 'Mark incoming bills as received.',
+    key: 'bills.cancelOwn',
+    label: 'Cancel Own Bills',
+    description: 'Revert bills created by the current user back to On Hold.',
     section: 'Bills',
   },
   {
-    key: 'bills.markPaid',
-    label: 'Bills: Mark Paid',
-    description: 'Mark bills as paid.',
+    key: 'bills.cancelAny',
+    label: 'Cancel Any Bills',
+    description: 'Revert bills created by any user back to On Hold.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.moveOnHoldToProcessingOwn',
+    label: 'Bills: On Hold to Processing (Own)',
+    description: 'Move the current user’s On Hold bills to Processing.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.moveOnHoldToProcessingAny',
+    label: 'Bills: On Hold to Processing (Any)',
+    description: 'Move any user’s On Hold bills to Processing.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.markReceivedOwn',
+    label: 'Bills: Mark Received (Own)',
+    description: 'Mark the current user’s incoming bills as received.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.markReceivedAny',
+    label: 'Bills: Mark Received (Any)',
+    description: 'Mark any user’s incoming bills as received.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.markPaidOwn',
+    label: 'Bills: Mark Paid (Own)',
+    description: 'Record payments for bills created by the current user.',
+    section: 'Bills',
+  },
+  {
+    key: 'bills.markPaidAny',
+    label: 'Bills: Mark Paid (Any)',
+    description: 'Record payments for bills created by any user.',
     section: 'Bills',
   },
   {
@@ -326,7 +455,7 @@ export const DEFAULT_ROLE_PERMISSION_SETTINGS: PermissionsSettings = {
         'dashboard.viewEmployee',
         'orders.view',
         'orders.create',
-        'orders.edit',
+        'orders.editOwn',
         'customers.view',
         'customers.create',
         'customers.edit',
@@ -341,8 +470,8 @@ export const DEFAULT_ROLE_PERMISSION_SETTINGS: PermissionsSettings = {
         'dashboard.viewEmployee',
         'orders.view',
         'orders.create',
-        'orders.edit',
-        'orders.moveOnHoldToProcessing',
+        'orders.editOwn',
+        'orders.moveOnHoldToProcessingOwn',
         'customers.view',
         'customers.create',
         'customers.edit',
@@ -366,18 +495,35 @@ export function isBuiltInPermissionRole(roleName: string): boolean {
 }
 
 export function normalizeRolePermissionMap(
-  value: Partial<Record<PermissionKey, unknown>> | undefined | null,
+  value: Partial<Record<string, unknown>> | undefined | null,
   fallback?: Partial<RolePermissionMap>,
+  roleName?: string,
 ): RolePermissionMap {
+  const raw = value || {};
   const next = createBlankPermissionMap();
   for (const key of STORED_PERMISSION_KEYS) {
-    const candidate = value?.[key];
+    const candidate = raw[key];
     if (typeof candidate === 'boolean') {
       next[key] = candidate;
       continue;
     }
     next[key] = Boolean(fallback?.[key]);
   }
+
+  const normalizedRoleName = normalizeRoleName(String(roleName || ''));
+  for (const { legacyKey, ownKey, anyKey } of LEGACY_SCOPED_PERMISSION_KEYS) {
+    const legacyValue = raw[legacyKey];
+    if (typeof legacyValue !== 'boolean') {
+      continue;
+    }
+    if (typeof raw[ownKey] !== 'boolean') {
+      next[ownKey] = legacyValue;
+    }
+    if (typeof raw[anyKey] !== 'boolean') {
+      next[anyKey] = legacyValue && legacyPermissionGrantsAnyAccess(normalizedRoleName);
+    }
+  }
+
   return next;
 }
 
@@ -386,7 +532,7 @@ export function getDefaultPermissionsForRole(roleName: string): RolePermissionMa
   const builtIn = DEFAULT_ROLE_PERMISSION_SETTINGS.roles.find((role) => role.roleName === normalizedRoleName);
 
   if (builtIn) {
-    return normalizeRolePermissionMap(builtIn.permissions);
+    return normalizeRolePermissionMap(builtIn.permissions, undefined, builtIn.roleName);
   }
 
   if (isReservedPermissionRole(normalizedRoleName)) {
@@ -410,7 +556,7 @@ export function normalizePermissionRoleConfig(
   return {
     roleName,
     isCustom: !isBuiltInPermissionRole(roleName),
-    permissions: normalizeRolePermissionMap(value?.permissions, getDefaultPermissionsForRole(roleName)),
+    permissions: normalizeRolePermissionMap(value?.permissions, getDefaultPermissionsForRole(roleName), roleName),
     createdAt: value?.createdAt ?? null,
     updatedAt: value?.updatedAt ?? null,
   };
@@ -422,7 +568,7 @@ export function normalizePermissionsSettings(value: Partial<PermissionsSettings>
   for (const role of DEFAULT_ROLE_PERMISSION_SETTINGS.roles) {
     mergedByRole.set(role.roleName, {
       ...role,
-      permissions: normalizeRolePermissionMap(role.permissions),
+      permissions: normalizeRolePermissionMap(role.permissions, undefined, role.roleName),
     });
   }
 
@@ -482,7 +628,7 @@ export function getRolePermissions(
 
   const settings = normalizePermissionsSettings(value);
   const role = settings.roles.find((candidate) => candidate.roleName === normalizedRoleName);
-  return normalizeRolePermissionMap(role?.permissions, getDefaultPermissionsForRole(normalizedRoleName));
+  return normalizeRolePermissionMap(role?.permissions, getDefaultPermissionsForRole(normalizedRoleName), normalizedRoleName);
 }
 
 export function roleHasPermission(
@@ -496,6 +642,34 @@ export function roleHasPermission(
 
 export function areAllPrivilegesEnabled(permissions: RolePermissionMap): boolean {
   return STORED_PERMISSION_KEYS.every((key) => Boolean(permissions[key]));
+}
+
+export function permissionMapHasAnyPermission(
+  permissions: Partial<RolePermissionMap> | null | undefined,
+  permissionKeys: PermissionKey[],
+): boolean {
+  return permissionKeys.some((permissionKey) => Boolean(permissions?.[permissionKey]));
+}
+
+export function hasScopedPermission(
+  permissions: Partial<RolePermissionMap> | null | undefined,
+  currentUserId: string | null | undefined,
+  createdBy: string | null | undefined,
+  ownPermissionKey: PermissionKey,
+  anyPermissionKey: PermissionKey,
+): boolean {
+  if (Boolean(permissions?.[anyPermissionKey])) {
+    return true;
+  }
+
+  const normalizedCurrentUserId = String(currentUserId || '').trim();
+  const normalizedCreatedBy = String(createdBy || '').trim();
+  return (
+    normalizedCurrentUserId !== ''
+    && normalizedCreatedBy !== ''
+    && normalizedCurrentUserId === normalizedCreatedBy
+    && Boolean(permissions?.[ownPermissionKey])
+  );
 }
 
 export function getAssignableUserRoles(

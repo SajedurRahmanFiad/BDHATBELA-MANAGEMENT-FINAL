@@ -19,12 +19,7 @@ const BillDetails: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = db.currentUser;
-  const { can } = useRolePermissions();
-  const canEditBills = can('bills.edit');
-  const canMoveBillsToProcessing = can('bills.moveOnHoldToProcessing');
-  const canMarkBillsReceived = can('bills.markReceived');
-  const canMarkBillsPaid = can('bills.markPaid');
-  const canCancelBills = can('bills.cancel');
+  const { canAccessRecord } = useRolePermissions();
   
   // Query data
   const { data: bill, isPending: billLoading, error: billError } = useBill(id || '');
@@ -59,6 +54,19 @@ const BillDetails: React.FC = () => {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading bill...</div>;
   if (billError || !bill) return <div className="p-8 text-center text-gray-500">{billError?.message || 'Bill not found.'}</div>;
+  const canEditCurrentBill = canAccessRecord(bill.createdBy, 'bills.editOwn', 'bills.editAny');
+  const canMoveCurrentBillToProcessing = canAccessRecord(
+    bill.createdBy,
+    'bills.moveOnHoldToProcessingOwn',
+    'bills.moveOnHoldToProcessingAny',
+  );
+  const canMarkCurrentBillReceived = canAccessRecord(
+    bill.createdBy,
+    'bills.markReceivedOwn',
+    'bills.markReceivedAny',
+  );
+  const canMarkCurrentBillPaid = canAccessRecord(bill.createdBy, 'bills.markPaidOwn', 'bills.markPaidAny');
+  const canCancelCurrentBill = canAccessRecord(bill.createdBy, 'bills.cancelOwn', 'bills.cancelAny');
 
   const updateStatus = async (newStatus: BillStatus, historyKey?: keyof Exclude<Bill['history'], undefined>, historyText?: string) => {
     if (!bill) return;
@@ -77,7 +85,7 @@ const BillDetails: React.FC = () => {
   };
 
   const markProcessing = async () => {
-    if (!canMoveBillsToProcessing) {
+    if (!canMoveCurrentBillToProcessing) {
       toast.error('You do not have permission to move bills to processing.');
       return;
     }
@@ -86,7 +94,7 @@ const BillDetails: React.FC = () => {
   };
 
   const markReceived = async () => {
-    if (!canMarkBillsReceived) {
+    if (!canMarkCurrentBillReceived) {
       toast.error('You do not have permission to mark bills as received.');
       return;
     }
@@ -95,7 +103,7 @@ const BillDetails: React.FC = () => {
   };
 
   const cancelBill = async () => {
-    if (!canCancelBills) {
+    if (!canCancelCurrentBill) {
       toast.error('You do not have permission to cancel bills.');
       return;
     }
@@ -105,7 +113,7 @@ const BillDetails: React.FC = () => {
 
   const handlePayment = async () => {
     if (!bill) return;
-    if (!canMarkBillsPaid) {
+    if (!canMarkCurrentBillPaid) {
       toast.error('You do not have permission to record bill payments.');
       return;
     }
@@ -165,7 +173,7 @@ const BillDetails: React.FC = () => {
 
   const openPayment = () => {
     if (!bill) return;
-    if (!canMarkBillsPaid) {
+    if (!canMarkCurrentBillPaid) {
       toast.error('You do not have permission to record bill payments.');
       return;
     }
@@ -179,11 +187,11 @@ const BillDetails: React.FC = () => {
   };
 
   const canShowActionsMenu =
-    canEditBills
-    || canMoveBillsToProcessing
-    || canMarkBillsReceived
-    || canMarkBillsPaid
-    || canCancelBills;
+    canEditCurrentBill
+    || canMoveCurrentBillToProcessing
+    || canMarkCurrentBillReceived
+    || canMarkCurrentBillPaid
+    || canCancelCurrentBill;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -229,11 +237,11 @@ const BillDetails: React.FC = () => {
                   <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-50 py-2">
                     <button onClick={() => { handlePrintBill(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
                     <div className="md:hidden border-t my-1"></div>
-                    {canMoveBillsToProcessing && <button disabled={bill.status === BillStatus.PAID} onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Processing</button>}
-                    {canMarkBillsReceived && <button disabled={bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID} onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Received</button>}
-                    {canCancelBills && <button disabled={bill.status === BillStatus.PAID || bill.status === BillStatus.ON_HOLD} onClick={() => { cancelBill(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Cancel Bill</button>}
-                    {canMarkBillsPaid && <button onClick={() => { openPayment(); setIsActionOpen(false); }} disabled={bill.paidAmount >= bill.total} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Record Payment</button>}
-                    {canEditBills && <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Edit Bill</button>}
+                    {canMoveCurrentBillToProcessing && <button disabled={bill.status === BillStatus.PAID} onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Processing</button>}
+                    {canMarkCurrentBillReceived && <button disabled={bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID} onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Received</button>}
+                    {canCancelCurrentBill && <button disabled={bill.status === BillStatus.PAID || bill.status === BillStatus.ON_HOLD} onClick={() => { cancelBill(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Cancel Bill</button>}
+                    {canMarkCurrentBillPaid && <button onClick={() => { openPayment(); setIsActionOpen(false); }} disabled={bill.paidAmount >= bill.total} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Record Payment</button>}
+                    {canEditCurrentBill && <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Edit Bill</button>}
                   </div>
                 </>
               )}
@@ -369,7 +377,7 @@ const BillDetails: React.FC = () => {
                 </p>
               ) : (
                 <button 
-                  disabled={!canMoveBillsToProcessing || bill.status === BillStatus.PAID}
+                  disabled={!canMoveCurrentBillToProcessing || bill.status === BillStatus.PAID}
                   onClick={markProcessing}
                   className={`w-full py-3 ${theme.colors.secondary[600]} hover:${theme.colors.secondary[700]} disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                 >
@@ -394,7 +402,7 @@ const BillDetails: React.FC = () => {
                 </p>
               ) : (
                 <button 
-                  disabled={!canMarkBillsReceived || bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID}
+                  disabled={!canMarkCurrentBillReceived || bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID}
                   onClick={markReceived}
                   className={`w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                 >
@@ -432,7 +440,7 @@ const BillDetails: React.FC = () => {
                       <button 
                         onClick={openPayment}
                         className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
-                        disabled={!canMarkBillsPaid}
+                        disabled={!canMarkCurrentBillPaid}
                       >
                         Add Balance Payment
                       </button>
@@ -448,7 +456,7 @@ const BillDetails: React.FC = () => {
                   <button 
                     onClick={openPayment}
                     className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
-                    disabled={!canMarkBillsPaid}
+                    disabled={!canMarkCurrentBillPaid}
                   >
                     Record Payment
                   </button>

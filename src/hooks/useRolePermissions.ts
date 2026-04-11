@@ -2,7 +2,7 @@ import { db } from '../../db';
 import type { PermissionKey } from '../../types';
 import { hasAdminAccess } from '../../types';
 import { useAuth } from '../contexts/AuthProvider';
-import { getRolePermissions, roleHasPermission } from '../utils/permissions';
+import { getRolePermissions, hasScopedPermission, permissionMapHasAnyPermission, roleHasPermission } from '../utils/permissions';
 import { usePermissionsSettings } from './useQueries';
 
 export function useRolePermissions() {
@@ -18,12 +18,27 @@ export function useRolePermissions() {
     return roleHasPermission(role, permissionKey, fallbackSettings);
   };
 
+  const canAny = (permissionKeys: PermissionKey[]): boolean => {
+    return permissionMapHasAnyPermission(rolePermissions, permissionKeys);
+  };
+
+  const canAccessRecord = (
+    createdBy: string | null | undefined,
+    ownPermissionKey: PermissionKey,
+    anyPermissionKey: PermissionKey,
+  ): boolean => {
+    return hasScopedPermission(rolePermissions, activeUser?.id, createdBy, ownPermissionKey, anyPermissionKey);
+  };
+
   return {
     permissionsSettings: fallbackSettings,
     role,
+    userId: String(activeUser?.id || ''),
     rolePermissions,
     isAdminAccessUser,
     can,
+    canAny,
+    canAccessRecord,
     canViewAdminDashboard: can('dashboard.viewAdmin'),
     canViewEmployeeDashboard: can('dashboard.viewEmployee'),
   };

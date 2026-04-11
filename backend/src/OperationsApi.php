@@ -409,16 +409,378 @@ final class OperationsApi extends BaseService
         );
     }
 
-    private function assertEmployeeCanAccessOrderRow(?array $row, string $action): void
+    /**
+     * @param mixed $value
+     */
+    private function encodeComparableJson($value): string
     {
-        $user = $this->currentUser();
-        if (!$this->isEmployeeRole((string) ($user['role'] ?? ''))) {
+        return (string) ($this->jsonEncode($value) ?? 'null');
+    }
+
+    /**
+     * @param array<string, mixed> $history
+     * @param array<int, string> $excludedKeys
+     * @return array<string, mixed>
+     */
+    private function filteredHistoryForComparison(array $history, array $excludedKeys): array
+    {
+        foreach ($excludedKeys as $key) {
+            unset($history[$key]);
+        }
+
+        ksort($history);
+        return $history;
+    }
+
+    private function historyValue(array $history, string $key): string
+    {
+        return trim((string) ($history[$key] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $row
+     */
+    private function assertUserCanManageOrderRecord(array $user, array $row, string $ownPermission, string $anyPermission, string $message): void
+    {
+        $createdBy = (string) ($row['created_by'] ?? $row['createdBy'] ?? '');
+        if ($this->userHasScopedPermissionForRecord($user, $createdBy, $ownPermission, $anyPermission)) {
             return;
         }
 
+        throw new RuntimeException($message);
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $row
+     */
+    private function assertUserCanManageBillRecord(array $user, array $row, string $ownPermission, string $anyPermission, string $message): void
+    {
         $createdBy = (string) ($row['created_by'] ?? $row['createdBy'] ?? '');
-        if ($createdBy === '' || $createdBy !== (string) $user['id']) {
-            throw new RuntimeException("Employees can only {$action} their own orders.");
+        if ($this->userHasScopedPermissionForRecord($user, $createdBy, $ownPermission, $anyPermission)) {
+            return;
+        }
+
+        throw new RuntimeException($message);
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $row
+     */
+    private function assertUserCanEditOrder(array $user, array $row): void
+    {
+        $role = (string) ($user['role'] ?? '');
+        if ($this->roleHasPermission($role, 'orders.editAny')) {
+            return;
+        }
+
+        $createdBy = (string) ($row['created_by'] ?? '');
+        $status = (string) ($row['status'] ?? '');
+        if (
+            $status === 'On Hold'
+            && $this->userHasScopedPermissionForRecord($user, $createdBy, 'orders.editOwn', 'orders.editAny')
+        ) {
+            return;
+        }
+
+        throw new RuntimeException('You do not have permission to edit this order.');
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $existingRow
+     * @param array<string, mixed> $updates
+     */
+    private function assertUserCanUpdateOrder(array $user, array $existingRow, array $updates): void
+    {
+        $previousStatus = trim((string) ($existingRow['status'] ?? ''));
+        $nextStatus = array_key_exists('status', $updates) ? trim((string) $updates['status']) : $previousStatus;
+        $existingHistory = $this->jsonDecodeAssoc($existingRow['history'] ?? []);
+        $nextHistory = array_key_exists('history', $updates)
+            ? (is_array($updates['history']) ? $updates['history'] : $this->jsonDecodeAssoc($updates['history']))
+            : $existingHistory;
+
+        $courierChanged =
+            (
+                (array_key_exists('carrybeeConsignmentId', $updates) || array_key_exists('carrybee_consignment_id', $updates))
+                && $this->nullableString($updates['carrybeeConsignmentId'] ?? $updates['carrybee_consignment_id'] ?? null)
+                    !== $this->nullableString($existingRow['carrybee_consignment_id'] ?? null)
+            )
+            || (
+                (array_key_exists('steadfastConsignmentId', $updates) || array_key_exists('steadfast_consignment_id', $updates))
+                && $this->nullableString($updates['steadfastConsignmentId'] ?? $updates['steadfast_consignment_id'] ?? null)
+                    !== $this->nullableString($existingRow['steadfast_consignment_id'] ?? null)
+            )
+            || (
+                (array_key_exists('paperflyTrackingNumber', $updates) || array_key_exists('paperfly_tracking_number', $updates))
+                && $this->nullableString($updates['paperflyTrackingNumber'] ?? $updates['paperfly_tracking_number'] ?? null)
+                    !== $this->nullableString($existingRow['paperfly_tracking_number'] ?? null)
+            )
+            || $this->historyValue($nextHistory, 'courier') !== $this->historyValue($existingHistory, 'courier');
+
+        $processingChanged = $this->historyValue($nextHistory, 'processing') !== $this->historyValue($existingHistory, 'processing');
+        $pickedChanged = $this->historyValue($nextHistory, 'picked') !== $this->historyValue($existingHistory, 'picked');
+        $completedChanged = $this->historyValue($nextHistory, 'completed') !== $this->historyValue($existingHistory, 'completed');
+        $returnedChanged = $this->historyValue($nextHistory, 'returned') !== $this->historyValue($existingHistory, 'returned');
+        $paymentChanged = $this->historyValue($nextHistory, 'payment') !== $this->historyValue($existingHistory, 'payment');
+
+        if ($nextStatus !== $previousStatus && $nextStatus === 'Cancelled') {
+            $this->assertUserCanManageOrderRecord($user, $existingRow, 'orders.cancelOwn', 'orders.cancelAny', 'You do not have permission to cancel this order.');
+        }
+
+        if (($nextStatus !== $previousStatus && $nextStatus === 'Processing') || $processingChanged) {
+            $this->assertUserCanManageOrderRecord(
+                $user,
+                $existingRow,
+                'orders.moveOnHoldToProcessingOwn',
+                'orders.moveOnHoldToProcessingAny',
+                'You do not have permission to move this order to processing.'
+            );
+        }
+
+        if ($courierChanged) {
+            $this->assertUserCanManageOrderRecord(
+                $user,
+                $existingRow,
+                'orders.sendToCourierOwn',
+                'orders.sendToCourierAny',
+                'You do not have permission to send this order to a courier.'
+            );
+        }
+
+        if ((($nextStatus !== $previousStatus && $nextStatus === 'Picked') || $pickedChanged) && !$courierChanged) {
+            $this->assertUserCanManageOrderRecord(
+                $user,
+                $existingRow,
+                'orders.moveToPickedOwn',
+                'orders.moveToPickedAny',
+                'You do not have permission to mark this order as picked.'
+            );
+        }
+
+        if (($nextStatus !== $previousStatus && $nextStatus === 'Completed') || $completedChanged || $paymentChanged) {
+            $this->assertUserCanManageOrderRecord(
+                $user,
+                $existingRow,
+                'orders.markCompletedOwn',
+                'orders.markCompletedAny',
+                'You do not have permission to mark this order as completed.'
+            );
+        }
+
+        if (($nextStatus !== $previousStatus && $nextStatus === 'Returned') || $returnedChanged) {
+            $this->assertUserCanManageOrderRecord(
+                $user,
+                $existingRow,
+                'orders.markReturnedOwn',
+                'orders.markReturnedAny',
+                'You do not have permission to mark this order as returned.'
+            );
+        }
+
+        $businessChanged = false;
+
+        if (array_key_exists('customerId', $updates) && trim((string) $updates['customerId']) !== (string) ($existingRow['customer_id'] ?? '')) {
+            $businessChanged = true;
+        }
+        if (
+            (array_key_exists('pageId', $updates) || array_key_exists('page_id', $updates))
+            && trim((string) ($updates['pageId'] ?? $updates['page_id'] ?? '')) !== (string) ($existingRow['page_id'] ?? '')
+        ) {
+            $businessChanged = true;
+        }
+        if (array_key_exists('pageSnapshot', $updates) || array_key_exists('page_snapshot', $updates)) {
+            $nextPageSnapshot = $updates['pageSnapshot'] ?? $updates['page_snapshot'] ?? null;
+            $decodedPageSnapshot = is_array($nextPageSnapshot) ? $nextPageSnapshot : $this->jsonDecodeAssoc($nextPageSnapshot);
+            if ($this->encodeComparableJson($decodedPageSnapshot) !== $this->encodeComparableJson($this->jsonDecodeAssoc($existingRow['page_snapshot'] ?? []))) {
+                $businessChanged = true;
+            }
+        }
+        if (
+            array_key_exists('orderDate', $updates)
+            && ($this->normalizeDateOnly((string) $updates['orderDate']) ?: (string) ($existingRow['order_date'] ?? '')) !== (string) ($existingRow['order_date'] ?? '')
+        ) {
+            $businessChanged = true;
+        }
+        if (array_key_exists('orderNumber', $updates) && trim((string) $updates['orderNumber']) !== (string) ($existingRow['order_number'] ?? '')) {
+            $businessChanged = true;
+        }
+        if (array_key_exists('notes', $updates) && $this->nullableString($updates['notes']) !== $this->nullableString($existingRow['notes'] ?? null)) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('items', $updates)
+            && is_array($updates['items'])
+            && $this->encodeComparableJson($updates['items']) !== $this->encodeComparableJson($this->jsonDecodeList($existingRow['items'] ?? []))
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('subtotal', $updates)
+            && $this->formatMoney($updates['subtotal']) !== $this->formatMoney($existingRow['subtotal'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('discount', $updates)
+            && $this->formatMoney($updates['discount']) !== $this->formatMoney($existingRow['discount'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('shipping', $updates)
+            && $this->formatMoney($updates['shipping']) !== $this->formatMoney($existingRow['shipping'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('total', $updates)
+            && $this->formatMoney($updates['total']) !== $this->formatMoney($existingRow['total'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('paidAmount', $updates)
+            && $this->formatMoney($updates['paidAmount']) !== $this->formatMoney($existingRow['paid_amount'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('history', $updates)
+            && $this->encodeComparableJson($this->filteredHistoryForComparison($nextHistory, ['processing', 'picked', 'courier', 'completed', 'returned', 'payment']))
+                !== $this->encodeComparableJson($this->filteredHistoryForComparison($existingHistory, ['processing', 'picked', 'courier', 'completed', 'returned', 'payment']))
+        ) {
+            $businessChanged = true;
+        }
+
+        if ($businessChanged) {
+            $this->assertUserCanEditOrder($user, $existingRow);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $existingRow
+     * @param array<string, mixed> $updates
+     */
+    private function assertUserCanUpdateBill(array $user, array $existingRow, array $updates): void
+    {
+        $previousStatus = trim((string) ($existingRow['status'] ?? ''));
+        $nextStatus = array_key_exists('status', $updates) ? trim((string) $updates['status']) : $previousStatus;
+        $existingHistory = $this->jsonDecodeAssoc($existingRow['history'] ?? []);
+        $nextHistory = array_key_exists('history', $updates)
+            ? (is_array($updates['history']) ? $updates['history'] : $this->jsonDecodeAssoc($updates['history']))
+            : $existingHistory;
+
+        $processingChanged = $this->historyValue($nextHistory, 'processing') !== $this->historyValue($existingHistory, 'processing');
+        $receivedChanged = $this->historyValue($nextHistory, 'received') !== $this->historyValue($existingHistory, 'received');
+        $cancelledChanged = $this->historyValue($nextHistory, 'cancelled') !== $this->historyValue($existingHistory, 'cancelled');
+        $paidChanged = $this->historyValue($nextHistory, 'paid') !== $this->historyValue($existingHistory, 'paid');
+
+        if (($nextStatus !== $previousStatus && $nextStatus === 'Processing') || $processingChanged) {
+            $this->assertUserCanManageBillRecord(
+                $user,
+                $existingRow,
+                'bills.moveOnHoldToProcessingOwn',
+                'bills.moveOnHoldToProcessingAny',
+                'You do not have permission to move this bill to processing.'
+            );
+        }
+
+        if (($nextStatus !== $previousStatus && $nextStatus === 'Received') || $receivedChanged) {
+            $this->assertUserCanManageBillRecord(
+                $user,
+                $existingRow,
+                'bills.markReceivedOwn',
+                'bills.markReceivedAny',
+                'You do not have permission to mark this bill as received.'
+            );
+        }
+
+        if ((($previousStatus !== 'On Hold' && $nextStatus === 'On Hold') && $nextStatus !== $previousStatus) || $cancelledChanged) {
+            $this->assertUserCanManageBillRecord(
+                $user,
+                $existingRow,
+                'bills.cancelOwn',
+                'bills.cancelAny',
+                'You do not have permission to cancel this bill.'
+            );
+        }
+
+        if (
+            $paidChanged
+            || (array_key_exists('paidAmount', $updates) && $this->formatMoney($updates['paidAmount']) !== $this->formatMoney($existingRow['paid_amount'] ?? 0))
+            || (array_key_exists('paidAt', $updates) && trim((string) $updates['paidAt']) !== '')
+            || ($nextStatus !== $previousStatus && $nextStatus === 'Paid')
+        ) {
+            $this->assertUserCanManageBillRecord(
+                $user,
+                $existingRow,
+                'bills.markPaidOwn',
+                'bills.markPaidAny',
+                'You do not have permission to record payment for this bill.'
+            );
+        }
+
+        $businessChanged = false;
+        if (array_key_exists('vendorId', $updates) && trim((string) $updates['vendorId']) !== (string) ($existingRow['vendor_id'] ?? '')) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('billDate', $updates)
+            && ($this->normalizeDateOnly((string) $updates['billDate']) ?: (string) ($existingRow['bill_date'] ?? '')) !== (string) ($existingRow['bill_date'] ?? '')
+        ) {
+            $businessChanged = true;
+        }
+        if (array_key_exists('billNumber', $updates) && trim((string) $updates['billNumber']) !== (string) ($existingRow['bill_number'] ?? '')) {
+            $businessChanged = true;
+        }
+        if (array_key_exists('notes', $updates) && $this->nullableString($updates['notes']) !== $this->nullableString($existingRow['notes'] ?? null)) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('items', $updates)
+            && is_array($updates['items'])
+            && $this->encodeComparableJson($updates['items']) !== $this->encodeComparableJson($this->jsonDecodeList($existingRow['items'] ?? []))
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('subtotal', $updates)
+            && $this->formatMoney($updates['subtotal']) !== $this->formatMoney($existingRow['subtotal'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('discount', $updates)
+            && $this->formatMoney($updates['discount']) !== $this->formatMoney($existingRow['discount'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('shipping', $updates)
+            && $this->formatMoney($updates['shipping']) !== $this->formatMoney($existingRow['shipping'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('total', $updates)
+            && $this->formatMoney($updates['total']) !== $this->formatMoney($existingRow['total'] ?? 0)
+        ) {
+            $businessChanged = true;
+        }
+        if (
+            array_key_exists('history', $updates)
+            && $this->encodeComparableJson($this->filteredHistoryForComparison($nextHistory, ['processing', 'received', 'cancelled', 'paid']))
+                !== $this->encodeComparableJson($this->filteredHistoryForComparison($existingHistory, ['processing', 'received', 'cancelled', 'paid']))
+        ) {
+            $businessChanged = true;
+        }
+
+        if ($businessChanged) {
+            $this->assertUserCanManageBillRecord($user, $existingRow, 'bills.editOwn', 'bills.editAny', 'You do not have permission to edit this bill.');
         }
     }
 
@@ -1255,6 +1617,9 @@ final class OperationsApi extends BaseService
     public function createOrder(array $params): array
     {
         $actor = $this->currentUser();
+        if (!$this->currentUserHasPermission('orders.create')) {
+            throw new RuntimeException('You do not have permission to create orders.');
+        }
         $id = $this->stringId($params['id'] ?? null);
 
         return $this->database->transaction(function () use ($actor, $id, $params): array {
@@ -1326,11 +1691,11 @@ final class OperationsApi extends BaseService
 
     public function updateOrder(array $params): ?array
     {
-        $this->currentUser();
+        $actor = $this->currentUser();
         $id = trim((string) ($params['id'] ?? ''));
         $updates = is_array($params['updates'] ?? null) ? $params['updates'] : [];
 
-        return $this->database->transaction(function () use ($id, $updates): ?array {
+        return $this->database->transaction(function () use ($actor, $id, $updates): ?array {
             $existingRow = $this->database->fetchOne(
                 'SELECT * FROM orders WHERE id = :id AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
                 [':id' => $id]
@@ -1340,7 +1705,7 @@ final class OperationsApi extends BaseService
                 throw new RuntimeException('Order not found.');
             }
 
-            $this->assertEmployeeCanAccessOrderRow($existingRow, 'update');
+            $this->assertUserCanUpdateOrder($actor, $existingRow, $updates);
 
             $previousStatus = (string) ($existingRow['status'] ?? '');
             $previousItems = $this->jsonDecodeList($existingRow['items'] ?? []);
@@ -1447,7 +1812,7 @@ final class OperationsApi extends BaseService
 
     public function completePickedOrder(array $params): array
     {
-        $actor = $this->requireAdmin();
+        $actor = $this->currentUser();
         $orderId = trim((string) ($params['orderId'] ?? ''));
         $outcome = trim((string) ($params['outcome'] ?? 'Delivered'));
         if ($orderId === '') {
@@ -1487,6 +1852,24 @@ final class OperationsApi extends BaseService
 
             if ($orderRow === null) {
                 throw new RuntimeException('Order not found.');
+            }
+
+            if ($outcome === 'Returned') {
+                $this->assertUserCanManageOrderRecord(
+                    $actor,
+                    $orderRow,
+                    'orders.markReturnedOwn',
+                    'orders.markReturnedAny',
+                    'You do not have permission to mark this order as returned.'
+                );
+            } else {
+                $this->assertUserCanManageOrderRecord(
+                    $actor,
+                    $orderRow,
+                    'orders.markCompletedOwn',
+                    'orders.markCompletedAny',
+                    'You do not have permission to mark this order as completed.'
+                );
             }
 
             $previousStatus = trim((string) ($orderRow['status'] ?? ''));
@@ -1648,7 +2031,13 @@ final class OperationsApi extends BaseService
                 throw new RuntimeException('Order was not found or is already deleted.');
             }
 
-            $this->assertEmployeeCanAccessOrderRow($existingRow, 'delete');
+            $this->assertUserCanManageOrderRecord(
+                $actor,
+                $existingRow,
+                'orders.deleteOwn',
+                'orders.deleteAny',
+                'You do not have permission to delete this order.'
+            );
             $deletedAt = $this->database->nowUtc();
             $relatedTransactions = $this->fetchOrderLinkedTransactionRows(
                 $id,
@@ -1789,6 +2178,9 @@ final class OperationsApi extends BaseService
     public function createBill(array $params): array
     {
         $actor = $this->currentUser();
+        if (!$this->currentUserHasPermission('bills.create')) {
+            throw new RuntimeException('You do not have permission to create bills.');
+        }
         $id = $this->stringId($params['id'] ?? null);
 
         return $this->database->transaction(function () use ($actor, $id, $params): array {
@@ -1841,11 +2233,11 @@ final class OperationsApi extends BaseService
 
     public function updateBill(array $params): array
     {
-        $this->currentUser();
+        $actor = $this->currentUser();
         $id = trim((string) ($params['id'] ?? ''));
         $updates = is_array($params['updates'] ?? null) ? $params['updates'] : [];
 
-        return $this->database->transaction(function () use ($id, $updates): array {
+        return $this->database->transaction(function () use ($actor, $id, $updates): array {
             $existingRow = $this->database->fetchOne(
                 'SELECT * FROM bills WHERE id = :id AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
                 [':id' => $id]
@@ -1854,6 +2246,8 @@ final class OperationsApi extends BaseService
             if ($existingRow === null) {
                 throw new RuntimeException('Bill not found.');
             }
+
+            $this->assertUserCanUpdateBill($actor, $existingRow, $updates);
 
             $previousStatus = (string) ($existingRow['status'] ?? '');
             $previousItems = $this->jsonDecodeList($existingRow['items'] ?? []);
@@ -1935,6 +2329,13 @@ final class OperationsApi extends BaseService
                 throw new RuntimeException('Bill was not found or is already deleted.');
             }
 
+            $this->assertUserCanManageBillRecord(
+                $actor,
+                $existingRow,
+                'bills.deleteOwn',
+                'bills.deleteAny',
+                'You do not have permission to delete this bill.'
+            );
             $deletedAt = $this->database->nowUtc();
             $relatedTransactions = $this->fetchBillLinkedTransactionRows($id, 'active');
             $this->applyTransactionAccountEffect($relatedTransactions, 'revert');

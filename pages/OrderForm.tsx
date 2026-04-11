@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Customer, Order, OrderStatus, OrderItem, hasAdminAccess, isEmployeeRole } from '../types';
+import { Customer, Order, OrderStatus, OrderItem } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { Button } from '../components';
 import { theme } from '../theme';
@@ -13,6 +13,7 @@ import { useCreateOrder, useUpdateOrder } from '../src/hooks/useMutations';
 import { isTempId, waitForRealId } from '../src/utils/optimisticIdMap';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
 import { buildOrderPageSnapshot, getGlobalCompanyPage, normalizeCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
 
@@ -22,8 +23,7 @@ const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
-  const isAdmin = hasAdminAccess(user?.role);
-  const isEmployee = isEmployeeRole(user?.role);
+  const { can, canAccessRecord } = useRolePermissions();
   const isEdit = Boolean(id);
 
   // Wait for auth to load before rendering form
@@ -187,13 +187,16 @@ const OrderForm: React.FC = () => {
     // prevents background refetches of `existingOrderData` from resetting
     // user input while editing.
     if (existingOrderData && !initializedRef.current) {
-      if (isEdit && isEmployee) {
-        const canEditOwnDraftOrder =
-          existingOrderData.createdBy === user.id &&
-          existingOrderData.status === OrderStatus.ON_HOLD;
+      if (isEdit) {
+        const canEditExistingOrder =
+          can('orders.editAny')
+          || (
+            canAccessRecord(existingOrderData.createdBy, 'orders.editOwn', 'orders.editAny')
+            && existingOrderData.status === OrderStatus.ON_HOLD
+          );
 
-        if (!canEditOwnDraftOrder) {
-          toast.warning('Employees can only edit their own orders while they are On Hold.');
+        if (!canEditExistingOrder) {
+          toast.warning('You can only edit this order if your role allows it, and own-only editing stays limited to On Hold orders.');
           navigate('/orders');
           return;
         }
@@ -230,7 +233,7 @@ const OrderForm: React.FC = () => {
         })
         .finally(() => setOrderNumberLoading(false));
     }
-  }, [existingOrderData, isEdit, isEmployee, navigate, normalizedCompanySettings, toast, user?.id]);
+  }, [can, canAccessRecord, existingOrderData, isEdit, navigate, normalizedCompanySettings, toast, user?.id]);
 
   // Reset the initialization flag when switching to a different order id
   React.useEffect(() => {

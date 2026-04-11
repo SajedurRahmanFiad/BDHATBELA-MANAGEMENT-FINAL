@@ -211,5 +211,15 @@ export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; up
 export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncSteadfastDeliveryStatuses'); }
 
 export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
-  return call<any>('batchUpdateSettings', { updates });
+  const { permissions, ...batchEligibleUpdates } = updates;
+  const hasBatchEligibleUpdates = Object.keys(batchEligibleUpdates).length > 0;
+  const batchResult = hasBatchEligibleUpdates
+    ? await call<any>('batchUpdateSettings', { updates: batchEligibleUpdates })
+    : {};
+
+  if (permissions) {
+    batchResult.permissions = await updatePermissionsSettings(permissions);
+  }
+
+  return batchResult;
 }

@@ -343,7 +343,6 @@ export function useUserActivityPerformanceReportPage(
   return useQuery({
     queryKey: ['reports', 'user-activity-performance', page, pageSize, normalizedFilters],
     queryFn: () => fetchUserActivityPerformanceReportPage(page, pageSize, normalizedFilters),
-    placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
     enabled: options?.enabled ?? true,
   });

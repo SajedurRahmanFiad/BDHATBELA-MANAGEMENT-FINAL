@@ -1142,6 +1142,8 @@ final class OperationsApi extends BaseService
             {$userWhereSql}
         ";
 
+        $baseSql .= " AND (u.deleted_at IS NULL OR {$activityExpression} > 0)";
+
         if ($onlyActive) {
             $baseSql .= " AND {$activityExpression} > 0";
         }
@@ -1359,7 +1361,7 @@ final class OperationsApi extends BaseService
      */
     private function buildUserActivityPerformanceUserWhere(string $search, string $roleFilter): array
     {
-        $conditions = ['WHERE u.deleted_at IS NULL'];
+        $conditions = ['WHERE 1=1'];
         $bindings = [];
 
         if ($roleFilter === 'Admins') {

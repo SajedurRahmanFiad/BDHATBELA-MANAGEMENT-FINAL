@@ -67,7 +67,8 @@ import UserActivityPerformanceReport from './pages/reports/UserActivityPerforman
 import PrintOrder from './pages/PrintOrder';
 import PrintBill from './pages/PrintBill';
 import WalletPage from './pages/Wallet';
-import { hasAdminAccess, isEmployeeRole } from './types';
+import { hasAdminAccess } from './types';
+import { useRolePermissions } from './src/hooks/useRolePermissions';
 
 // Inner app component that uses auth context
 const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ user, profile, isLoading }) => {
@@ -76,178 +77,212 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
   const isAuthenticated = !!user;
   const activeUser = profile || user;
   const isAdmin = hasAdminAccess(activeUser?.role);
-  const isEmployee = isEmployeeRole(activeUser?.role);
+  const { can, canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
   const writeFreezeEnabled = WRITE_FREEZE_ENABLED;
+  const canViewDashboard = canViewAdminDashboard || canViewEmployeeDashboard;
+  const defaultProtectedRoute = canViewDashboard
+    ? '/dashboard'
+    : can('orders.view')
+      ? '/orders'
+      : can('customers.view')
+        ? '/customers'
+        : can('products.view')
+          ? '/products'
+          : can('bills.view')
+            ? '/bills'
+            : can('vendors.view')
+              ? '/vendors'
+              : can('transactions.view')
+                ? '/banking/transactions'
+                : can('accounts.view')
+                  ? '/banking/accounts'
+                  : can('transfers.create')
+                    ? '/banking/transfer'
+                    : can('wallet.view')
+                      ? '/wallet'
+                      : can('reports.view')
+                        ? '/reports'
+                        : can('recycleBin.view')
+                          ? '/recycle-bin'
+          : can('users.view')
+            ? '/users'
+            : isAdmin
+              ? '/settings'
+              : '/dashboard';
   
   return (
     <Routes>
       {/* Public login route - redirect to dashboard if logged in */}
       <Route path="/login" element={
-        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
+        isAuthenticated ? <Navigate to={defaultProtectedRoute} replace /> : <Login />
       } />
 
       {/* Protected routes - require authenticated user (profile guaranteed) */}
       <Route path="/" element={
-        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />
+        isAuthenticated ? <Navigate to={defaultProtectedRoute} replace /> : <Navigate to="/login" replace />
       } />
       
       <Route path="/dashboard" element={
-        isAuthenticated ? <Layout><Dashboard /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (canViewDashboard ? <Layout><Dashboard /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       
       <Route path="/orders" element={
-        isAuthenticated ? <Layout><Orders /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('orders.view') ? <Layout><Orders /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('orders.create') ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('orders.edit') ? (writeFreezeEnabled ? <Navigate to="/orders" replace /> : <Layout><OrderForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/orders/:id" element={
-        isAuthenticated ? <Layout><OrderDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('orders.view') ? <Layout><OrderDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/print-order/:id" element={
-        isAuthenticated ? <PrintOrder /> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('orders.view') ? <PrintOrder /> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       
       <Route path="/bills" element={
-        isAuthenticated ? <Layout><Bills /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('bills.view') ? <Layout><Bills /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('bills.create') ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('bills.edit') ? (writeFreezeEnabled ? <Navigate to="/bills" replace /> : <Layout><BillForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/bills/:id" element={
-        isAuthenticated ? <Layout><BillDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('bills.view') ? <Layout><BillDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/print-bill/:id" element={
-        isAuthenticated ? <PrintBill /> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('bills.view') ? <PrintBill /> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/banking/accounts" element={
-        isAuthenticated ? <Layout><Banking /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('accounts.view') ? <Layout><Banking /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/banking/transfer" element={
-        isAuthenticated ? <Layout><Transfer /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('transfers.create') ? <Layout><Transfer /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/banking/transactions" element={
-        isAuthenticated ? <Layout><Transactions /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('transactions.view') ? <Layout><Transactions /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       
       <Route path="/transactions" element={
-        isAuthenticated ? <Navigate to="/banking/transactions" replace /> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('transactions.view') ? <Navigate to="/banking/transactions" replace /> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/transactions/new/:type" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('transactions.create') ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/transactions/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('transactions.edit') ? (writeFreezeEnabled ? <Navigate to="/banking/transactions" replace /> : <Layout><TransactionForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/customers" element={
-        isAuthenticated ? <Layout><Customers /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('customers.view') ? <Layout><Customers /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/customers/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('customers.create') ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/customers/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('customers.edit') ? (writeFreezeEnabled ? <Navigate to="/customers" replace /> : <Layout><CustomerForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/customers/:id" element={
-        isAuthenticated ? <Layout><CustomerDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('customers.view') ? <Layout><CustomerDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       
       <Route path="/vendors" element={
-        isAuthenticated ? <Layout><Vendors /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('vendors.view') ? <Layout><Vendors /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('vendors.create') ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('vendors.edit') ? (writeFreezeEnabled ? <Navigate to="/vendors" replace /> : <Layout><VendorForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/vendors/:id" element={
-        isAuthenticated ? <Layout><VendorDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('vendors.view') ? <Layout><VendorDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/products" element={
-        isAuthenticated ? <Layout><Products /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('products.view') ? <Layout><Products /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/products/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('products.create') ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/products/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('products.edit') ? (writeFreezeEnabled ? <Navigate to="/products" replace /> : <Layout><ProductForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/users" element={
-        isAuthenticated ? <Layout><Users /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('users.view') ? <Layout><Users /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/users/new" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('users.view') ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/users/edit/:id" element={
-        isAuthenticated ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to="/login" replace />
+        isAuthenticated ? (can('users.view') ? (writeFreezeEnabled ? <Navigate to="/users" replace /> : <Layout><UserForm /></Layout>) : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/users/:id" element={
-        isAuthenticated ? <Layout><UserDetails /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('users.view') ? <Layout><UserDetails /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/reports" element={
-        isAuthenticated ? <Layout><Reports /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><Reports /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/payroll" element={
         isAuthenticated
-          ? isAdmin
+          ? can('payroll.view')
             ? <Layout><Payroll /></Layout>
-            : <Navigate to="/wallet" replace />
+            : can('wallet.view')
+              ? <Navigate to="/wallet" replace />
+              : <Navigate to={defaultProtectedRoute} replace />
           : <Navigate to="/login" replace />
       } />
       <Route path="/recycle-bin" element={
         isAuthenticated
-          ? isAdmin
+          ? can('recycleBin.view')
             ? <Layout><RecycleBin /></Layout>
-            : <Navigate to="/wallet" replace />
+            : can('wallet.view')
+              ? <Navigate to="/wallet" replace />
+              : <Navigate to={defaultProtectedRoute} replace />
           : <Navigate to="/login" replace />
       } />
       <Route path="/wallet" element={
         isAuthenticated
-          ? isEmployee
+          ? can('wallet.view')
             ? <Layout><WalletPage /></Layout>
-            : <Navigate to="/payroll" replace />
+            : <Navigate to={defaultProtectedRoute} replace />
           : <Navigate to="/login" replace />
       } />
       <Route path="/reports/expense" element={
-        isAuthenticated ? <Layout><ExpenseSummary /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><ExpenseSummary /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/income" element={
-        isAuthenticated ? <Layout><IncomeSummary /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><IncomeSummary /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/income-vs-expense" element={
-        isAuthenticated ? <Layout><IncomeVsExpense /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><IncomeVsExpense /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/profit-loss" element={
-        isAuthenticated ? <Layout><ProfitLoss /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><ProfitLoss /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/product-quantity-sold" element={
-        isAuthenticated ? <Layout><ProductQuantitySold /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><ProductQuantitySold /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/customer-sales" element={
-        isAuthenticated ? <Layout><CustomerSalesReport /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><CustomerSalesReport /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/reports/user-activity-performance" element={
-        isAuthenticated ? <Layout><UserActivityPerformanceReport /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (can('reports.view') ? <Layout><UserActivityPerformanceReport /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       <Route path="/settings" element={
-        isAuthenticated ? <Layout><SettingsPage /></Layout> : <Navigate to="/login" replace />
+        isAuthenticated ? (isAdmin ? <Layout><SettingsPage /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
 
       {/* Catch all - redirect based on auth state */}
-      <Route path="*" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
+      <Route path="*" element={isAuthenticated ? <Navigate to={defaultProtectedRoute} replace /> : <Navigate to="/login" replace />} />
     </Routes>
   );
 };

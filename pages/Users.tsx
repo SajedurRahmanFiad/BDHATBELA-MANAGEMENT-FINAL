@@ -1,7 +1,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, UserRole, hasAdminAccess } from '../types';
+import { User, hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
 import { Button, Table, TableCell, IconButton } from '../components';
 import { theme } from '../theme';
@@ -10,7 +10,7 @@ import { useUsers } from '../src/hooks/useQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState } from '../src/utils/navigation';
 
-type RoleFilter = 'All' | UserRole.ADMIN | UserRole.DEVELOPER | UserRole.EMPLOYEE | UserRole.EMPLOYEE1;
+type RoleFilter = 'All' | string;
 
 const Users: React.FC = () => {
   const navigate = useNavigate();
@@ -85,14 +85,17 @@ const Users: React.FC = () => {
     });
   }, [users, searchQuery, roleFilter]);
 
-  const roleBadgeClass = (role: UserRole) => {
+  const roleBadgeClass = (role: string) => {
     if (hasAdminAccess(role)) {
       return 'bg-purple-100 text-purple-700';
     }
     return 'bg-blue-100 text-blue-700';
   };
 
-  const roleFilters: RoleFilter[] = ['All', UserRole.ADMIN, UserRole.DEVELOPER, UserRole.EMPLOYEE, UserRole.EMPLOYEE1];
+  const roleFilters: RoleFilter[] = useMemo(
+    () => ['All', ...Array.from(new Set(users.map((candidate) => candidate.role).filter(Boolean))).sort()],
+    [users],
+  );
 
   return (
     <div className="space-y-6">
@@ -150,7 +153,7 @@ const Users: React.FC = () => {
             label: 'Role',
             render: (role) => (
               <span
-                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${roleBadgeClass(role as UserRole)}`}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${roleBadgeClass(String(role || ''))}`}
               >
                 {role}
               </span>

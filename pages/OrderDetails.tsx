@@ -13,6 +13,7 @@ import { useAuth } from '../src/contexts/AuthProvider';
 import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { buildLocalDateTime, getTodayDate } from '../utils';
 import { getOrderCompanyPage } from '../src/utils/companyPages';
 
@@ -24,6 +25,16 @@ const OrderDetails: React.FC = () => {
   const { user: authUser } = useAuth();
   const user = authUser || db.currentUser;
   const isAdmin = hasAdminAccess(user?.role);
+  const isEmployee = isEmployeeRole(user?.role);
+  const { can } = useRolePermissions();
+  const canEditOrders = can('orders.edit');
+  const canMoveOrdersToProcessing = can('orders.moveOnHoldToProcessing');
+  const canSendOrdersToCourier = can('orders.sendToCourier');
+  const canMoveOrdersToPicked = can('orders.moveToPicked');
+  const canMarkOrdersCompleted = can('orders.markCompleted');
+  const canMarkOrdersReturned = can('orders.markReturned');
+  const canFinalizeOrders = canMarkOrdersCompleted || canMarkOrdersReturned;
+  const canCancelOrders = can('orders.cancel');
   const createCompletionForm = (activeOrder?: Order | null): OrderCompletionFormState => ({
     outcome: 'Delivered',
     date: getTodayDate(),
@@ -63,10 +74,10 @@ const OrderDetails: React.FC = () => {
   // Get customer and created by user from query results
   // `customer` is obtained via `useCustomer` above
   const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
-  const isEmployee = isEmployeeRole(user?.role);
   const isOwner = order ? order.createdBy === user?.id : false;
   const canEmployeeEditDraft = isEmployee && isOwner && order?.status === OrderStatus.ON_HOLD;
-  const canManageProcessing = isAdmin || user?.role === UserRole.EMPLOYEE1;
+  const canEditCurrentOrder = canEditOrders && (isAdmin || canEmployeeEditDraft || !isEmployee);
+  const canManageProcessing = canMoveOrdersToProcessing;
   const completionHistory = order?.history?.returned || order?.history?.completed || order?.history?.payment || '';
   const orderBranding = React.useMemo(
     () => getOrderCompanyPage(order, companySettings || db.settings.company),
@@ -101,17 +112,34 @@ const OrderDetails: React.FC = () => {
   };
 
   const markProcessing = async () => {
+    if (!canMoveOrdersToProcessing) {
+      toast.error('You do not have permission to move orders to processing.');
+      return;
+    }
     const historyText = `Marked as processing by ${user.name}, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     await updateStatus(OrderStatus.PROCESSING, 'processing', historyText);
   };
 
   const markPicked = async () => {
+    if (!canMoveOrdersToPicked) {
+      toast.error('You do not have permission to mark orders as picked.');
+      return;
+    }
     const historyText = `Marked as picked by courier, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     await updateStatus(OrderStatus.PICKED, 'picked', historyText);
   };
 
   const handleCompletePickedOrder = async () => {
     if (!order) return;
+
+    if (completionForm.outcome === 'Delivered' && !canMarkOrdersCompleted) {
+      toast.error('You do not have permission to mark orders as completed.');
+      return;
+    }
+    if (completionForm.outcome === 'Returned' && !canMarkOrdersReturned) {
+      toast.error('You do not have permission to mark orders as returned.');
+      return;
+    }
 
     if (!completionForm.accountId) {
       toast.error('Please select an account');
@@ -162,7 +190,10 @@ const OrderDetails: React.FC = () => {
   };
 
   const openCompletion = () => {
-    setCompletionForm(createCompletionForm(order));
+    setCompletionForm({
+      ...createCompletionForm(order),
+      outcome: canMarkOrdersCompleted ? 'Delivered' : 'Returned',
+    });
     setShowCompletionModal(true);
   };
 
@@ -247,6 +278,22 @@ const OrderDetails: React.FC = () => {
     }
   };
 
+  const canSendCurrentOrderToCourier =
+    canSendOrdersToCourier
+    && order.status !== OrderStatus.PICKED
+    && order.status !== OrderStatus.COMPLETED
+    && order.status !== OrderStatus.RETURNED
+    && order.status !== OrderStatus.CANCELLED
+    && order.status !== OrderStatus.ON_HOLD
+    && !sentToAnyCourier;
+  const canMarkCurrentOrderPicked = canMoveOrdersToPicked && order.status === OrderStatus.PROCESSING;
+  const canFinalizeCurrentOrder = canFinalizeOrders && order.status === OrderStatus.PICKED;
+  const canShowActionsMenu =
+    canEditCurrentOrder
+    || canFinalizeCurrentOrder
+    || sentToAnyCourier
+    || canCancelOrders;
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <LoadingOverlay isLoading={loading && !order} message="Loading order details..." />
@@ -289,49 +336,53 @@ const OrderDetails: React.FC = () => {
           <button onClick={() => handlePrintOrder(id!, navigate)} className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all shadow-sm">
             {ICONS.Print} Print
           </button>
-          <div className="relative">
-            <button 
-              onClick={() => setIsActionOpen(!isActionOpen)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
-            >
-              {ICONS.More} <span className="hidden md:inline">Actions</span>
-            </button>
-            {isActionOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
-                <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in duration-150 origin-top-right">
-                  <button onClick={() => { handlePrintOrder(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-                    {ICONS.Print} Print
-                  </button>
-                  <div className="md:hidden border-t my-1"></div>
-                  {(isAdmin || canEmployeeEditDraft) && (
-                    <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-                      {ICONS.Edit} Edit Order
+          {canShowActionsMenu && (
+            <div className="relative">
+              <button 
+                onClick={() => setIsActionOpen(!isActionOpen)}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
+              >
+                {ICONS.More} <span className="hidden md:inline">Actions</span>
+              </button>
+              {isActionOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in duration-150 origin-top-right">
+                    <button onClick={() => { handlePrintOrder(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+                      {ICONS.Print} Print
                     </button>
-                  )}
-                  {isAdmin && order.status === OrderStatus.PICKED && (
-                    <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={() => { openCompletion(); setIsActionOpen(false); }}>
-                      {ICONS.Check} Mark as Completed
-                    </button>
-                  )}
-                  {sentToAnyCourier && (
-                    <button
-                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
-                      onClick={handleOpenTracking}
-                    >
-                      {ICONS.Courier} Tracking
-                    </button>
-                  )}
-                  <div className="border-t my-1"></div>
-                  {isAdmin && (
-                    <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
-                      {ICONS.Delete} Cancel Order
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                    <div className="md:hidden border-t my-1"></div>
+                    {canEditCurrentOrder && (
+                      <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+                        {ICONS.Edit} Edit Order
+                      </button>
+                    )}
+                    {canFinalizeCurrentOrder && (
+                      <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={() => { openCompletion(); setIsActionOpen(false); }}>
+                        {ICONS.Check} Finalize Order
+                      </button>
+                    )}
+                    {sentToAnyCourier && (
+                      <button
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                        onClick={handleOpenTracking}
+                      >
+                        {ICONS.Courier} Tracking
+                      </button>
+                    )}
+                    {canCancelOrders && (
+                      <>
+                        <div className="border-t my-1"></div>
+                        <button onClick={() => updateStatus(OrderStatus.CANCELLED)} disabled={order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 disabled:hover:bg-gray-50 flex items-center gap-2 text-red-500 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">
+                          {ICONS.Delete} Cancel Order
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -469,7 +520,7 @@ const OrderDetails: React.FC = () => {
           </div>
 
           {/* Process Section */}
-          {order.history?.processing || canManageProcessing ? (
+          {order.history?.processing || canManageProcessing || canSendCurrentOrderToCourier ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
@@ -497,7 +548,7 @@ const OrderDetails: React.FC = () => {
                 {sentToAnyCourier ? (
                   <p className="text-xs text-gray-700 leading-relaxed font-bold bg-gray-50 p-3 rounded-xl">{order.history.courier}</p>
                 ) : (
-                  (!isEmployee && order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier) && (
+                  canSendCurrentOrderToCourier && (
                     <>
                       <button 
                         onClick={() => setShowSteadfast(true)}
@@ -525,7 +576,7 @@ const OrderDetails: React.FC = () => {
           ) : null}
 
           {/* Picked Section */}
-          {order.history.picked || !isEmployee ? (
+          {order.history.picked || canMoveOrdersToPicked ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">3. Courier Picked</h3>
@@ -539,9 +590,9 @@ const OrderDetails: React.FC = () => {
                     {order.history.picked}
                   </p>
                 ) : (
-                  !isEmployee && (
+                  canMoveOrdersToPicked && (
                     <button 
-                      disabled={order.status !== OrderStatus.PROCESSING}
+                      disabled={!canMarkCurrentOrderPicked}
                       onClick={markPicked}
                       className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95"
                     >
@@ -554,7 +605,7 @@ const OrderDetails: React.FC = () => {
           ) : null}
 
           {/* Completion Section */}
-          {completionHistory || !isEmployee ? (
+          {completionHistory || canFinalizeOrders ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">4. Completion</h3>
@@ -582,7 +633,7 @@ const OrderDetails: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  !isEmployee && (
+                  canFinalizeOrders && (
                     <div className="space-y-4 text-center">
                       <div className="p-4 bg-gray-50 rounded-lg">
                         <p className="text-[10px] font-black text-gray-400 uppercase">Amount Due</p>
@@ -590,10 +641,10 @@ const OrderDetails: React.FC = () => {
                       </div>
                       <button 
                         onClick={openCompletion}
-                        disabled={order.status !== OrderStatus.PICKED}
+                        disabled={!canFinalizeCurrentOrder}
                         className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                       >
-                        Mark as Completed
+                        Finalize Order
                       </button>
                       {order.status !== OrderStatus.PICKED && (
                         <p className="text-xs font-medium text-gray-400">
@@ -617,6 +668,8 @@ const OrderDetails: React.FC = () => {
         form={completionForm}
         setForm={setCompletionForm}
         isLoading={completePickedOrderMutation.isPending}
+        allowDeliveredOutcome={canMarkOrdersCompleted}
+        allowReturnedOutcome={canMarkOrdersReturned}
       />
 
       <SteadfastModal 

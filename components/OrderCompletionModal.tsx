@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Button } from './index';
 import { formatCurrency } from '../constants';
 import { Order, OrderCompletionOutcome } from '../types';
@@ -23,6 +23,8 @@ interface OrderCompletionModalProps {
   form: OrderCompletionFormState;
   setForm: React.Dispatch<React.SetStateAction<OrderCompletionFormState>>;
   isLoading: boolean;
+  allowDeliveredOutcome?: boolean;
+  allowReturnedOutcome?: boolean;
 }
 
 const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
@@ -33,12 +35,21 @@ const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
   form,
   setForm,
   isLoading,
+  allowDeliveredOutcome = true,
+  allowReturnedOutcome = true,
 }) => {
   const { data: accounts = [] } = useAccounts();
   const { data: paymentMethods = [] } = usePaymentMethods();
   const { data: categories = [] } = useCategories('Expense');
   const { data: systemDefaults } = useSystemDefaults();
   const shippingCostsCategory = categories.find((category) => category.name === 'Shipping Costs') ?? null;
+  const availableOutcomes = useMemo<OrderCompletionOutcome[]>(
+    () => [
+      ...(allowDeliveredOutcome ? ['Delivered' as const] : []),
+      ...(allowReturnedOutcome ? ['Returned' as const] : []),
+    ],
+    [allowDeliveredOutcome, allowReturnedOutcome],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -69,6 +80,9 @@ const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
       if (!next.accountId && fallbackAccountId) next.accountId = fallbackAccountId;
       if (!next.paymentMethod && fallbackPaymentMethod) next.paymentMethod = fallbackPaymentMethod;
       if (!next.categoryId && fallbackCategoryId) next.categoryId = fallbackCategoryId;
+      if (!availableOutcomes.includes(next.outcome)) {
+        next.outcome = availableOutcomes[0] || 'Delivered';
+      }
 
       // If Returned is selected, automatically set category to 'Shipping Costs'
       if (next.outcome === 'Returned' && shippingCostsCategory) {
@@ -76,6 +90,7 @@ const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
       }
 
       if (
+        next.outcome === current.outcome &&
         next.accountId === current.accountId &&
         next.paymentMethod === current.paymentMethod &&
         next.categoryId === current.categoryId
@@ -85,16 +100,21 @@ const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
 
       return next;
     });
-  }, [isOpen, accounts, paymentMethods, categories, shippingCostsCategory, systemDefaults, setForm]);
+  }, [isOpen, accounts, paymentMethods, categories, shippingCostsCategory, systemDefaults, setForm, availableOutcomes]);
 
   // Handle outcome changes - automatically set category for Returned orders
   useEffect(() => {
+    if (!availableOutcomes.includes(form.outcome)) {
+      setForm((current) => ({ ...current, outcome: availableOutcomes[0] || 'Delivered' }));
+      return;
+    }
+
     if (form.outcome === 'Returned' && shippingCostsCategory && form.categoryId !== shippingCostsCategory.id) {
       setForm((current) => ({ ...current, categoryId: shippingCostsCategory.id }));
     }
-  }, [form.outcome, shippingCostsCategory, form.categoryId, setForm]);
+  }, [form.outcome, shippingCostsCategory, form.categoryId, setForm, availableOutcomes]);
 
-  if (!isOpen || !order) return null;
+  if (!isOpen || !order || availableOutcomes.length === 0) return null;
 
   const isReturned = form.outcome === 'Returned';
   const outstanding = Math.max(order.total - order.paidAmount, 0);
@@ -125,8 +145,8 @@ const OrderCompletionModal: React.FC<OrderCompletionModalProps> = ({
               disabled={isLoading}
               className="w-full rounded-lg border border-gray-100 bg-gray-50 px-6 py-3.5 font-bold outline-none focus:ring-2 focus:ring-[#3c5a82] disabled:opacity-50"
             >
-              <option value="Delivered">Delivered</option>
-              <option value="Returned">Returned</option>
+              {availableOutcomes.includes('Delivered') && <option value="Delivered">Delivered</option>}
+              {availableOutcomes.includes('Returned') && <option value="Returned">Returned</option>}
             </select>
           </div>
 

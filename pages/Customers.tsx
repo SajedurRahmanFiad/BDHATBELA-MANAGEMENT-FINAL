@@ -17,6 +17,7 @@ import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQuer
 import { useMemo, useEffect } from 'react';
 import { isTempId } from '../src/utils/optimisticIdMap';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 
 const Customers: React.FC = () => {
   const navigate = useNavigate();
@@ -48,6 +49,10 @@ const Customers: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteCustomerMutation = useDeleteCustomer();
   const isAdmin = hasAdminAccess(user?.role);
+  const { can } = useRolePermissions();
+  const canCreateCustomers = can('customers.create');
+  const canEditCustomers = can('customers.edit');
+  const canDeleteCustomers = can('customers.delete');
 
   // Track location to detect browser back navigation
   const previousLocationRef = useRef<string>(location.pathname + location.search);
@@ -139,14 +144,16 @@ const Customers: React.FC = () => {
         <div>
           <h2 className="md:text-2xl text-xl font-bold text-gray-900">Customers</h2>
         </div>
-        <Button 
-          onClick={() => navigate('/customers/new')}
-          variant="primary"
-          size="md"
-          icon={ICONS.Plus}
-        >
-          New Customer
-        </Button>
+        {canCreateCustomers && (
+          <Button 
+            onClick={() => navigate('/customers/new')}
+            variant="primary"
+            size="md"
+            icon={ICONS.Plus}
+          >
+            New Customer
+          </Button>
+        )}
       </div>
 
       {/* (No Created By filter for customers) */}
@@ -198,35 +205,39 @@ const Customers: React.FC = () => {
               </span>
             ),
           },
-          {
-            key: 'id',
-            label: 'Actions',
-            align: 'right' as const,
-            render: (customerId) => (
-              <div className="justify-end flex items-center gap-2">
-                <IconButton
-                  icon={ICONS.Edit}
-                  variant="primary"
-                  title="Edit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/customers/edit/${customerId}`);
-                  }}
-                />
-                {isAdmin && (
-                  <IconButton
-                    icon={ICONS.Delete}
-                    variant="danger"
-                    title="Delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(customerId);
-                    }}
-                  />
-                )}
-              </div>
-            ),
-          },
+          ...(canEditCustomers || canDeleteCustomers
+            ? [{
+                key: 'id',
+                label: 'Actions',
+                align: 'right' as const,
+                render: (customerId: string) => (
+                  <div className="justify-end flex items-center gap-2">
+                    {canEditCustomers && (
+                      <IconButton
+                        icon={ICONS.Edit}
+                        variant="primary"
+                        title="Edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/customers/edit/${customerId}`);
+                        }}
+                      />
+                    )}
+                    {canDeleteCustomers && (
+                      <IconButton
+                        icon={ICONS.Delete}
+                        variant="danger"
+                        title="Delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(customerId);
+                        }}
+                      />
+                    )}
+                  </div>
+                ),
+              }]
+            : []),
         ]}
         data={filteredCustomers}
         loading={!canLoadCustomers || isFetching}

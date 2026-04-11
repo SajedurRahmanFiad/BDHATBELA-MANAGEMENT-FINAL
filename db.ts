@@ -1,6 +1,7 @@
 
 import { User, UserRole, Order, OrderStatus, Bill, BillStatus, Customer, Vendor, Product, Account, Transaction, Settings } from './types';
 import { normalizeCompanySettings } from './src/utils/companyPages';
+import { clonePermissionsSettings, DEFAULT_ROLE_PERMISSION_SETTINGS } from './src/utils/permissions';
 
 // Default Settings (Only for UI, all data comes from the API)
 const defaultSettings: Settings = {
@@ -31,6 +32,7 @@ const defaultSettings: Settings = {
       OrderStatus.CANCELLED,
     ],
   },
+  permissions: clonePermissionsSettings(DEFAULT_ROLE_PERMISSION_SETTINGS),
 };
 
 // Helper to get from local storage, NO fallback to initial data
@@ -69,6 +71,7 @@ const mergedSettings: Settings = _storedSettings
         paperfly: { ...defaultSettings.courier.paperfly, ...(_storedSettings as any).courier?.paperfly },
       },
       payroll: { ...defaultSettings.payroll, ...(_storedSettings as any).payroll },
+      permissions: clonePermissionsSettings((_storedSettings as any).permissions || defaultSettings.permissions),
     }
   : defaultSettings;
 

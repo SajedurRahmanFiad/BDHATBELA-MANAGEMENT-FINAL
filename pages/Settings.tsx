@@ -3,13 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
-import { Button } from '../components';
+import { Button, PermissionsSettingsPanel } from '../components';
 import { theme } from '../theme';
-import { OrderStatus, hasAdminAccess, type CompanyPage, type Settings } from '../types';
+import { OrderStatus, hasAdminAccess, type CompanyPage, type PermissionsSettings, type Settings } from '../types';
 import { 
   useCategories, usePaymentMethods, useUnits,
   useCompanySettings, useOrderSettings, useInvoiceSettings, 
-  useSystemDefaults, useCourierSettings, useAccounts, useProducts, useWalletSettings
+  useSystemDefaults, useCourierSettings, useAccounts, useProducts, useWalletSettings, usePermissionsSettings
 } from '../src/hooks/useQueries';
 import { 
   useCreateCategory, useDeleteCategory, 
@@ -22,11 +22,15 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay } from '../components';
 import { fetchCarryBeeStores } from '../src/services/supabaseQueries';
 import { normalizeCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
+import { clonePermissionsSettings, DEFAULT_ROLE_PERMISSION_SETTINGS } from '../src/utils/permissions';
 
 const SettingsPage: React.FC = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('company');
   const [showModal, setShowModal] = useState<'category' | 'payment' | 'unit' | null>(null);
+  const [pagePendingRemoval, setPagePendingRemoval] = useState<{ pageId: string; pageName: string } | null>(null);
+  const [pageRemovalConfirmText, setPageRemovalConfirmText] = useState('');
+  const [pageRemovalError, setPageRemovalError] = useState('');
   const queryClient = useQueryClient();
 
   // Query data from React Query hooks
@@ -36,6 +40,7 @@ const SettingsPage: React.FC = () => {
   const { data: systemDefaultsData, isPending: defaultsLoading } = useSystemDefaults();
   const { data: courierSettingsData, isPending: courierLoading } = useCourierSettings();
   const { data: walletSettingsData, isPending: walletLoading } = useWalletSettings();
+  const { data: permissionsSettingsData, isPending: permissionsLoading } = usePermissionsSettings();
   const { data: categories = [], isPending: loadingCategories } = useCategories();
   const { data: paymentMethods = [], isPending: loadingPaymentMethods } = usePaymentMethods();
   const { data: units = [], isPending: loadingUnits } = useUnits();
@@ -79,6 +84,9 @@ const SettingsPage: React.FC = () => {
     expenseCategoryId: '', 
     recordsPerPage: 10 
   });
+  const [permissionsSettings, setPermissionsSettings] = useState<PermissionsSettings>(() =>
+    clonePermissionsSettings(DEFAULT_ROLE_PERMISSION_SETTINGS),
+  );
 
   const [categoryForm, setCategoryForm] = useState({ name: '', type: 'Income' as 'Income' | 'Expense' | 'Product' | 'Other', color: '#10B981', parentId: '' });
   const [paymentForm, setPaymentForm] = useState({ name: '', description: '' });
@@ -119,6 +127,12 @@ const SettingsPage: React.FC = () => {
       countedStatuses: countedStatuses.length > 0 ? countedStatuses : PAYROLL_STATUS_OPTIONS,
     });
   }, [walletSettingsData]);
+
+  React.useEffect(() => {
+    if (permissionsSettingsData) {
+      setPermissionsSettings(clonePermissionsSettings(permissionsSettingsData));
+    }
+  }, [permissionsSettingsData]);
 
   // Fetch CarryBee stores when credentials change (debounced to avoid rapid calls while typing)
   useEffect(() => {
@@ -164,7 +178,7 @@ const SettingsPage: React.FC = () => {
     };
   }, [courierSettings.carryBee.baseUrl, courierSettings.carryBee.clientId, courierSettings.carryBee.clientSecret, courierSettings.carryBee.clientContext]);
 
-  const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || walletLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
+  const loading = companyLoading || orderLoading || invoiceLoading || defaultsLoading || courierLoading || walletLoading || permissionsLoading || loadingCategories || loadingPaymentMethods || loadingUnits;
   const updateCompanyPages = (updater: (pages: CompanyPage[]) => CompanyPage[]) => {
     setCompanySettings((current) => normalizeCompanySettings({
       ...current,
@@ -225,6 +239,32 @@ const SettingsPage: React.FC = () => {
     });
   };
 
+  const handleRequestRemoveCompanyPage = (pageId: string, pageName: string) => {
+    setPagePendingRemoval({ pageId, pageName });
+    setPageRemovalConfirmText('');
+    setPageRemovalError('');
+  };
+
+  const closePageRemovalModal = () => {
+    setPagePendingRemoval(null);
+    setPageRemovalConfirmText('');
+    setPageRemovalError('');
+  };
+
+  const confirmRemoveCompanyPage = () => {
+    if (!pagePendingRemoval) {
+      return;
+    }
+
+    if (pageRemovalConfirmText !== pagePendingRemoval.pageName) {
+      setPageRemovalError('Type the exact page name to confirm deletion.');
+      return;
+    }
+
+    handleRemoveCompanyPage(pagePendingRemoval.pageId);
+    closePageRemovalModal();
+  };
+
   const toggleWalletStatus = (status: OrderStatus) => {
     setWalletSettings((current) => ({
       ...current,
@@ -254,6 +294,7 @@ const SettingsPage: React.FC = () => {
         invoice: invoiceSettings,
         defaults: systemDefaults,
         courier: courierSettings,
+        permissions: permissionsSettings,
         wallet: walletSettings,
       }).then(() => {
         // Update mock db for backward compatibility
@@ -262,6 +303,7 @@ const SettingsPage: React.FC = () => {
         db.settings.invoice = invoiceSettings;
         db.settings.defaults = systemDefaults;
         db.settings.courier = courierSettings;
+        db.settings.permissions = permissionsSettings as any;
         db.settings.payroll = {
           ...db.settings.payroll,
           unitAmount: walletSettings.unitAmount,
@@ -475,6 +517,7 @@ const SettingsPage: React.FC = () => {
     { id: 'order', label: 'Order & Invoice', icon: ICONS.Sales },
     { id: 'defaults', label: 'Defaults', icon: ICONS.Settings },
     { id: 'wallet', label: 'Wallet', icon: ICONS.Payroll },
+    { id: 'permissions', label: 'Permissions', icon: ICONS.Users },
     { id: 'categories', label: 'Categories', icon: ICONS.More },
     { id: 'payments', label: 'Payment Methods', icon: ICONS.Banking },
     { id: 'courier', label: 'Courier', icon: ICONS.Courier },
@@ -499,7 +542,7 @@ const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <LoadingOverlay isLoading={loading} message="Loading settings..." />
       <div className="flex items-center justify-between">
         <div>
@@ -532,7 +575,7 @@ const SettingsPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex-1 bg-white p-8 rounded-xl border border-gray-100 shadow-sm min-h-[500px]">
+        <div className="flex-1 min-w-0 bg-white p-8 rounded-xl border border-gray-100 shadow-sm min-h-[500px]">
           {activeTab === 'company' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col gap-4 border-b pb-4 md:flex-row md:items-end md:justify-between">
@@ -542,8 +585,15 @@ const SettingsPage: React.FC = () => {
                     Add as many pages as you need. The page marked as global branding becomes the default for new orders.
                   </p>
                 </div>
-                <Button variant="primary" size="sm" onClick={handleAddCompanyPage}>
-                  {ICONS.Plus} Add Page
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleAddCompanyPage}
+                  aria-label="Add company page"
+                  title="Add company page"
+                  className="h-10 w-10 justify-center px-0"
+                >
+                  {ICONS.Plus}
                 </Button>
               </div>
 
@@ -565,7 +615,7 @@ const SettingsPage: React.FC = () => {
                           type="button"
                           aria-label={`Remove page ${index + 1}`}
                           title="Remove Page"
-                          onClick={() => handleRemoveCompanyPage(page.id)}
+                          onClick={() => handleRequestRemoveCompanyPage(page.id, page.name || `Page ${index + 1}`)}
                           disabled={companySettings.pages.length === 1}
                           className="flex h-10 w-10 items-center justify-center rounded-full border border-red-100 text-red-500 transition-all hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-100 disabled:text-gray-300"
                         >
@@ -982,6 +1032,13 @@ const SettingsPage: React.FC = () => {
             </div>
           )}
 
+          {activeTab === 'permissions' && (
+            <PermissionsSettingsPanel
+              value={permissionsSettings}
+              onChange={setPermissionsSettings}
+            />
+          )}
+
           {activeTab === 'categories' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between border-b pb-4">
@@ -1246,6 +1303,50 @@ const SettingsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {pagePendingRemoval && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={closePageRemovalModal}></div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 p-8 space-y-6">
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">Critical Action</p>
+              <h3 className="text-xl font-bold text-gray-900">Delete Company Page</h3>
+              <p className="text-sm text-gray-500">
+                Type <span className="font-black text-gray-900">{pagePendingRemoval.pageName}</span> exactly to confirm deletion of this page.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              This permanently removes the page from the current settings draft, including its branding details.
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Confirm Page Name</label>
+              <input
+                type="text"
+                value={pageRemovalConfirmText}
+                onChange={(event) => {
+                  setPageRemovalConfirmText(event.target.value);
+                  setPageRemovalError('');
+                }}
+                placeholder={pagePendingRemoval.pageName}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+              />
+            </div>
+
+            {pageRemovalError && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+                {pageRemovalError}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <Button onClick={closePageRemovalModal} variant="ghost" className="flex-1">Cancel</Button>
+              <Button onClick={confirmRemoveCompanyPage} variant="danger" size="md" className="flex-1">Delete Page</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal === 'category' && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

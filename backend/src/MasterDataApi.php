@@ -1105,4 +1105,69 @@ final class MasterDataApi extends BaseService
             fn (): array => $this->fetchCourierSettings()
         );
     }
+
+    public function fetchPermissionsSettings(array $params = []): array
+    {
+        return $this->buildPermissionsSettingsPayload();
+    }
+
+    public function updatePermissionsSettings(array $params): array
+    {
+        $this->requireAdmin();
+        $roles = is_array($params['roles'] ?? null) ? $params['roles'] : [];
+        if (!$this->tableExists('role_permissions')) {
+            throw new RuntimeException('Permissions table is missing. Run the permissions migration first.');
+        }
+
+        $customRoleNames = [];
+        foreach ($roles as $roleConfig) {
+            if (!is_array($roleConfig)) {
+                continue;
+            }
+
+            $roleName = $this->normalizeRoleName((string) ($roleConfig['roleName'] ?? ''));
+            if ($roleName === '' || $this->isReservedPermissionRole($roleName)) {
+                continue;
+            }
+
+            $permissions = $this->normalizeRolePermissions(
+                $roleConfig['permissions'] ?? null,
+                $this->defaultRolePermissions($roleName)
+            );
+            $now = $this->database->nowUtc();
+            $isCustom = !$this->isBuiltInPermissionRole($roleName);
+            if ($isCustom) {
+                $customRoleNames[$roleName] = $roleName;
+            }
+
+            $this->database->execute(
+                'INSERT INTO role_permissions (role_name, permissions, is_custom, created_at, updated_at)
+                 VALUES (:role_name, :permissions, :is_custom, :created_at, :updated_at)
+                 ON DUPLICATE KEY UPDATE
+                   permissions = VALUES(permissions),
+                   is_custom = VALUES(is_custom),
+                   updated_at = VALUES(updated_at)',
+                [
+                    ':role_name' => $roleName,
+                    ':permissions' => $this->jsonEncode($permissions),
+                    ':is_custom' => $isCustom ? 1 : 0,
+                    ':created_at' => $now,
+                    ':updated_at' => $now,
+                ]
+            );
+        }
+
+        $customRoleNames = array_values($customRoleNames);
+        if ($customRoleNames === []) {
+            $this->database->execute('DELETE FROM role_permissions WHERE is_custom = 1');
+        } else {
+            [$placeholders, $bindings] = $this->inClause($customRoleNames, 'permission_role_name');
+            $this->database->execute(
+                'DELETE FROM role_permissions WHERE is_custom = 1 AND role_name NOT IN (' . implode(', ', $placeholders) . ')',
+                $bindings
+            );
+        }
+
+        return $this->fetchPermissionsSettings();
+    }
 }

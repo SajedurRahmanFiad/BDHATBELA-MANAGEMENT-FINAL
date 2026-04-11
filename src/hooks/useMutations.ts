@@ -39,6 +39,7 @@ import {
   updateInvoiceSettings,
   updateSystemDefaults,
   updateCourierSettings,
+  updatePermissionsSettings,
   updatePayrollSettings,
   markPayrollPaid,
   updateWalletSettings,
@@ -59,6 +60,7 @@ import type {
   Product,
   CompanySettings,
   OrderStatus,
+  PermissionsSettings,
   PayrollPayment,
   PayrollSettings,
   WalletPayout,
@@ -2253,6 +2255,34 @@ export function useUpdateCourierSettings(): UseMutationResult<any, Error, any, u
   });
 }
 
+export function useUpdatePermissionsSettings(): UseMutationResult<
+  PermissionsSettings,
+  Error,
+  PermissionsSettings,
+  unknown
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updatePermissionsSettings,
+    onMutate: async (newSettings) => {
+      await queryClient.cancelQueries({ queryKey: ['settings', 'permissions'] });
+
+      const previousSettings = queryClient.getQueryData<PermissionsSettings>(['settings', 'permissions']);
+      queryClient.setQueryData(['settings', 'permissions'], newSettings);
+
+      return { previousSettings };
+    },
+    onError: (_err, _newSettings, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(['settings', 'permissions'], context.previousSettings);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'permissions'] });
+    },
+  });
+}
+
 export function useUpdatePayrollSettings(): UseMutationResult<
   PayrollSettings,
   Error,
@@ -2387,6 +2417,7 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       const previousInvoice = queryClient.getQueryData<any>(['settings', 'invoice']);
       const previousDefaults = queryClient.getQueryData<any>(['settings', 'defaults']);
       const previousCourier = queryClient.getQueryData<any>(['settings', 'courier']);
+      const previousPermissions = queryClient.getQueryData<any>(['settings', 'permissions']);
       const previousPayroll = queryClient.getQueryData<any>(['settings', 'payroll']);
       const previousWallet = queryClient.getQueryData<any>(['settings', 'wallet']);
       
@@ -2406,6 +2437,9 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       if (updates.courier && previousCourier) {
         queryClient.setQueryData(['settings', 'courier'], { ...previousCourier, ...updates.courier });
       }
+      if (updates.permissions) {
+        queryClient.setQueryData(['settings', 'permissions'], updates.permissions);
+      }
       if (updates.payroll && previousPayroll) {
         queryClient.setQueryData(['settings', 'payroll'], { ...previousPayroll, ...updates.payroll });
       }
@@ -2419,6 +2453,7 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
         previousInvoice,
         previousDefaults,
         previousCourier,
+        previousPermissions,
         previousPayroll,
         previousWallet,
       };
@@ -2439,6 +2474,9 @@ export function useBatchUpdateSettings(): UseMutationResult<any, Error, any, unk
       }
       if (context?.previousCourier) {
         queryClient.setQueryData(['settings', 'courier'], context.previousCourier);
+      }
+      if (context?.previousPermissions) {
+        queryClient.setQueryData(['settings', 'permissions'], context.previousPermissions);
       }
       if (context?.previousPayroll) {
         queryClient.setQueryData(['settings', 'payroll'], context.previousPayroll);

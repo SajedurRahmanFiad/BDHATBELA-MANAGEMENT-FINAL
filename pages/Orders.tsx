@@ -17,6 +17,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { buildLocalDateTime, formatDate, getDateTimeFilters, getOrderActivityDate, getTodayDate } from '../utils';
 
 const Orders: React.FC = () => {
@@ -25,8 +26,14 @@ const Orders: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const { user, isLoading: authLoading } = useAuth();
-  const isAdmin = hasAdminAccess(user?.role);
   const isEmployee = isEmployeeRole(user?.role);
+  const { can } = useRolePermissions();
+  const canCreateOrders = can('orders.create');
+  const canEditOrders = can('orders.edit');
+  const canSendOrdersToCourier = can('orders.sendToCourier');
+  const canMarkOrdersCompleted = can('orders.markCompleted');
+  const canMarkOrdersReturned = can('orders.markReturned');
+  const canFinalizePickedOrders = canMarkOrdersCompleted || canMarkOrdersReturned;
   const createCompletionForm = (order?: Order | null): OrderCompletionFormState => ({
     outcome: 'Delivered',
     date: getTodayDate(),
@@ -291,7 +298,10 @@ const Orders: React.FC = () => {
   };
 
   const openCompletionModal = (order: Order) => {
-    setCompletionForm(createCompletionForm(order));
+    setCompletionForm({
+      ...createCompletionForm(order),
+      outcome: canMarkOrdersCompleted ? 'Delivered' : 'Returned',
+    });
     setCompletionOrder(order);
   };
 
@@ -299,6 +309,15 @@ const Orders: React.FC = () => {
     if (!completionOrder) return;
 
     try {
+      if (completionForm.outcome === 'Delivered' && !canMarkOrdersCompleted) {
+        toast.error('You do not have permission to mark orders as completed.');
+        return;
+      }
+      if (completionForm.outcome === 'Returned' && !canMarkOrdersReturned) {
+        toast.error('You do not have permission to mark orders as returned.');
+        return;
+      }
+
       if (!completionForm.accountId) {
         toast.error('Please select an account');
         return;
@@ -394,20 +413,41 @@ const Orders: React.FC = () => {
     toast.warning('Tracking unavailable');
   };
 
+  const canEditOrder = (order: Order) => {
+    if (!canEditOrders) return false;
+    if (hasAdminAccess(user?.role)) return true;
+    if (isEmployee) {
+      return order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD;
+    }
+    return true;
+  };
+
+  const canSendOrderToCourier = (order: Order, sentToAnyCourier: boolean) => (
+    canSendOrdersToCourier
+      && order.status !== OrderStatus.PICKED
+      && order.status !== OrderStatus.COMPLETED
+      && order.status !== OrderStatus.RETURNED
+      && order.status !== OrderStatus.CANCELLED
+      && order.status !== OrderStatus.ON_HOLD
+      && !sentToAnyCourier
+  );
+
   return (
     <div className="space-y-6 pb-12">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Orders</h2>
         </div>
-        <Button
-          onClick={() => navigate('/orders/new')}
-          variant="primary"
-          size="md"
-          icon={ICONS.Plus}
-        >
-          New Order
-        </Button>
+        {canCreateOrders && (
+          <Button
+            onClick={() => navigate('/orders/new')}
+            variant="primary"
+            size="md"
+            icon={ICONS.Plus}
+          >
+            New Order
+          </Button>
+        )}
       </div>
       {/* Pagination controls moved below the table to match other pages */}
 
@@ -478,7 +518,15 @@ const Orders: React.FC = () => {
                 const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
                 const sentToPaperfly = courierHistory.includes('paperfly') || !!order.paperflyTrackingNumber;
                 const sentToAnyCourier = sentToSteadfast || sentToCarryBee || sentToPaperfly;
-                const hasEmployeeActions = sentToAnyCourier || (isOwner && order.status === OrderStatus.ON_HOLD);
+                const canEditSelectedOrder = canEditOrder(order);
+                const canFinalizeSelectedOrder = order.status === OrderStatus.PICKED && canFinalizePickedOrders;
+                const canSendSelectedOrderToCourier = canSendOrderToCourier(order, sentToAnyCourier);
+                const canTrackSelectedOrder = sentToAnyCourier;
+                const hasRowActions =
+                  canEditSelectedOrder
+                  || canFinalizeSelectedOrder
+                  || canSendSelectedOrderToCourier
+                  || canTrackSelectedOrder;
                 return (
                   <tr 
                     key={order.id} 
@@ -519,7 +567,7 @@ const Orders: React.FC = () => {
 
                     {/* Mobile Actions Dropdown */}
                     <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={e => e.stopPropagation()}>
-                      {(!isEmployee || hasEmployeeActions) && (
+                      {hasRowActions && (
                         <div className="relative z-[999]">
                           <button 
                             onClick={(e) => {
@@ -537,90 +585,57 @@ const Orders: React.FC = () => {
                             {ICONS.More}
                           </button>
                           <PortalMenu anchorEl={anchorEl} open={openActionsMenu === order.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
-                            {isEmployee ? (
-                              <>
-                                {isOwner && order.status === OrderStatus.ON_HOLD && (
-                                  <>
-                                    <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                  </>
-                                )}
-                                {sentToAnyCourier && (
-                                  <>
-                                    <div className="border-t my-1"></div>
-                                    <button
-                                      onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
-                                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
-                                    >
-                                      {ICONS.Courier} Tracking
-                                    </button>
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              <>
+                            <>
+                              {canEditSelectedOrder && (
                                 <button onClick={() => { navigate(`/orders/edit/${order.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                                {order.status === OrderStatus.PICKED && (
-                                  <button onClick={() => { openCompletionModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Check} Mark as Completed</button>
-                                )}
+                              )}
+                              {canFinalizeSelectedOrder && (
+                                <button onClick={() => { openCompletionModal(order); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Check} Finalize Order</button>
+                              )}
+                              {(canEditSelectedOrder || canFinalizeSelectedOrder) && (canTrackSelectedOrder || canSendSelectedOrderToCourier) && (
                                 <div className="border-t my-1"></div>
-                                <button onClick={() => { handlePrintOrder(order.id, navigate); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Print} Print</button>
-                                {sentToAnyCourier && (
-                                  <button
-                                    onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
-                                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
-                                  >
-                                    {ICONS.Courier} Tracking
-                                  </button>
-                                )}
-                                {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
-                                  <>
-                                    <div className="border-t my-1"></div>
-                                    <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
-                                    <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
-                                    <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
-                                  </>
-                                )}
-                              </>
-                            )}
+                              )}
+                              {canTrackSelectedOrder && (
+                                <button
+                                  onClick={() => { handleOpenTracking(order); setOpenActionsMenu(null); setAnchorEl(null); }}
+                                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"
+                                >
+                                  {ICONS.Courier} Tracking
+                                </button>
+                              )}
+                              {canSendSelectedOrderToCourier && (
+                                <>
+                                  {canTrackSelectedOrder && <div className="border-t my-1"></div>}
+                                  <button onClick={() => { setShowSteadfast(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/steadfast.png" alt="Steadfast" className="w-5 h-5 rounded-full"/> <span>Add to Steadfast</span></button>
+                                  <button onClick={() => { setShowCarryBee(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="../uploads/carrybee.png" alt="CarryBee" className="w-5 h-5 rounded-full"/> <span>Add to CarryBee</span></button>
+                                  <button onClick={() => { setShowPaperfly(order.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-[#0f2f57]"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-5 h-5 rounded-full"/> <span>Add to Paperfly</span></button>
+                                </>
+                              )}
+                            </>
                           </PortalMenu>
                         </div>
                       )}
                     </td>
 
-                    {/* Desktop Hover Actions: admins keep row actions; employees see Edit on their own drafts, otherwise tracking only */}
-                    {hoveredRow === order.id && (isAdmin || (isEmployee && (sentToAnyCourier || (isOwner && order.status === OrderStatus.ON_HOLD)))) && (
+                    {/* Desktop Hover Actions */}
+                    {hoveredRow === order.id && hasRowActions && (
                       <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
-                          {isEmployee ? (
+                          {canEditSelectedOrder && (
+                            <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
+                          )}
+                          {canFinalizeSelectedOrder && (
+                            <button onClick={() => openCompletionModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Finalize">{ICONS.Check}</button>
+                          )}
+                          {canTrackSelectedOrder && (
+                            <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
+                          )}
+                          {canSendSelectedOrderToCourier && (
                             <>
-                              {isOwner && order.status === OrderStatus.ON_HOLD && (
-                                <>
-                                  <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                                </>
-                              )}
-                              {sentToAnyCourier && (
-                                <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <button onClick={() => navigate(`/orders/edit/${order.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                              {order.status === OrderStatus.PICKED && (
-                                <button onClick={() => openCompletionModal(order)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Mark as Completed">{ICONS.Check}</button>
-                              )}
-                              <button onClick={() => handlePrintOrder(order.id, navigate)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Print">{ICONS.Print}</button>
-                              {sentToAnyCourier && (
-                                <button onClick={() => handleOpenTracking(order)} className="p-2.5 text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Tracking">{ICONS.Courier}</button>
-                              )}
-                              {order.status !== OrderStatus.PICKED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.RETURNED && order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.ON_HOLD && !sentToAnyCourier && (
-                                <>
-                                  <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                                  <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>
-                                  <button onClick={() => setShowCarryBee(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-orange-50 rounded-lg" title="Send to CarryBee"><img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full"/></button>
-                                  <button onClick={() => setShowPaperfly(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Paperfly"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full"/></button>
-                                  <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                                </>
-                              )}
+                              <div className="h-5 w-px bg-gray-100 mx-1"></div>
+                              <button onClick={() => setShowSteadfast(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Steadfast"><img src="/uploads/steadfast.png" alt="Steadfast" className="w-6 h-6 rounded-full"/></button>
+                              <button onClick={() => setShowCarryBee(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-orange-50 rounded-lg" title="Send to CarryBee"><img src="/uploads/carrybee.png" alt="CarryBee" className="w-6 h-6 rounded-full"/></button>
+                              <button onClick={() => setShowPaperfly(order.id)} className="px-1 py-1 text-[9px] font-black hover:bg-[#ebf4ff] rounded-lg" title="Send to Paperfly"><img src="/uploads/paperfly.png" alt="Paperfly" className="w-6 h-6 rounded-full"/></button>
                             </>
                           )}
                         </div>
@@ -654,6 +669,8 @@ const Orders: React.FC = () => {
         form={completionForm}
         setForm={setCompletionForm}
         isLoading={completePickedOrderMutation.isPending}
+        allowDeliveredOutcome={canMarkOrdersCompleted}
+        allowReturnedOutcome={canMarkOrdersReturned}
       />
 
       <SteadfastModal 

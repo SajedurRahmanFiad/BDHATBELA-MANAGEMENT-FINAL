@@ -16,6 +16,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE, fetchBillById } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { formatDate, getBillActivityDate, getDateTimeFilters, getTodayDate } from '../utils';
 
 const Bills: React.FC = () => {
@@ -24,6 +25,10 @@ const Bills: React.FC = () => {
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
   const user = db.currentUser;
+  const { can } = useRolePermissions();
+  const canCreateBills = can('bills.create');
+  const canEditBills = can('bills.edit');
+  const canDeleteBills = can('bills.delete');
   const {
     data: systemDefaults,
     isPending: systemDefaultsLoading,
@@ -263,14 +268,16 @@ const Bills: React.FC = () => {
         <div>
           <h2 className="md:text-2xl text-xl font-black text-gray-900 tracking-tight">Purchase Bills</h2>
         </div>
-        <Button
-          onClick={() => navigate('/bills/new')}
-          variant="primary"
-          size="md"
-          icon={ICONS.Plus}
-        >
-          New Bill
-        </Button>
+        {canCreateBills && (
+          <Button
+            onClick={() => navigate('/bills/new')}
+            variant="primary"
+            size="md"
+            icon={ICONS.Plus}
+          >
+            New Bill
+          </Button>
+        )}
       </div>
 
       <FilterBar 
@@ -328,7 +335,10 @@ const Bills: React.FC = () => {
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredBills.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No purchase bills found for this period.</td></tr>
-              ) : filteredBills.map((bill) => (
+              ) : filteredBills.map((bill) => {
+                const hasRowActions = canEditBills || canDeleteBills;
+
+                return (
                 <tr 
                   key={bill.id} 
                   onMouseEnter={() => setHoveredRow(bill.id)} 
@@ -354,44 +364,53 @@ const Bills: React.FC = () => {
 
                   {/* Mobile Actions Dropdown */}
                   <td className="px-6 py-5 sm:hidden relative z-[999]" onClick={e => e.stopPropagation()}>
-                    <div className="relative z-[999]">
-                      <button
-                        onClick={(e) => {
-                          const target = e.currentTarget as HTMLElement;
-                          if (openActionsMenu === bill.id) {
-                            setOpenActionsMenu(null);
-                            setAnchorEl(null);
-                          } else {
-                            setOpenActionsMenu(bill.id);
-                            setAnchorEl(target);
-                          }
-                        }}
-                        className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
-                      >
-                        {ICONS.More}
-                      </button>
-                      <PortalMenu anchorEl={anchorEl} open={openActionsMenu === bill.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
-                        <button onClick={() => { navigate(`/bills/edit/${bill.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>
-                        <button onClick={() => { handleDuplicate(bill); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Duplicate} Duplicate</button>
-                        <div className="border-t my-1"></div>
-                        <button onClick={() => { handleDelete(bill.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
-                      </PortalMenu>
-                    </div>
+                    {hasRowActions && (
+                      <div className="relative z-[999]">
+                        <button
+                          onClick={(e) => {
+                            const target = e.currentTarget as HTMLElement;
+                            if (openActionsMenu === bill.id) {
+                              setOpenActionsMenu(null);
+                              setAnchorEl(null);
+                            } else {
+                              setOpenActionsMenu(bill.id);
+                              setAnchorEl(target);
+                            }
+                          }}
+                          className="p-2 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-lg transition-all"
+                        >
+                          {ICONS.More}
+                        </button>
+                        <PortalMenu anchorEl={anchorEl} open={openActionsMenu === bill.id} onClose={() => { setOpenActionsMenu(null); setAnchorEl(null); }}>
+                          {canEditBills && <button onClick={() => { navigate(`/bills/edit/${bill.id}`); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700">{ICONS.Edit} Edit</button>}
+                          {canDeleteBills && (
+                            <>
+                              {canEditBills && <div className="border-t my-1"></div>}
+                              <button onClick={() => { handleDelete(bill.id); setOpenActionsMenu(null); setAnchorEl(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600">{ICONS.Delete} Delete</button>
+                            </>
+                          )}
+                        </PortalMenu>
+                      </div>
+                    )}
                   </td>
 
                   {/* Desktop Hover Actions */}
-                  {hoveredRow === bill.id && (
+                  {hoveredRow === bill.id && hasRowActions && (
                     <td className="absolute right-6 top-1/2 -translate-y-1/2 z-10 animate-in fade-in slide-in-from-right-2 duration-200 hidden sm:table-cell" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
-                        <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>
-                        <button onClick={() => handleDuplicate(bill)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Duplicate">{ICONS.Duplicate}</button>
-                        <div className="h-5 w-px bg-gray-100 mx-1"></div>
-                        <button onClick={() => handleDelete(bill.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                        {canEditBills && <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="p-2.5 text-gray-400 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-xl transition-all" title="Edit">{ICONS.Edit}</button>}
+                        {canDeleteBills && (
+                          <>
+                            {canEditBills && <div className="h-5 w-px bg-gray-100 mx-1"></div>}
+                            <button onClick={() => handleDelete(bill.id)} className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Delete">{ICONS.Delete}</button>
+                          </>
+                        )}
                       </div>
                     </td>
                   )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

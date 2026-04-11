@@ -1230,12 +1230,14 @@ final class OperationsApi extends BaseService
     {
         $currentUser = $this->currentUser();
         $filters = $this->buildDashboardDateFilters($params);
-        $isAdmin = $this->hasAdminAccess((string) ($currentUser['role'] ?? ''));
+        $role = (string) ($currentUser['role'] ?? '');
+        $canViewAdminDashboard = $this->roleHasPermission($role, 'dashboard.viewAdmin');
+        $canViewEmployeeDashboard = !$canViewAdminDashboard && $this->roleHasPermission($role, 'dashboard.viewEmployee');
 
         return [
-            'role' => $isAdmin ? 'admin' : 'employee',
-            'admin' => $isAdmin ? $this->buildDashboardAdminSnapshot($filters) : null,
-            'employee' => $isAdmin ? null : $this->buildDashboardEmployeeSnapshot($filters),
+            'role' => $canViewAdminDashboard ? 'admin' : 'employee',
+            'admin' => $canViewAdminDashboard ? $this->buildDashboardAdminSnapshot($filters) : null,
+            'employee' => $canViewEmployeeDashboard ? $this->buildDashboardEmployeeSnapshot($filters) : null,
             'refreshedAt' => gmdate('c'),
         ];
     }

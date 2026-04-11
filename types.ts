@@ -6,9 +6,81 @@ export enum UserRole {
   EMPLOYEE1 = 'Employee1'
 }
 
+export type AppRole = UserRole | string;
+
 export const isEmployeeRole = (r?: UserRole | string | null) => r === UserRole.EMPLOYEE || r === UserRole.EMPLOYEE1;
 export const isDeveloperRole = (r?: UserRole | string | null) => r === UserRole.DEVELOPER;
 export const hasAdminAccess = (r?: UserRole | string | null) => r === UserRole.ADMIN || r === UserRole.DEVELOPER;
+
+export type PermissionKey =
+  | 'dashboard.viewAdmin'
+  | 'dashboard.viewEmployee'
+  | 'orders.view'
+  | 'orders.create'
+  | 'orders.edit'
+  | 'orders.delete'
+  | 'orders.cancel'
+  | 'orders.moveOnHoldToProcessing'
+  | 'orders.sendToCourier'
+  | 'orders.moveToPicked'
+  | 'orders.markCompleted'
+  | 'orders.markReturned'
+  | 'customers.view'
+  | 'customers.create'
+  | 'customers.edit'
+  | 'customers.delete'
+  | 'bills.view'
+  | 'bills.create'
+  | 'bills.edit'
+  | 'bills.delete'
+  | 'bills.cancel'
+  | 'bills.moveOnHoldToProcessing'
+  | 'bills.markReceived'
+  | 'bills.markPaid'
+  | 'transactions.view'
+  | 'transactions.create'
+  | 'transactions.edit'
+  | 'transactions.delete'
+  | 'vendors.view'
+  | 'vendors.create'
+  | 'vendors.edit'
+  | 'vendors.delete'
+  | 'products.view'
+  | 'products.create'
+  | 'products.edit'
+  | 'products.delete'
+  | 'accounts.view'
+  | 'accounts.create'
+  | 'accounts.edit'
+  | 'accounts.delete'
+  | 'transfers.create'
+  | 'reports.view'
+  | 'wallet.view'
+  | 'payroll.view'
+  | 'recycleBin.view'
+  | 'users.view';
+
+export type RolePermissionMap = Record<PermissionKey, boolean>;
+
+export interface PermissionDefinition {
+  key: PermissionKey | 'allPrivileges';
+  label: string;
+  description: string;
+  section: string;
+  isVirtual?: boolean;
+}
+
+export interface PermissionRoleConfig {
+  roleName: string;
+  isCustom: boolean;
+  permissions: RolePermissionMap;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PermissionsSettings {
+  roles: PermissionRoleConfig[];
+}
 
 export enum OrderStatus {
   ON_HOLD = 'On Hold',
@@ -32,7 +104,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
-  role: UserRole;
+  role: string;
   image?: string;
   password?: string;
   createdAt?: string;
@@ -340,6 +412,7 @@ export interface Settings {
     unitAmount: number;
     countedStatuses: OrderStatus[];
   };
+  permissions?: PermissionsSettings;
 }
 
 export interface PayrollSettings {
@@ -351,7 +424,7 @@ export interface PayrollPayment {
   id: string;
   employeeId: string;
   employeeName?: string;
-  employeeRole?: UserRole;
+  employeeRole?: string;
   periodStart: string;
   periodEnd: string;
   periodKind: 'month' | 'custom';
@@ -370,7 +443,7 @@ export interface PayrollPayment {
 export interface PayrollSummaryRow {
   employeeId: string;
   employeeName: string;
-  employeeRole: UserRole;
+  employeeRole: string;
   countedOrderCount: number;
   unitAmount: number;
   estimatedAmount: number;
@@ -390,7 +463,7 @@ export interface WalletSettings {
 export interface WalletBalanceCard {
   employeeId: string;
   employeeName: string;
-  employeeRole: UserRole;
+  employeeRole: string;
   currentBalance: number;
   totalEarned: number;
   totalPaid: number;
@@ -402,7 +475,7 @@ export interface WalletActivityEntry {
   id: string;
   employeeId: string;
   employeeName?: string;
-  employeeRole?: UserRole;
+  employeeRole?: string;
   entryType: WalletEntryType;
   amountDelta: number;
   unitAmountSnapshot?: number;

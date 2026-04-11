@@ -63,6 +63,7 @@ try {
             'invoice' => isset($updates['invoice']) ? $master->updateInvoiceSettings($updates['invoice']) : $master->fetchInvoiceSettings(),
             'defaults' => isset($updates['defaults']) ? $master->updateSystemDefaults($updates['defaults']) : $master->fetchSystemDefaults(),
             'courier' => isset($updates['courier']) ? $master->updateCourierSettings($updates['courier']) : $master->fetchCourierSettings(),
+            'permissions' => isset($updates['permissions']) ? $master->updatePermissionsSettings($updates['permissions']) : $master->fetchPermissionsSettings(),
             'wallet' => $walletPayload !== null ? $operations->updateWalletSettings($walletPayload) : $operations->fetchWalletSettings(),
         ]);
         exit;

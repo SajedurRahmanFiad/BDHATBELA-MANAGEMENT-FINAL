@@ -8,6 +8,7 @@ import { useCreateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { buildHistoryBackState, getPreservedRouteState } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { getTodayDate } from '../utils';
 
 const CustomerDetails: React.FC = () => {
@@ -29,6 +30,10 @@ const CustomerDetails: React.FC = () => {
 
   const isAdmin = hasAdminAccess(user?.role);
   const isEmployee = isEmployeeRole(user?.role);
+  const { can } = useRolePermissions();
+  const canEditCustomers = can('customers.edit');
+  const canCreateOrders = can('orders.create');
+  const canEditOrders = can('orders.edit');
   const userMap = useMemo(() => new Map(users.map((entry) => [entry.id, entry.name])), [users]);
 
   // Calculate totals from orders - MOVED TO TOP BEFORE CONDITIONALS
@@ -55,6 +60,10 @@ const CustomerDetails: React.FC = () => {
   };
 
   const handleDuplicate = async (order: Order) => {
+    if (!canCreateOrders) {
+      toast.error('You do not have permission to create orders.');
+      return;
+    }
     try {
       if (!customer) return;
       
@@ -123,7 +132,9 @@ const CustomerDetails: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Customer Profile</h2>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => navigate(`/customers/edit/${id}`)} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
+          {canEditCustomers && (
+            <button onClick={() => navigate(`/customers/edit/${id}`)} className="px-4 py-2 border rounded-xl font-bold bg-white text-gray-700 hover:bg-gray-50">Edit Profile</button>
+          )}
         </div>
       </div>
 
@@ -182,7 +193,10 @@ const CustomerDetails: React.FC = () => {
                     customerOrders.map((order) => (
                       (() => {
                         const creatorName = order.creatorName || userMap.get(order.createdBy) || '—';
-                        const canEditOrder = isAdmin || (isEmployee && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD);
+                        const canEditOrder =
+                          canEditOrders
+                          && (isAdmin || (isEmployee && order.createdBy === user?.id && order.status === OrderStatus.ON_HOLD) || !isEmployee);
+                        const canShowOrderActions = canEditOrder || canCreateOrders;
 
                         return (
                           <tr 
@@ -206,7 +220,7 @@ const CustomerDetails: React.FC = () => {
                               <span className="font-black text-gray-900">{formatCurrency(order.total)}</span>
                             </td>
 
-                            {hoveredRow === order.id && (
+                            {hoveredRow === order.id && canShowOrderActions && (
                               <td className="absolute inset-y-0 right-0 flex items-center pr-6 bg-gradient-to-l from-emerald-50 via-emerald-50 to-transparent">
                                 <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-lg border border-[#c7dff5] animate-in fade-in slide-in-from-right-2 duration-200" onClick={e => e.stopPropagation()}>
                                   {canEditOrder && (
@@ -214,9 +228,11 @@ const CustomerDetails: React.FC = () => {
                                       {ICONS.Edit}
                                     </button>
                                   )}
-                                  <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-md transition-colors">
-                                    {ICONS.Duplicate}
-                                  </button>
+                                  {canCreateOrders && (
+                                    <button title="Duplicate" onClick={() => handleDuplicate(order)} className="p-2 text-gray-500 hover:text-[#0f2f57] hover:bg-[#ebf4ff] rounded-md transition-colors">
+                                      {ICONS.Duplicate}
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             )}

@@ -12,6 +12,8 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
+import { useDeleteTransaction } from '../src/hooks/useMutations';
 import { formatDateTimeParts, getDateTimeFilters, openAttachmentPreview } from '../utils';
 
 const Transactions: React.FC = () => {
@@ -19,6 +21,10 @@ const Transactions: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
+  const { can } = useRolePermissions();
+  const canCreateTransactions = can('transactions.create');
+  const canEditTransactions = can('transactions.edit');
+  const canDeleteTransactions = can('transactions.delete');
   const {
     data: systemDefaults,
     isPending: systemDefaultsLoading,
@@ -117,6 +123,7 @@ const Transactions: React.FC = () => {
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const { data: allCategories = [] } = useCategories();
+  const deleteTransactionMutation = useDeleteTransaction();
 
   useEffect(() => {
     if (shouldHydrateFromUrl) return;
@@ -246,9 +253,10 @@ const Transactions: React.FC = () => {
     }
   };
 
-  const canEditTransaction = (transaction: Transaction) => !transaction.referenceId && transaction.type !== 'Transfer';
+  const canEditTransaction = (transaction: Transaction) => canEditTransactions && !transaction.referenceId && transaction.type !== 'Transfer';
+  const canDeleteTransaction = (transaction: Transaction) => canDeleteTransactions && !transaction.referenceId && transaction.type !== 'Transfer';
   const canViewAttachment = (transaction: Transaction) => Boolean(transaction.attachmentUrl?.trim());
-  const hasRowActions = (transaction: Transaction) => canEditTransaction(transaction) || canViewAttachment(transaction);
+  const hasRowActions = (transaction: Transaction) => canEditTransaction(transaction) || canDeleteTransaction(transaction) || canViewAttachment(transaction);
 
   const closeActionsMenu = () => {
     setOpenActionsMenu(null);
@@ -265,16 +273,35 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleDeleteTransaction = async (transaction: Transaction) => {
+    if (!canDeleteTransaction(transaction)) {
+      toast.error('You do not have permission to delete this transaction.');
+      return;
+    }
+    if (!confirm('Move this transaction to the recycle bin? You can restore it later.')) return;
+
+    try {
+      await deleteTransactionMutation.mutateAsync(transaction.id);
+      toast.success('Transaction moved to the recycle bin');
+      closeActionsMenu();
+    } catch (error) {
+      console.error('Failed to delete transaction:', error);
+      toast.error('Failed to delete transaction');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="md:text-2xl text-xl font-bold text-gray-900 tracking-tight">Financial Transactions</h2>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate('/transactions/new/income')} variant="primary" size="md" icon={ICONS.Plus}>Income</Button>
-          <Button onClick={() => navigate('/transactions/new/expense')} variant="danger" size="md" icon={ICONS.Minus}>Expense</Button>
-        </div>
+        {canCreateTransactions && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => navigate('/transactions/new/income')} variant="primary" size="md" icon={ICONS.Plus}>Income</Button>
+            <Button onClick={() => navigate('/transactions/new/expense')} variant="danger" size="md" icon={ICONS.Minus}>Expense</Button>
+          </div>
+        )}
       </div>
 
       <FilterBar
@@ -343,6 +370,7 @@ const Transactions: React.FC = () => {
                   );
                   const isLinkedTransaction = Boolean(transaction.referenceId);
                   const canEdit = canEditTransaction(transaction);
+                  const canDelete = canDeleteTransaction(transaction);
                   const canPreviewAttachment = canViewAttachment(transaction);
                   const showActions = hasRowActions(transaction);
                   const { date: dateStr, time: timeStr } = formatDateAndTime(transaction.date, transaction.createdAt);
@@ -428,7 +456,15 @@ const Transactions: React.FC = () => {
                                     {ICONS.Edit} Edit
                                   </button>
                                 )}
-                                {canEdit && canPreviewAttachment && <div className="border-t my-1"></div>}
+                                {canDelete && (
+                                  <button
+                                    onClick={() => handleDeleteTransaction(transaction)}
+                                    className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600"
+                                  >
+                                    {ICONS.Delete} Delete
+                                  </button>
+                                )}
+                                {(canEdit || canDelete) && canPreviewAttachment && <div className="border-t my-1"></div>}
                                 {canPreviewAttachment && (
                                   <button
                                     onClick={() => {
@@ -461,7 +497,16 @@ const Transactions: React.FC = () => {
                                 {ICONS.Edit}
                               </button>
                             )}
-                            {canEdit && canPreviewAttachment && <div className="h-5 w-px bg-gray-100 mx-1"></div>}
+                            {canDelete && (
+                              <button
+                                onClick={() => handleDeleteTransaction(transaction)}
+                                className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                title="Delete"
+                              >
+                                {ICONS.Delete}
+                              </button>
+                            )}
+                            {(canEdit || canDelete) && canPreviewAttachment && <div className="h-5 w-px bg-gray-100 mx-1"></div>}
                             {canPreviewAttachment && (
                               <button
                                 onClick={() => handleViewAttachment(transaction)}

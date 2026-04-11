@@ -40,6 +40,7 @@ import {
   fetchInvoiceSettings,
   fetchSystemDefaults,
   fetchCourierSettings,
+  fetchPermissionsSettings,
   fetchPayrollSettings,
   fetchPayrollEmployees,
   fetchPayrollHistory,
@@ -63,6 +64,7 @@ import type {
   Product,
   CompanySettings,
   DashboardSnapshot,
+  PermissionsSettings,
   PayrollPayment,
   PayrollSettings,
   PayrollSummaryRow,
@@ -548,6 +550,14 @@ export function useCourierSettings(): UseQueryResult<any, Error> {
   return useQuery({
     queryKey: ['settings', 'courier'],
     queryFn: fetchCourierSettings,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function usePermissionsSettings(): UseQueryResult<PermissionsSettings, Error> {
+  return useQuery({
+    queryKey: ['settings', 'permissions'],
+    queryFn: fetchPermissionsSettings,
     staleTime: 60 * 60 * 1000,
   });
 }

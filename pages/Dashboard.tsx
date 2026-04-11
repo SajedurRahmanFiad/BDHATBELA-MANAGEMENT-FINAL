@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { OrderStatus, hasAdminAccess } from '../types';
+import { OrderStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard } from '../components/Card';
 import { FilterBar } from '../components';
 import type { FilterRange } from '../utils';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useDashboardSnapshot } from '../src/hooks/useQueries';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import {
   Bar,
   CartesianGrid,
@@ -152,6 +153,7 @@ const SectionState: React.FC<{ text: string; minHeight?: string }> = ({ text, mi
 
 const Dashboard: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
+  const { canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
@@ -170,7 +172,11 @@ const Dashboard: React.FC = () => {
     return <div className="p-8 text-center text-gray-500">Not Authenticated</div>;
   }
 
-  const isAdmin = hasAdminAccess(user.role);
+  if (!canViewAdminDashboard && !canViewEmployeeDashboard) {
+    return <div className="p-8 text-center text-gray-500">You do not have permission to view a dashboard.</div>;
+  }
+
+  const isAdmin = canViewAdminDashboard;
   const { data: snapshot, error } = useDashboardSnapshot(filterRange, customDates);
   const adminSnapshot = snapshot?.admin;
   const employeeSnapshot = snapshot?.employee;

@@ -15,6 +15,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import FilterBar, { FilterRange } from '../components/FilterBar';
 import { useSearch } from '../src/contexts/SearchContext';
 import { useResettablePage } from '../src/hooks/useResettablePage';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 
 const Products: React.FC = () => {
   const navigate = useNavigate();
@@ -57,6 +58,10 @@ const Products: React.FC = () => {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const deleteProductMutation = useDeleteProduct();
   const isAdmin = hasAdminAccess(user?.role);
+  const { can } = useRolePermissions();
+  const canCreateProducts = can('products.create');
+  const canEditProducts = can('products.edit');
+  const canDeleteProducts = can('products.delete');
   
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
@@ -93,7 +98,7 @@ const Products: React.FC = () => {
         <div>
           <h2 className="md:text-2xl text-xl font-bold text-gray-900">Products Catalog</h2>
         </div>
-        {isAdmin && (
+        {canCreateProducts && (
           <Button
             onClick={() => navigate('/products/new')}
             variant="primary"
@@ -158,33 +163,37 @@ const Products: React.FC = () => {
               </span>
             ),
           },
-          ...(isAdmin ? [{
-            key: 'id',
-            label: 'Actions',
-            align: 'right' as const,
-            render: (productId: string) => (
-              <div className="justify-end flex items-center gap-2">
-                <IconButton
-                  icon={ICONS.Edit}
-                  variant="primary"
-                  title="Edit"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/products/edit/${productId}`);
-                  }}
-                />
-                <IconButton
-                  icon={ICONS.Delete}
-                  variant="danger"
-                  title="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(productId);
-                  }}
-                />
-              </div>
-            ),
-          }] : []),
+          ...(canEditProducts || canDeleteProducts ? [{
+              key: 'id',
+              label: 'Actions',
+              align: 'right' as const,
+              render: (productId: string) => (
+                <div className="justify-end flex items-center gap-2">
+                  {canEditProducts && (
+                    <IconButton
+                      icon={ICONS.Edit}
+                      variant="primary"
+                      title="Edit"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/products/edit/${productId}`);
+                      }}
+                    />
+                  )}
+                  {canDeleteProducts && (
+                    <IconButton
+                      icon={ICONS.Delete}
+                      variant="danger"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(productId);
+                      }}
+                    />
+                  )}
+                </div>
+              ),
+            }] : []),
         ]}
         data={filteredProducts}
         loading={!canLoadProducts || isFetching}

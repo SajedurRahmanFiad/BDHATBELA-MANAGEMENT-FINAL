@@ -4,11 +4,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { User, UserRole, hasAdminAccess } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useUser } from '../src/hooks/useQueries';
+import { usePermissionsSettings, useUser } from '../src/hooks/useQueries';
 import { useCreateUser, useUpdateUser, useDeleteUser } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { getErrorMessage } from '../src/services/supabaseQueries';
 import { useAuth } from '../src/contexts/AuthProvider';
+import { db } from '../db';
+import { getAssignableUserRoles } from '../src/utils/permissions';
 
 const UserForm: React.FC = () => {
   const { id } = useParams();
@@ -17,6 +19,7 @@ const UserForm: React.FC = () => {
   
   // Query user if editing
   const { data: existingUser, isPending: userLoading, error: userError } = useUser(isEdit ? id : undefined);
+  const { data: permissionsSettings } = usePermissionsSettings();
   
   // Mutations
   const createMutation = useCreateUser();
@@ -47,6 +50,9 @@ const UserForm: React.FC = () => {
   const isAdmin = hasAdminAccess(currentUser?.role);
   const isSelf = currentUser?.id === id;
   const isDeveloperTarget = form.role === UserRole.DEVELOPER;
+  const assignableRoles = getAssignableUserRoles(permissionsSettings || db.settings.permissions, {
+    includeDeveloper: existingUser?.role === UserRole.DEVELOPER,
+  });
 
   const loading = userLoading;
 
@@ -203,13 +209,12 @@ const UserForm: React.FC = () => {
             {isAdmin && (
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">System Role</label>
-                <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value as UserRole})} disabled={existingUser?.role === UserRole.DEVELOPER}>
-                  <option value={UserRole.EMPLOYEE}>Employee</option>
-                  <option value={UserRole.EMPLOYEE1}>Employee1</option>
-                  <option value={UserRole.ADMIN}>Administrator</option>
-                  {existingUser?.role === UserRole.DEVELOPER && (
-                    <option value={UserRole.DEVELOPER}>Developer</option>
-                  )}
+                <select className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-[#3c5a82]`} value={form.role} onChange={e => setForm({...form, role: e.target.value})} disabled={existingUser?.role === UserRole.DEVELOPER}>
+                  {assignableRoles.map((roleName) => (
+                    <option key={roleName} value={roleName}>
+                      {roleName === UserRole.ADMIN ? 'Administrator' : roleName}
+                    </option>
+                  ))}
                 </select>
                 <p className="text-[10px] text-gray-400 font-medium">
                   Developer is reserved for direct database assignment only.

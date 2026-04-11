@@ -3,13 +3,14 @@ import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ICONS } from '../constants';
 import { db } from '../db';
-import { hasAdminAccess, isEmployeeRole } from '../types';
+import { hasAdminAccess } from '../types';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSearch } from '../src/contexts/SearchContext';
 import { useCompanySettings, useOrderSearchPreview } from '../src/hooks/useQueries';
 import { buildHistoryBackState } from '../src/utils/navigation';
 import { getGlobalCompanyPage, normalizeCompanySettings } from '../src/utils/companyPages';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import IncidentModeBanner from './IncidentModeBanner';
 import { WRITE_FREEZE_ENABLED, WRITE_FREEZE_MESSAGE } from '../src/config/incidentMode';
 
@@ -88,6 +89,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { signOut, profile } = useAuth();
   const { searchQuery, setSearchQuery, clearSearch } = useSearch();
   const { data: fetchedCompanySettings } = useCompanySettings();
+  const { can, canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPlusOpen, setIsPlusOpen] = useState(false);
@@ -206,6 +208,34 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
+  const canViewDashboard = canViewAdminDashboard || canViewEmployeeDashboard;
+  const isAdminAccessUser = hasAdminAccess(user.role);
+  const canViewWalletInSidebar = !isAdminAccessUser && can('wallet.view');
+  const salesChildren = [
+    can('orders.view') ? { to: '/orders', label: 'Orders', active: isActive('/orders') } : null,
+    can('customers.view') ? { to: '/customers', label: 'Customers', active: isActive('/customers') } : null,
+  ].filter(Boolean) as { to: string; label: string; active: boolean }[];
+  const purchasesChildren = [
+    can('bills.view') ? { to: '/bills', label: 'Bills', active: isActive('/bills') } : null,
+    can('vendors.view') ? { to: '/vendors', label: 'Vendors', active: isActive('/vendors') } : null,
+  ].filter(Boolean) as { to: string; label: string; active: boolean }[];
+  const bankingChildren = [
+    can('accounts.view') ? { to: '/banking/accounts', label: 'Accounts', active: isActive('/banking/accounts') } : null,
+    can('transactions.view') ? { to: '/banking/transactions', label: 'Transactions', active: isActive('/banking/transactions') } : null,
+    can('transfers.create') ? { to: '/banking/transfer', label: 'Transfer', active: isActive('/banking/transfer') } : null,
+  ].filter(Boolean) as { to: string; label: string; active: boolean }[];
+  const hrChildren = [
+    can('users.view') ? { to: '/users', label: 'Users', active: isActive('/users') } : null,
+    can('payroll.view') ? { to: '/payroll', label: 'Payroll', active: isActive('/payroll') } : null,
+  ].filter(Boolean) as { to: string; label: string; active: boolean }[];
+  const quickActions = [
+    can('orders.create') ? { label: 'New Order', to: '/orders/new', icon: ICONS.Sales } : null,
+    can('bills.create') ? { label: 'New Bill', to: '/bills/new', icon: ICONS.Briefcase } : null,
+    can('customers.create') ? { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers } : null,
+    can('vendors.create') ? { label: 'New Vendor', to: '/vendors/new', icon: ICONS.Vendors } : null,
+    can('transactions.create') ? { label: 'Add Income', to: '/transactions/new/income', icon: ICONS.PlusCircle } : null,
+    can('transactions.create') ? { label: 'Add Expense', to: '/transactions/new/expense', icon: ICONS.Delete } : null,
+  ].filter(Boolean) as { label: string; to: string; icon: React.ReactNode }[];
 
   return (
     <div className={`${theme.colors.bg.secondary} flex overflow-hidden`} style={{ minHeight: '100vh' }}>
@@ -237,66 +267,69 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-            <SidebarItem to="/dashboard" icon={ICONS.Dashboard} label="Dashboard" active={isActive('/dashboard')} onClick={() => setIsSidebarOpen(false)} />
+            {canViewDashboard && (
+              <SidebarItem to="/dashboard" icon={ICONS.Dashboard} label="Dashboard" active={isActive('/dashboard')} onClick={() => setIsSidebarOpen(false)} />
+            )}
             
-            <SidebarItem to="/products" icon={ICONS.Products} label="Products" active={isActive('/products')} onClick={() => setIsSidebarOpen(false)} />
+            {can('products.view') && (
+              <SidebarItem to="/products" icon={ICONS.Products} label="Products" active={isActive('/products')} onClick={() => setIsSidebarOpen(false)} />
+            )}
 
-            <SidebarItem 
-              icon={ICONS.Sales} 
-              label="Sales" 
-              active={isActive('/orders') || isActive('/customers')} 
-              children={[
-                { to: '/orders', label: 'Orders', active: isActive('/orders') },
-                { to: '/customers', label: 'Customers', active: isActive('/customers') }
-              ]}
-              onClick={() => setIsSidebarOpen(false)}
-            />
+            {salesChildren.length > 0 && (
+              <SidebarItem 
+                icon={ICONS.Sales} 
+                label="Sales" 
+                active={isActive('/orders') || isActive('/customers')} 
+                children={salesChildren}
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            )}
 
-            {hasAdminAccess(user.role) ? null : (
+            {canViewWalletInSidebar && (
               <SidebarItem to="/wallet" icon={ICONS.Payroll} label="Wallet" active={isActive('/wallet')} onClick={() => setIsSidebarOpen(false)} />
             )}
 
-            {hasAdminAccess(user.role) && (
-              <>
-                <SidebarItem 
-                  icon={ICONS.Briefcase} 
-                  label="Purchases" 
-                  active={isActive('/bills') || isActive('/vendors')} 
-                  children={[
-                    { to: '/bills', label: 'Bills', active: isActive('/bills') },
-                    { to: '/vendors', label: 'Vendors', active: isActive('/vendors') }
-                  ]}
-                  onClick={() => setIsSidebarOpen(false)}
-                />
-                <SidebarItem 
-                  icon={ICONS.Banking} 
-                  label="Banking" 
-                  active={isActive('/banking')} 
-                  children={[
-                    { to: '/banking/accounts', label: 'Accounts', active: isActive('/banking/accounts') },
-                    { to: '/banking/transactions', label: 'Transactions', active: isActive('/banking/transactions') },
-                    { to: '/banking/transfer', label: 'Transfer', active: isActive('/banking/transfer') }
-                  ]}
-                  onClick={() => setIsSidebarOpen(false)}
-                />
-              </>
+            {purchasesChildren.length > 0 && (
+              <SidebarItem 
+                icon={ICONS.Briefcase} 
+                label="Purchases" 
+                active={isActive('/bills') || isActive('/vendors')} 
+                children={purchasesChildren}
+                onClick={() => setIsSidebarOpen(false)}
+              />
             )}
 
-            {hasAdminAccess(user.role) && (
+            {hrChildren.length > 0 && (
+              <SidebarItem
+                icon={ICONS.Users}
+                label="Human Resource"
+                active={isActive('/users') || isActive('/payroll')}
+                children={hrChildren}
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            )}
+
+            {bankingChildren.length > 0 && (
+              <SidebarItem 
+                icon={ICONS.Banking} 
+                label="Banking" 
+                active={isActive('/banking')} 
+                children={bankingChildren}
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            )}
+
+            {(can('reports.view') || can('recycleBin.view') || isAdminAccessUser) && (
               <>
-                <SidebarItem to="/reports" icon={ICONS.Reports} label="Reports" active={isActive('/reports')} onClick={() => setIsSidebarOpen(false)} />
-                <SidebarItem to="/recycle-bin" icon={ICONS.RecycleBin} label="Recycle Bin" active={isActive('/recycle-bin')} onClick={() => setIsSidebarOpen(false)} />
-                <SidebarItem
-                  icon={ICONS.Users}
-                  label="Human Resource"
-                  active={isActive('/users') || isActive('/payroll')}
-                  children={[
-                    { to: '/users', label: 'Users', active: isActive('/users') },
-                    { to: '/payroll', label: 'Payroll', active: isActive('/payroll') }
-                  ]}
-                  onClick={() => setIsSidebarOpen(false)}
-                />
-                <SidebarItem to="/settings" icon={ICONS.Settings} label="Settings" active={isActive('/settings')} onClick={() => setIsSidebarOpen(false)} />
+                {can('reports.view') && (
+                  <SidebarItem to="/reports" icon={ICONS.Reports} label="Reports" active={isActive('/reports')} onClick={() => setIsSidebarOpen(false)} />
+                )}
+                {can('recycleBin.view') && (
+                  <SidebarItem to="/recycle-bin" icon={ICONS.RecycleBin} label="Recycle Bin" active={isActive('/recycle-bin')} onClick={() => setIsSidebarOpen(false)} />
+                )}
+                {isAdminAccessUser && (
+                  <SidebarItem to="/settings" icon={ICONS.Settings} label="Settings" active={isActive('/settings')} onClick={() => setIsSidebarOpen(false)} />
+                )}
               </>
             )}
           </nav>
@@ -349,13 +382,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <div className="relative">
               <button
                 onClick={() => {
-                  if (!WRITE_FREEZE_ENABLED) {
+                  if (!WRITE_FREEZE_ENABLED && quickActions.length > 0) {
                     setIsPlusOpen(!isPlusOpen);
                   }
                 }}
-                disabled={WRITE_FREEZE_ENABLED}
-                title={WRITE_FREEZE_ENABLED ? WRITE_FREEZE_MESSAGE : 'Quick actions'}
-                className={`${theme.colors.primary[600]} text-white w-10 h-10 flex items-center justify-center ${theme.radius.md} ${theme.transitions.normal} shadow-lg shadow-[#0f2f57]/20 active:scale-95 ${WRITE_FREEZE_ENABLED ? 'cursor-not-allowed opacity-50' : `hover:${theme.colors.primary[700]}`}`}
+                disabled={WRITE_FREEZE_ENABLED || quickActions.length === 0}
+                title={WRITE_FREEZE_ENABLED ? WRITE_FREEZE_MESSAGE : quickActions.length === 0 ? 'No quick actions available for this role' : 'Quick actions'}
+                className={`${theme.colors.primary[600]} text-white w-10 h-10 flex items-center justify-center ${theme.radius.md} ${theme.transitions.normal} shadow-lg shadow-[#0f2f57]/20 active:scale-95 ${WRITE_FREEZE_ENABLED || quickActions.length === 0 ? 'cursor-not-allowed opacity-50' : `hover:${theme.colors.primary[700]}`}`}
               >
                 {ICONS.Plus}
               </button>
@@ -364,31 +397,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <div className="fixed inset-0 z-40" onClick={() => setIsPlusOpen(false)}></div>
                   <div className={`absolute right-0 mt-3 w-56 ${theme.colors.bg.primary} border ${theme.colors.border.primary} rounded-2xl shadow-2xl z-50 py-2 animate-in fade-in zoom-in slide-in-from-top-2 duration-200 origin-top-right`}>
                     <div className={`px-4 py-2 text-[10px] font-bold ${theme.colors.text.tertiary} uppercase tracking-widest border-b ${theme.colors.border.primary} mb-1`}>Quick Actions</div>
-                      {isEmployeeRole(user.role) ? (
-                        [
-                          { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
-                          { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers }
-                        ].map((item) => (
-                          <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
-                            <span className="opacity-70">{item.icon}</span>
-                            {item.label}
-                          </Link>
-                        ))
-                      ) : (
-                        [
-                          { label: 'New Order', to: '/orders/new', icon: ICONS.Sales },
-                          { label: 'New Bill', to: '/bills/new', icon: ICONS.Briefcase },
-                          { label: 'New Customer', to: '/customers/new', icon: ICONS.Customers },
-                          { label: 'New Vendor', to: '/vendors/new', icon: ICONS.Vendors },
-                          { label: 'Add Income', to: '/transactions/new/income', icon: ICONS.PlusCircle },
-                          { label: 'Add Expense', to: '/transactions/new/expense', icon: ICONS.Delete },
-                        ].map((item) => (
-                          <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
-                            <span className="opacity-70">{item.icon}</span>
-                            {item.label}
-                          </Link>
-                        ))
-                      )}
+                      {quickActions.map((item) => (
+                        <Link key={item.label} to={item.to} onClick={() => setIsPlusOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-sm font-bold ${theme.colors.text.primary} hover:${theme.colors.primary[50]} hover:${theme.colors.primary.text} ${theme.transitions.normal}`}>
+                          <span className="opacity-70">{item.icon}</span>
+                          {item.label}
+                        </Link>
+                      ))}
                   </div>
                 </>
               )}

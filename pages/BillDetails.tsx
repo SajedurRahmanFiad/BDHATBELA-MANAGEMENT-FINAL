@@ -11,6 +11,7 @@ import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
 import { getPreservedRouteState } from '../src/utils/navigation';
 import { handlePrintBill } from '../src/utils/printUtils';
+import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import { buildLocalDateTime, getTodayDate } from '../utils';
 
 const BillDetails: React.FC = () => {
@@ -18,6 +19,12 @@ const BillDetails: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = db.currentUser;
+  const { can } = useRolePermissions();
+  const canEditBills = can('bills.edit');
+  const canMoveBillsToProcessing = can('bills.moveOnHoldToProcessing');
+  const canMarkBillsReceived = can('bills.markReceived');
+  const canMarkBillsPaid = can('bills.markPaid');
+  const canCancelBills = can('bills.cancel');
   
   // Query data
   const { data: bill, isPending: billLoading, error: billError } = useBill(id || '');
@@ -70,22 +77,38 @@ const BillDetails: React.FC = () => {
   };
 
   const markProcessing = async () => {
+    if (!canMoveBillsToProcessing) {
+      toast.error('You do not have permission to move bills to processing.');
+      return;
+    }
     const historyText = `Marked as processing by ${user.name}, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     await updateStatus(BillStatus.PROCESSING, 'processing', historyText);
   };
 
   const markReceived = async () => {
+    if (!canMarkBillsReceived) {
+      toast.error('You do not have permission to mark bills as received.');
+      return;
+    }
     const historyText = `Marked as received by ${user.name}, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     await updateStatus(BillStatus.RECEIVED, 'received', historyText);
   };
 
   const cancelBill = async () => {
+    if (!canCancelBills) {
+      toast.error('You do not have permission to cancel bills.');
+      return;
+    }
     const historyText = `Reverted/cancelled by ${user.name}, on ${new Date().toLocaleDateString('en-BD', { day: 'numeric', month: 'short', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit' })}`;
     await updateStatus(BillStatus.ON_HOLD, 'cancelled', historyText);
   };
 
   const handlePayment = async () => {
     if (!bill) return;
+    if (!canMarkBillsPaid) {
+      toast.error('You do not have permission to record bill payments.');
+      return;
+    }
     try {
       if (!paymentForm.accountId) {
         toast.error('Please select an account');
@@ -142,6 +165,10 @@ const BillDetails: React.FC = () => {
 
   const openPayment = () => {
     if (!bill) return;
+    if (!canMarkBillsPaid) {
+      toast.error('You do not have permission to record bill payments.');
+      return;
+    }
     setPaymentForm({
       date: getTodayDate(),
       time: new Date().toLocaleTimeString('en-BD', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -150,6 +177,13 @@ const BillDetails: React.FC = () => {
     });
     setShowPaymentModal(true);
   };
+
+  const canShowActionsMenu =
+    canEditBills
+    || canMoveBillsToProcessing
+    || canMarkBillsReceived
+    || canMarkBillsPaid
+    || canCancelBills;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -181,29 +215,30 @@ const BillDetails: React.FC = () => {
           <button onClick={() => handlePrintBill(id!, navigate)} className="hidden md:flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg bg-white hover:bg-gray-50 transition-all">
             {ICONS.Print} Print Bill
           </button>
-          <div className="relative">
-            <button 
-              onClick={() => setIsActionOpen(!isActionOpen)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
-            >
-              {ICONS.More} <span className="hidden md:inline">Actions</span>
-            </button>
-            {isActionOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
-                <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-50 py-2">
-                  <button onClick={() => { handlePrintBill(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
-                  <div className="md:hidden border-t my-1"></div>
-                  <button disabled={bill.status === BillStatus.PAID} onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Processing</button>
-                  <button disabled={bill.status === BillStatus.PAID} onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Received</button>
-                  <div className="border-t my-1"></div>
-                  <button disabled={bill.status === BillStatus.PAID || bill.status === BillStatus.ON_HOLD} onClick={() => { cancelBill(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Cancel Bill</button>
-                  <button onClick={() => { openPayment(); setIsActionOpen(false); }} disabled={bill.paidAmount >= bill.total} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Record Payment</button>
-                  <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Edit Bill</button>
-                </div>
-              </>
-            )}
-          </div>
+          {canShowActionsMenu && (
+            <div className="relative">
+              <button 
+                onClick={() => setIsActionOpen(!isActionOpen)}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-lg ${theme.colors.primary[600]} text-white hover:${theme.colors.primary[700]} transition-all shadow-md`}
+              >
+                {ICONS.More} <span className="hidden md:inline">Actions</span>
+              </button>
+              {isActionOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsActionOpen(false)}></div>
+                  <div className="absolute right-0 mt-2 w-48 bg-white border rounded-xl shadow-xl z-50 py-2">
+                    <button onClick={() => { handlePrintBill(id!, navigate); setIsActionOpen(false); }} className="md:hidden w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Print Bill</button>
+                    <div className="md:hidden border-t my-1"></div>
+                    {canMoveBillsToProcessing && <button disabled={bill.status === BillStatus.PAID} onClick={() => { markProcessing(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Processing</button>}
+                    {canMarkBillsReceived && <button disabled={bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID} onClick={() => { markReceived(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300 disabled:cursor-not-allowed">Mark Received</button>}
+                    {canCancelBills && <button disabled={bill.status === BillStatus.PAID || bill.status === BillStatus.ON_HOLD} onClick={() => { cancelBill(); setIsActionOpen(false); }} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Cancel Bill</button>}
+                    {canMarkBillsPaid && <button onClick={() => { openPayment(); setIsActionOpen(false); }} disabled={bill.paidAmount >= bill.total} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-red-600 font-bold disabled:text-gray-300 disabled:cursor-not-allowed">Record Payment</button>}
+                    {canEditBills && <button onClick={() => navigate(`/bills/edit/${bill.id}`)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Edit Bill</button>}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -334,7 +369,7 @@ const BillDetails: React.FC = () => {
                 </p>
               ) : (
                 <button 
-                  disabled={bill.status === BillStatus.PAID}
+                  disabled={!canMoveBillsToProcessing || bill.status === BillStatus.PAID}
                   onClick={markProcessing}
                   className={`w-full py-3 ${theme.colors.secondary[600]} hover:${theme.colors.secondary[700]} disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                 >
@@ -359,7 +394,7 @@ const BillDetails: React.FC = () => {
                 </p>
               ) : (
                 <button 
-                  disabled={bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID}
+                  disabled={!canMarkBillsReceived || bill.status === BillStatus.ON_HOLD || bill.status === BillStatus.PAID}
                   onClick={markReceived}
                   className={`w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-100 disabled:text-gray-400 text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
                 >
@@ -397,6 +432,7 @@ const BillDetails: React.FC = () => {
                       <button 
                         onClick={openPayment}
                         className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
+                        disabled={!canMarkBillsPaid}
                       >
                         Add Balance Payment
                       </button>
@@ -412,6 +448,7 @@ const BillDetails: React.FC = () => {
                   <button 
                     onClick={openPayment}
                     className={`w-full py-3 ${theme.colors.primary[600]} hover:${theme.colors.primary[700]} text-white font-bold rounded-xl shadow-md transition-all active:scale-95`}
+                    disabled={!canMarkBillsPaid}
                   >
                     Record Payment
                   </button>

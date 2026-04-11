@@ -12,6 +12,81 @@ abstract class BaseService
     protected const BILL_STOCK_STATUSES = ['Received', 'Paid'];
     protected const DEFAULT_WALLET_CUTOFF_DATE = '2026-04-01';
     protected const DEFAULT_WALLET_CUTOFF_AT_UTC = '2026-03-31 18:00:00';
+    protected const RESERVED_PERMISSION_ROLES = ['Admin', 'Developer'];
+    protected const BUILT_IN_PERMISSION_ROLES = ['Employee', 'Employee1'];
+    protected const ROLE_PERMISSION_KEYS = [
+        'dashboard.viewAdmin',
+        'dashboard.viewEmployee',
+        'orders.view',
+        'orders.create',
+        'orders.edit',
+        'orders.delete',
+        'orders.cancel',
+        'orders.moveOnHoldToProcessing',
+        'orders.sendToCourier',
+        'orders.moveToPicked',
+        'orders.markCompleted',
+        'orders.markReturned',
+        'customers.view',
+        'customers.create',
+        'customers.edit',
+        'customers.delete',
+        'bills.view',
+        'bills.create',
+        'bills.edit',
+        'bills.delete',
+        'bills.cancel',
+        'bills.moveOnHoldToProcessing',
+        'bills.markReceived',
+        'bills.markPaid',
+        'transactions.view',
+        'transactions.create',
+        'transactions.edit',
+        'transactions.delete',
+        'vendors.view',
+        'vendors.create',
+        'vendors.edit',
+        'vendors.delete',
+        'products.view',
+        'products.create',
+        'products.edit',
+        'products.delete',
+        'accounts.view',
+        'accounts.create',
+        'accounts.edit',
+        'accounts.delete',
+        'transfers.create',
+        'reports.view',
+        'wallet.view',
+        'payroll.view',
+        'recycleBin.view',
+        'users.view',
+    ];
+    protected const DEFAULT_ROLE_PERMISSIONS = [
+        'Employee' => [
+            'dashboard.viewEmployee' => true,
+            'orders.view' => true,
+            'orders.create' => true,
+            'orders.edit' => true,
+            'customers.view' => true,
+            'customers.create' => true,
+            'customers.edit' => true,
+            'products.view' => true,
+            'wallet.view' => true,
+        ],
+        'Employee1' => [
+            'dashboard.viewEmployee' => true,
+            'orders.view' => true,
+            'orders.create' => true,
+            'orders.edit' => true,
+            'orders.moveOnHoldToProcessing' => true,
+            'customers.view' => true,
+            'customers.create' => true,
+            'customers.edit' => true,
+            'products.view' => true,
+            'wallet.view' => true,
+        ],
+    ];
 
     protected Database $database;
     protected Auth $auth;
@@ -814,6 +889,215 @@ abstract class BaseService
             'paidByName' => $this->nullableString($row['paid_by_name'] ?? $row['paidByName'] ?? null),
             'note' => $this->nullableString($row['note'] ?? null),
         ];
+    }
+
+    protected function tableExists(string $table): bool
+    {
+        $row = $this->database->fetchOne(
+            'SELECT 1 AS present
+             FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+             LIMIT 1',
+            [':table' => $table]
+        );
+
+        return $row !== null;
+    }
+
+    protected function normalizeRoleName(string $role): string
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($role));
+        return $normalized !== null ? trim($normalized) : trim($role);
+    }
+
+    protected function isReservedPermissionRole(string $role): bool
+    {
+        return in_array($this->normalizeRoleName($role), self::RESERVED_PERMISSION_ROLES, true);
+    }
+
+    protected function isBuiltInPermissionRole(string $role): bool
+    {
+        return in_array($this->normalizeRoleName($role), self::BUILT_IN_PERMISSION_ROLES, true);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function blankRolePermissions(): array
+    {
+        $permissions = [];
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            $permissions[$key] = false;
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function allEnabledRolePermissions(): array
+    {
+        $permissions = [];
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            $permissions[$key] = true;
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function defaultRolePermissions(string $role): array
+    {
+        $normalizedRole = $this->normalizeRoleName($role);
+        if ($this->isReservedPermissionRole($normalizedRole)) {
+            return $this->allEnabledRolePermissions();
+        }
+
+        $permissions = $this->blankRolePermissions();
+        $defaults = self::DEFAULT_ROLE_PERMISSIONS[$normalizedRole] ?? [];
+        foreach ($defaults as $key => $enabled) {
+            if (in_array($key, self::ROLE_PERMISSION_KEYS, true)) {
+                $permissions[$key] = (bool) $enabled;
+            }
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<string, bool>|null $fallback
+     * @return array<string, bool>
+     */
+    protected function normalizeRolePermissions($value, ?array $fallback = null): array
+    {
+        $raw = is_array($value) ? $value : $this->jsonDecodeAssoc($value);
+        $permissions = $this->blankRolePermissions();
+
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            if (array_key_exists($key, $raw)) {
+                $permissions[$key] = (bool) $raw[$key];
+                continue;
+            }
+
+            if ($fallback !== null && array_key_exists($key, $fallback)) {
+                $permissions[$key] = (bool) $fallback[$key];
+            }
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fetchStoredRolePermissionRows(): array
+    {
+        if (!$this->tableExists('role_permissions')) {
+            return [];
+        }
+
+        return $this->database->fetchAll(
+            'SELECT role_name, permissions, is_custom, created_at, updated_at
+             FROM role_permissions
+             ORDER BY is_custom ASC, role_name ASC'
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildPermissionsSettingsPayload(): array
+    {
+        $rolesByName = [];
+
+        foreach (self::BUILT_IN_PERMISSION_ROLES as $roleName) {
+            $rolesByName[$roleName] = [
+                'roleName' => $roleName,
+                'isCustom' => false,
+                'permissions' => $this->defaultRolePermissions($roleName),
+                'createdAt' => null,
+                'updatedAt' => null,
+            ];
+        }
+
+        foreach ($this->fetchStoredRolePermissionRows() as $row) {
+            $roleName = $this->normalizeRoleName((string) ($row['role_name'] ?? ''));
+            if ($roleName === '' || $this->isReservedPermissionRole($roleName)) {
+                continue;
+            }
+
+            $defaultPermissions = isset($rolesByName[$roleName]['permissions']) && is_array($rolesByName[$roleName]['permissions'])
+                ? $rolesByName[$roleName]['permissions']
+                : $this->defaultRolePermissions($roleName);
+
+            $rolesByName[$roleName] = [
+                'roleName' => $roleName,
+                'isCustom' => !$this->isBuiltInPermissionRole($roleName),
+                'permissions' => $this->normalizeRolePermissions($row['permissions'] ?? null, $defaultPermissions),
+                'createdAt' => $this->toIso($row['created_at'] ?? null),
+                'updatedAt' => $this->toIso($row['updated_at'] ?? null),
+            ];
+        }
+
+        $roles = array_values($rolesByName);
+        usort($roles, static function (array $left, array $right): int {
+            if ((bool) ($left['isCustom'] ?? false) !== (bool) ($right['isCustom'] ?? false)) {
+                return (bool) ($left['isCustom'] ?? false) ? 1 : -1;
+            }
+
+            return strcmp((string) ($left['roleName'] ?? ''), (string) ($right['roleName'] ?? ''));
+        });
+
+        return ['roles' => $roles];
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function permissionsForRole(string $role): array
+    {
+        $normalizedRole = $this->normalizeRoleName($role);
+        if ($normalizedRole === '') {
+            return $this->blankRolePermissions();
+        }
+
+        if ($this->isReservedPermissionRole($normalizedRole)) {
+            return $this->allEnabledRolePermissions();
+        }
+
+        $settings = $this->buildPermissionsSettingsPayload();
+        $roles = is_array($settings['roles'] ?? null) ? $settings['roles'] : [];
+        foreach ($roles as $roleConfig) {
+            if ($this->normalizeRoleName((string) ($roleConfig['roleName'] ?? '')) === $normalizedRole) {
+                return $this->normalizeRolePermissions(
+                    $roleConfig['permissions'] ?? null,
+                    $this->defaultRolePermissions($normalizedRole)
+                );
+            }
+        }
+
+        return $this->defaultRolePermissions($normalizedRole);
+    }
+
+    protected function roleHasPermission(string $role, string $permission): bool
+    {
+        if (!in_array($permission, self::ROLE_PERMISSION_KEYS, true)) {
+            return false;
+        }
+
+        $permissions = $this->permissionsForRole($role);
+        return (bool) ($permissions[$permission] ?? false);
+    }
+
+    protected function currentUserHasPermission(string $permission): bool
+    {
+        $user = $this->currentUser();
+        return $this->roleHasPermission((string) ($user['role'] ?? ''), $permission);
     }
 
     protected function isEmployeeRole(string $role): bool

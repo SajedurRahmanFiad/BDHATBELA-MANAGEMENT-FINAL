@@ -10,6 +10,7 @@ import type {
   PayrollSummaryRow,
   Product,
   DashboardSnapshot,
+  PermissionsSettings,
   RecycleBinEntityType,
   RecycleBinItem,
   Transaction,
@@ -161,6 +162,10 @@ export async function fetchSystemDefaults() { return call<any>('fetchSystemDefau
 export async function updateSystemDefaults(updates: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }) { return call<any>('updateSystemDefaults', updates); }
 export async function fetchCourierSettings() { return call<any>('fetchCourierSettings'); }
 export async function updateCourierSettings(updates: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }) { return call<any>('updateCourierSettings', updates); }
+export async function fetchPermissionsSettings(): Promise<PermissionsSettings> { return call<PermissionsSettings>('fetchPermissionsSettings'); }
+export async function updatePermissionsSettings(updates: PermissionsSettings): Promise<PermissionsSettings> {
+  return call<PermissionsSettings>('updatePermissionsSettings', updates);
+}
 
 export async function fetchPayrollSettings(): Promise<PayrollSettings> { return call<PayrollSettings>('fetchPayrollSettings'); }
 export async function updatePayrollSettings(updates: Partial<PayrollSettings>): Promise<PayrollSettings> { return call<PayrollSettings>('updatePayrollSettings', updates); }
@@ -205,6 +210,6 @@ export async function fetchPaperflyOrderTracking(params: { baseUrl: string; user
 export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncPaperflyOrderStatuses'); }
 export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncSteadfastDeliveryStatuses'); }
 
-export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
+export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
   return call<any>('batchUpdateSettings', { updates });
 }

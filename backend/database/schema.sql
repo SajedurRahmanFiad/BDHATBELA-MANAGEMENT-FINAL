@@ -213,6 +213,16 @@ CREATE TABLE IF NOT EXISTS courier_settings (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role_name VARCHAR(64) NOT NULL,
+  permissions LONGTEXT NULL,
+  is_custom TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (role_name),
+  KEY idx_role_permissions_is_custom (is_custom)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS payroll_settings (
   id VARCHAR(64) NOT NULL,
   singleton TINYINT(1) NOT NULL DEFAULT 1,

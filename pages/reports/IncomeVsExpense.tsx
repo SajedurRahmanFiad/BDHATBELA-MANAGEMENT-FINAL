@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatCurrency, ICONS } from '../../constants';
-import { Button } from '../../components';
+import { Button, ReportPageSkeleton } from '../../components';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTransactions } from '../../src/hooks/useQueries';
 
 const IncomeVsExpense: React.FC = () => {
   const navigate = useNavigate();
-  const { data: transactions = [] } = useTransactions();
+  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
 
   const chartData = useMemo(() => {
     const now = new Date();
@@ -59,6 +59,10 @@ const IncomeVsExpense: React.FC = () => {
     if (!best || current.expense < best.expense) return current;
     return best;
   }, null);
+
+  if (transactionsLoading) {
+    return <ReportPageSkeleton cards={3} showChart tableColumns={0} />;
+  }
 
   return (
     <div className="space-y-6">

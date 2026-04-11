@@ -303,6 +303,73 @@ export interface Transaction {
   creatorName?: string;
 }
 
+export type UserActivityType = 'Order' | 'Bill' | 'Transaction';
+
+export interface UserActivityPerformanceMetrics {
+  totalActivities: number;
+  activeDays: number;
+  ordersCreated: number;
+  completedOrders: number;
+  processingOrders: number;
+  pickedOrders: number;
+  onHoldOrders: number;
+  cancelledOrders: number;
+  orderValue: number;
+  completedOrderValue: number;
+  orderPaidAmount: number;
+  orderQuantity: number;
+  uniqueCustomers: number;
+  averageOrderValue: number;
+  completionRate: number;
+  collectionRate: number;
+  billsCreated: number;
+  billValue: number;
+  billPaidAmount: number;
+  uniqueVendors: number;
+  billSettlementRate: number;
+  transactionsCreated: number;
+  incomeTransactions: number;
+  incomeAmount: number;
+  expenseTransactions: number;
+  expenseAmount: number;
+  transferTransactions: number;
+  transferAmount: number;
+  firstActivity?: string | null;
+  lastActivity?: string | null;
+}
+
+export interface UserActivityPerformanceSummary {
+  user: User;
+  metrics: UserActivityPerformanceMetrics;
+}
+
+export interface UserActivityPerformanceLogEntry {
+  id: string;
+  type: UserActivityType;
+  rawDate: string;
+  reference: string;
+  counterparty: string;
+  details: string;
+  quantity: number | null;
+  amount: number | null;
+  status: string;
+}
+
+export interface UserActivityPerformanceReportTotals {
+  users: number;
+  activeUsers: number;
+  orders: number;
+  bills: number;
+  transactions: number;
+  orderValue: number;
+}
+
+export interface UserActivityPerformanceReportPage {
+  data: UserActivityPerformanceSummary[];
+  count: number;
+  totals: UserActivityPerformanceReportTotals;
+}
+
 export interface DashboardOrderMetrics {
   total: number;
   onHold: number;

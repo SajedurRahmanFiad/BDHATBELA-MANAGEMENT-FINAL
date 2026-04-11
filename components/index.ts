@@ -22,6 +22,7 @@ export { default as Layout } from './Layout';
 export { default as LoadingOverlay } from './LoadingOverlay';
 
 export { default as TableLoadingSkeleton } from './TableLoadingSkeleton';
+export { default as ReportPageSkeleton } from './ReportPageSkeleton';
 export { default as FilterBar } from './FilterBar';
 
 export { default as PaymentModal } from './PaymentModal';

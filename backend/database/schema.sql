@@ -341,6 +341,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   KEY idx_transactions_type_created_at (type, created_at),
   KEY idx_transactions_date_created_at (date, created_at),
   KEY idx_transactions_deleted_created_at (deleted_at, created_at),
+  KEY idx_transactions_deleted_created_by_created_at (deleted_at, created_by, created_at),
   KEY idx_transactions_deleted_type_created_at (deleted_at, type, created_at),
   KEY idx_transactions_reference_id (reference_id),
   KEY idx_transactions_contact_id (contact_id),

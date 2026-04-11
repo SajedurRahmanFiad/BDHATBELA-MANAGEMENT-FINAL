@@ -6,63 +6,12 @@ import { formatCurrency, getStatusColor, ICONS } from '../../constants';
 import { theme } from '../../theme';
 import { useAuth } from '../../src/contexts/AuthProvider';
 import { useToastNotifications } from '../../src/contexts/ToastContext';
-import { useBills, useCategories, useCompanySettings, useOrders, useTransactions, useUsers } from '../../src/hooks/useQueries';
-import { Bill, Order, OrderStatus, Transaction, User, UserRole, hasAdminAccess, isEmployeeRole } from '../../types';
-import { FilterRange, formatDate, isWithinDateRange } from '../../utils';
+import { useCompanySettings, useUserActivityPerformanceLog, useUserActivityPerformanceReportPage } from '../../src/hooks/useQueries';
+import { UserActivityPerformanceLogEntry, UserActivityPerformanceSummary, hasAdminAccess } from '../../types';
+import { FilterRange, formatDate } from '../../utils';
+import Pagination from '../../src/components/Pagination';
 
 type RoleFilter = 'All Users' | 'Admins' | 'Employees';
-type ActivityType = 'Order' | 'Bill' | 'Transaction';
-
-type ActivityEntry = {
-  id: string;
-  type: ActivityType;
-  rawDate: string;
-  dateLabel: string;
-  dayKey: string | null;
-  reference: string;
-  counterparty: string;
-  details: string;
-  quantity: number | null;
-  amount: number | null;
-  status: string;
-};
-
-type UserReport = {
-  user: User;
-  metrics: {
-    totalActivities: number;
-    activeDays: number;
-    ordersCreated: number;
-    completedOrders: number;
-    processingOrders: number;
-    pickedOrders: number;
-    onHoldOrders: number;
-    cancelledOrders: number;
-    orderValue: number;
-    completedOrderValue: number;
-    orderPaidAmount: number;
-    orderQuantity: number;
-    uniqueCustomers: number;
-    averageOrderValue: number;
-    completionRate: number;
-    collectionRate: number;
-    billsCreated: number;
-    billValue: number;
-    billPaidAmount: number;
-    uniqueVendors: number;
-    billSettlementRate: number;
-    transactionsCreated: number;
-    incomeTransactions: number;
-    incomeAmount: number;
-    expenseTransactions: number;
-    expenseAmount: number;
-    transferTransactions: number;
-    transferAmount: number;
-    firstActivity?: string;
-    lastActivity?: string;
-  };
-  activityEntries: ActivityEntry[];
-};
 
 const FILTERS: FilterRange[] = ['All Time', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'];
 const ROLE_FILTERS: RoleFilter[] = ['All Users', 'Admins', 'Employees'];
@@ -71,12 +20,6 @@ const toDate = (value?: string | null): Date | null => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const toDateKey = (value?: string | null): string | null => {
-  const date = toDate(value);
-  if (!date) return null;
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
 };
 
 const formatDateTime = (value?: string | null): string => {
@@ -96,12 +39,6 @@ const formatDateTime = (value?: string | null): string => {
 };
 
 const formatCount = (value: number): string => new Intl.NumberFormat('en-BD').format(value);
-const sumQty = (items: Array<{ quantity: number }>) => items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-const summarizeItems = (items: Array<{ productName: string; quantity: number }>) => {
-  if (!items.length) return 'No line items';
-  const preview = items.slice(0, 3).map((item) => `${item.productName} x${Number(item.quantity || 0)}`).join(', ');
-  return items.length > 3 ? `${preview} +${items.length - 3} more` : preview;
-};
 
 const statusBadge = (status: string) => {
   if (status === 'Income') return 'bg-emerald-100 text-emerald-700';
@@ -117,10 +54,6 @@ const periodLabel = (filterRange: FilterRange, customDates: { from: string; to: 
   if (customDates.to) return `Until ${formatDate(customDates.to)}`;
   return 'Custom Range';
 };
-
-const getOrderActivityDate = (order: Order): string => order.createdAt || order.orderDate || '';
-const getBillActivityDate = (bill: Bill): string => bill.createdAt || bill.billDate || '';
-const getTransactionActivityDate = (transaction: Transaction): string => transaction.createdAt || transaction.date || '';
 const escapeHtml = (value: string): string =>
   value
     .replace(/&/g, '&amp;')
@@ -142,7 +75,7 @@ const toAbsoluteAssetUrl = (value?: string | null): string => {
 };
 
 const buildUserReportPdfHtml = (params: {
-  report: UserReport;
+  report: UserActivityPerformanceSummary;
   companyName: string;
   companyLogo: string;
   generatedAt: string;
@@ -729,15 +662,186 @@ const StatRow: React.FC<{ label: string; value: string; accent?: boolean }> = ({
   </div>
 );
 
+const SkeletonBlock: React.FC<{ className: string }> = ({ className }) => (
+  <div className={`animate-pulse rounded-2xl bg-gray-200/80 ${className}`} />
+);
+
+const ActivityLogSkeleton: React.FC = () => (
+  <div className="space-y-3 px-6 py-6">
+    {Array.from({ length: 5 }).map((_, index) => (
+      <div key={index} className="grid grid-cols-[1.1fr_0.8fr_1fr_1.3fr] gap-3">
+        <SkeletonBlock className="h-12" />
+        <SkeletonBlock className="h-12" />
+        <SkeletonBlock className="h-12" />
+        <SkeletonBlock className="h-12" />
+      </div>
+    ))}
+  </div>
+);
+
+const UserActivityReportSkeleton: React.FC = () => (
+  <div className="space-y-6">
+    <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+      <div className="bg-gradient-to-r from-[#0f2f57] via-[#153867] to-[#1f4b85] px-6 py-6">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-center gap-4">
+            <SkeletonBlock className="h-14 w-14 bg-white/20" />
+            <div className="space-y-3">
+              <SkeletonBlock className="h-3 w-28 bg-white/20" />
+              <SkeletonBlock className="h-8 w-56 bg-white/20" />
+              <SkeletonBlock className="h-4 w-64 bg-white/20" />
+            </div>
+          </div>
+          <div className="space-y-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-4">
+            <SkeletonBlock className="h-4 w-48 bg-white/20" />
+            <SkeletonBlock className="h-4 w-40 bg-white/20" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 px-6 py-6 md:grid-cols-2 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="rounded-2xl border border-gray-100 p-4">
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="mt-4 h-7 w-28" />
+            <SkeletonBlock className="mt-3 h-4 w-36" />
+          </div>
+        ))}
+      </div>
+    </div>
+
+    {Array.from({ length: 3 }).map((_, index) => (
+      <section key={index} className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+        <div className="border-b border-gray-100 bg-gradient-to-r from-white via-[#f8fbff] to-white px-6 py-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <SkeletonBlock className="h-16 w-16 rounded-2xl" />
+              <div className="space-y-3">
+                <SkeletonBlock className="h-6 w-40" />
+                <SkeletonBlock className="h-4 w-32" />
+              </div>
+            </div>
+            <SkeletonBlock className="h-10 w-32" />
+          </div>
+        </div>
+        <div className="space-y-6 px-6 py-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((__, cardIndex) => (
+              <div key={cardIndex} className="rounded-2xl border border-gray-100 p-4">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="mt-4 h-7 w-28" />
+                <SkeletonBlock className="mt-3 h-4 w-32" />
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="rounded-3xl border border-gray-100 p-6">
+              {Array.from({ length: 6 }).map((__, rowIndex) => (
+                <div key={rowIndex} className="flex items-center justify-between border-b border-gray-100 py-3 last:border-b-0">
+                  <SkeletonBlock className="h-4 w-32" />
+                  <SkeletonBlock className="h-4 w-24" />
+                </div>
+              ))}
+            </div>
+            <div className="rounded-3xl border border-gray-100 p-6">
+              {Array.from({ length: 5 }).map((__, rowIndex) => (
+                <div key={rowIndex} className="space-y-2 py-2">
+                  <div className="flex items-center justify-between">
+                    <SkeletonBlock className="h-4 w-24" />
+                    <SkeletonBlock className="h-4 w-10" />
+                  </div>
+                  <SkeletonBlock className="h-3 w-full rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    ))}
+  </div>
+);
+
+const UserActivityLogPanel: React.FC<{
+  userId: string;
+  isExpanded: boolean;
+  filterRange: FilterRange;
+  customDates: { from: string; to: string };
+}> = ({ userId, isExpanded, filterRange, customDates }) => {
+  const { data: entries = [], isPending, error } = useUserActivityPerformanceLog(
+    userId,
+    { filterRange, customDates },
+    { enabled: isExpanded }
+  );
+
+  if (!isExpanded) {
+    return (
+      <div className="px-6 py-6 text-sm font-medium text-gray-400">
+        Expand this section to review the full activity-by-activity log for this user.
+      </div>
+    );
+  }
+
+  if (isPending) {
+    return <ActivityLogSkeleton />;
+  }
+
+  if (error) {
+    return (
+      <div className="px-6 py-6 text-sm font-medium text-rose-500">
+        Failed to load the activity log for this user.
+      </div>
+    );
+  }
+
+  return (
+    <div className="print-overflow-reset overflow-x-auto">
+      <table className="activity-table min-w-full text-left">
+        <thead>
+          <tr className="bg-gray-50">
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Date</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Type</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Reference</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Counterparty</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Details</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Qty</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Amount</th>
+            <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {entries.length === 0 ? (
+            <tr>
+              <td colSpan={8} className="px-6 py-16 text-center text-sm font-medium italic text-gray-400">
+                No activity tracked for this user in the selected period.
+              </td>
+            </tr>
+          ) : (
+            entries.map((entry: UserActivityPerformanceLogEntry) => (
+              <tr key={entry.id} className="hover:bg-gray-50/70">
+                <td className="px-6 py-4 text-sm font-semibold text-gray-600">{formatDateTime(entry.rawDate)}</td>
+                <td className="px-6 py-4">
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-600">{entry.type}</span>
+                </td>
+                <td className="px-6 py-4 text-sm font-black text-gray-900">{entry.reference}</td>
+                <td className="px-6 py-4 text-sm font-semibold text-gray-700">{entry.counterparty}</td>
+                <td className="px-6 py-4 text-sm text-gray-500">{entry.details}</td>
+                <td className="px-6 py-4 text-right text-sm font-black text-gray-900">{entry.quantity === null ? '-' : formatCount(entry.quantity)}</td>
+                <td className="px-6 py-4 text-right text-sm font-black text-gray-900">{entry.amount === null ? '-' : formatCurrency(entry.amount)}</td>
+                <td className="px-6 py-4 text-right">
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${statusBadge(entry.status)}`}>{entry.status}</span>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const UserActivityPerformanceReport: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToastNotifications();
-  const { data: users = [], isPending: usersLoading } = useUsers();
-  const { data: orders = [], isPending: ordersLoading } = useOrders();
-  const { data: bills = [], isPending: billsLoading } = useBills();
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
-  const { data: categories = [] } = useCategories();
   const { data: companySettings } = useCompanySettings();
 
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
@@ -746,6 +850,8 @@ const UserActivityPerformanceReport: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('All Users');
   const [onlyActive, setOnlyActive] = useState(false);
   const [expandedLogUserIds, setExpandedLogUserIds] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const usersPerPage = 10;
 
   const generatedAt = useMemo(
     () =>
@@ -758,10 +864,39 @@ const UserActivityPerformanceReport: React.FC = () => {
       }),
     []
   );
-  const categoryMap = useMemo(() => new Map((categories || []).map((category: any) => [category.id, category.name])), [categories]);
   const companyName = companySettings?.name || db.settings.company.name || 'BD Hatbela';
   const companyLogo = companySettings?.logo || db.settings.company.logo || '';
   const selectedPeriod = useMemo(() => periodLabel(filterRange, customDates), [filterRange, customDates]);
+  const reportFilters = useMemo(
+    () => ({
+      search: searchQuery,
+      roleFilter,
+      filterRange,
+      customDates,
+      onlyActive,
+    }),
+    [searchQuery, roleFilter, filterRange, customDates, onlyActive]
+  );
+  const canLoadReport = !!user && hasAdminAccess(user.role);
+  const { data: reportPage, isPending: reportLoading, isFetching: reportFetching } = useUserActivityPerformanceReportPage(
+    currentPage,
+    usersPerPage,
+    reportFilters,
+    { enabled: canLoadReport }
+  );
+  const reports = reportPage?.data ?? [];
+  const totals = reportPage?.totals ?? { users: 0, activeUsers: 0, orders: 0, bills: 0, transactions: 0, orderValue: 0 };
+  const totalUsers = reportPage?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalUsers / usersPerPage));
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+    setExpandedLogUserIds([]);
+  }, [searchQuery, roleFilter, filterRange, customDates.from, customDates.to, onlyActive]);
+
+  React.useEffect(() => {
+    setExpandedLogUserIds([]);
+  }, [currentPage]);
 
   const toggleActivityLog = (userId: string) => {
     setExpandedLogUserIds((current) =>
@@ -769,7 +904,7 @@ const UserActivityPerformanceReport: React.FC = () => {
     );
   };
 
-  const handleExportUserPdf = (report: UserReport) => {
+  const handleExportUserPdf = (report: UserActivityPerformanceSummary) => {
     const printWindow = window.open('', '_blank', 'width=1100,height=820');
 
     if (!printWindow) {
@@ -796,162 +931,10 @@ const UserActivityPerformanceReport: React.FC = () => {
     }
   };
 
-  const reports = useMemo<UserReport[]>(() => {
-    const visibleUsers = users.filter((candidate) => {
-      const query = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !query ||
-        candidate.name.toLowerCase().includes(query) ||
-        candidate.phone.toLowerCase().includes(query) ||
-        candidate.role.toLowerCase().includes(query);
-      const matchesRole =
-        roleFilter === 'All Users' ||
-        (roleFilter === 'Admins' && hasAdminAccess(candidate.role)) ||
-        (roleFilter === 'Employees' && isEmployeeRole(candidate.role));
-      return matchesSearch && matchesRole;
-    });
-
-    return visibleUsers
-      .map((candidate) => {
-        const ownOrders = orders.filter(
-          (order) => order.createdBy === candidate.id && isWithinDateRange(getOrderActivityDate(order), filterRange, customDates)
-        );
-        const ownBills = bills.filter(
-          (bill) => bill.createdBy === candidate.id && isWithinDateRange(getBillActivityDate(bill), filterRange, customDates)
-        );
-        const ownTransactions = transactions.filter(
-          (transaction) => transaction.createdBy === candidate.id && isWithinDateRange(getTransactionActivityDate(transaction), filterRange, customDates)
-        );
-
-        const activityEntries: ActivityEntry[] = [
-          ...ownOrders.map((order) => ({
-            id: `order-${order.id}`,
-            type: 'Order' as const,
-            rawDate: getOrderActivityDate(order),
-            dateLabel: formatDateTime(getOrderActivityDate(order)),
-            dayKey: toDateKey(getOrderActivityDate(order)),
-            reference: order.orderNumber || order.id,
-            counterparty: order.customerName || 'Unknown customer',
-            details: `${summarizeItems(order.items)} | Paid ${formatCurrency(order.paidAmount || 0)}`,
-            quantity: sumQty(order.items),
-            amount: Number(order.total || 0),
-            status: order.status,
-          })),
-          ...ownBills.map((bill) => ({
-            id: `bill-${bill.id}`,
-            type: 'Bill' as const,
-            rawDate: getBillActivityDate(bill),
-            dateLabel: formatDateTime(getBillActivityDate(bill)),
-            dayKey: toDateKey(getBillActivityDate(bill)),
-            reference: bill.billNumber || bill.id,
-            counterparty: bill.vendorName || 'Unknown vendor',
-            details: `${summarizeItems(bill.items)} | Paid ${formatCurrency(bill.paidAmount || 0)}`,
-            quantity: sumQty(bill.items),
-            amount: Number(bill.total || 0),
-            status: bill.status,
-          })),
-          ...ownTransactions.map((transaction) => ({
-            id: `transaction-${transaction.id}`,
-            type: 'Transaction' as const,
-            rawDate: getTransactionActivityDate(transaction),
-            dateLabel: formatDateTime(getTransactionActivityDate(transaction)),
-            dayKey: toDateKey(getTransactionActivityDate(transaction)),
-            reference: transaction.referenceId || transaction.id.slice(0, 8),
-            counterparty: transaction.contactName || 'Internal entry',
-            details: [
-              categoryMap.get(transaction.category) || transaction.category || 'Uncategorized',
-              transaction.accountName ? `Account: ${transaction.accountName}` : '',
-              transaction.description || '',
-            ]
-              .filter(Boolean)
-              .join(' | '),
-            quantity: null,
-            amount: Number(transaction.amount || 0),
-            status: transaction.type,
-          })),
-        ].sort((a, b) => (toDate(b.rawDate)?.getTime() ?? 0) - (toDate(a.rawDate)?.getTime() ?? 0));
-
-        const completedOrders = ownOrders.filter((order) => order.status === OrderStatus.COMPLETED).length;
-        const processingOrders = ownOrders.filter((order) => order.status === OrderStatus.PROCESSING).length;
-        const pickedOrders = ownOrders.filter((order) => order.status === OrderStatus.PICKED).length;
-        const onHoldOrders = ownOrders.filter((order) => order.status === OrderStatus.ON_HOLD).length;
-        const cancelledOrders = ownOrders.filter((order) => order.status === OrderStatus.CANCELLED).length;
-        const orderValue = ownOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
-        const completedOrderValue = ownOrders.filter((order) => order.status === OrderStatus.COMPLETED).reduce((sum, order) => sum + Number(order.total || 0), 0);
-        const orderPaidAmount = ownOrders.reduce((sum, order) => sum + Number(order.paidAmount || 0), 0);
-        const orderQuantity = ownOrders.reduce((sum, order) => sum + sumQty(order.items), 0);
-        const billValue = ownBills.reduce((sum, bill) => sum + Number(bill.total || 0), 0);
-        const billPaidAmount = ownBills.reduce((sum, bill) => sum + Number(bill.paidAmount || 0), 0);
-        const income = ownTransactions.filter((transaction) => transaction.type === 'Income');
-        const expense = ownTransactions.filter((transaction) => transaction.type === 'Expense');
-        const transfer = ownTransactions.filter((transaction) => transaction.type === 'Transfer');
-
-        return {
-          user: candidate,
-          activityEntries,
-          metrics: {
-            totalActivities: activityEntries.length,
-            activeDays: new Set(activityEntries.map((entry) => entry.dayKey).filter(Boolean)).size,
-            ordersCreated: ownOrders.length,
-            completedOrders,
-            processingOrders,
-            pickedOrders,
-            onHoldOrders,
-            cancelledOrders,
-            orderValue,
-            completedOrderValue,
-            orderPaidAmount,
-            orderQuantity,
-            uniqueCustomers: new Set(ownOrders.map((order) => order.customerId).filter(Boolean)).size,
-            averageOrderValue: ownOrders.length ? orderValue / ownOrders.length : 0,
-            completionRate: ownOrders.length ? (completedOrders / ownOrders.length) * 100 : 0,
-            collectionRate: orderValue > 0 ? (orderPaidAmount / orderValue) * 100 : 0,
-            billsCreated: ownBills.length,
-            billValue,
-            billPaidAmount,
-            uniqueVendors: new Set(ownBills.map((bill) => bill.vendorId).filter(Boolean)).size,
-            billSettlementRate: billValue > 0 ? (billPaidAmount / billValue) * 100 : 0,
-            transactionsCreated: ownTransactions.length,
-            incomeTransactions: income.length,
-            incomeAmount: income.reduce((sum, item) => sum + Number(item.amount || 0), 0),
-            expenseTransactions: expense.length,
-            expenseAmount: expense.reduce((sum, item) => sum + Number(item.amount || 0), 0),
-            transferTransactions: transfer.length,
-            transferAmount: transfer.reduce((sum, item) => sum + Number(item.amount || 0), 0),
-            firstActivity: activityEntries.length ? activityEntries[activityEntries.length - 1].rawDate : undefined,
-            lastActivity: activityEntries.length ? activityEntries[0].rawDate : undefined,
-          },
-        };
-      })
-      .filter((report) => !onlyActive || report.metrics.totalActivities > 0)
-      .sort((a, b) => {
-        if (b.metrics.totalActivities !== a.metrics.totalActivities) return b.metrics.totalActivities - a.metrics.totalActivities;
-        if (b.metrics.orderValue !== a.metrics.orderValue) return b.metrics.orderValue - a.metrics.orderValue;
-        return a.user.name.localeCompare(b.user.name);
-      });
-  }, [users, orders, bills, transactions, filterRange, customDates, searchQuery, roleFilter, onlyActive, categoryMap]);
-
-  const totals = useMemo(
-    () =>
-      reports.reduce(
-        (sum, report) => {
-          sum.users += 1;
-          sum.activeUsers += report.metrics.totalActivities > 0 ? 1 : 0;
-          sum.orders += report.metrics.ordersCreated;
-          sum.bills += report.metrics.billsCreated;
-          sum.transactions += report.metrics.transactionsCreated;
-          sum.orderValue += report.metrics.orderValue;
-          return sum;
-        },
-        { users: 0, activeUsers: 0, orders: 0, bills: 0, transactions: 0, orderValue: 0 }
-      ),
-    [reports]
-  );
-
   if (!user) return <div className="p-8 text-center text-gray-500">Loading report access...</div>;
   if (!hasAdminAccess(user.role)) return <div className="p-8 text-center text-gray-500">This report is available to admin-access users only.</div>;
-  if (usersLoading || ordersLoading || billsLoading || transactionsLoading) {
-    return <div className="p-8 text-center text-gray-500">Loading user activity report...</div>;
+  if (reportLoading && !reportPage) {
+    return <UserActivityReportSkeleton />;
   }
 
   return (
@@ -963,12 +946,9 @@ const UserActivityPerformanceReport: React.FC = () => {
           </button>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">User Activity & Performance</h2>
-            <p className="text-sm text-gray-500">Detailed admin report for user activity, performance, and salary review.</p>
           </div>
         </div>
-        <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
-          Use each user's <span className="font-bold text-gray-700">Export PDF</span> button to generate a professionally structured, user-specific PDF summary without the detailed log.
-        </div>
+        
       </div>
 
       <div className="report-cover overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
@@ -986,12 +966,6 @@ const UserActivityPerformanceReport: React.FC = () => {
               <p><span className="text-[#c7dff5]">Period:</span> {selectedPeriod}</p>
               <p className="mt-1"><span className="text-[#c7dff5]">Generated:</span> {generatedAt}</p>
             </div>
-          </div>
-        </div>
-
-        <div className="border-b border-gray-100 bg-[#f8fbff] px-6 py-5">
-          <div className="rounded-2xl border border-[#d9e8f7] bg-white px-4 py-4 text-sm text-gray-600">
-            Actual salary formulas are not configured in the system yet. This report exposes the tracked inputs admins can use to calculate salary, commission, and performance incentives.
           </div>
         </div>
 
@@ -1155,7 +1129,7 @@ const UserActivityPerformanceReport: React.FC = () => {
                           <p className="text-sm text-gray-500">Every filtered order, bill, and transaction linked to this user.</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="rounded-2xl bg-gray-50 px-3 py-2 text-sm font-bold text-gray-600">{formatCount(report.activityEntries.length)} entries</div>
+                          <div className="rounded-2xl bg-gray-50 px-3 py-2 text-sm font-bold text-gray-600">{formatCount(report.metrics.totalActivities)} entries</div>
                           <button
                             type="button"
                             onClick={() => toggleActivityLog(report.user.id)}
@@ -1166,52 +1140,28 @@ const UserActivityPerformanceReport: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      {isLogExpanded ? (
-                        <div className="print-overflow-reset overflow-x-auto">
-                          <table className="activity-table min-w-full text-left">
-                            <thead>
-                              <tr className="bg-gray-50">
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Date</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Type</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Reference</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Counterparty</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Details</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Qty</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Amount</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 text-right">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {report.activityEntries.length === 0 ? (
-                                <tr><td colSpan={8} className="px-6 py-16 text-center text-sm font-medium italic text-gray-400">No activity tracked for this user in the selected period.</td></tr>
-                              ) : (
-                                report.activityEntries.map((entry) => (
-                                  <tr key={entry.id} className="hover:bg-gray-50/70">
-                                    <td className="px-6 py-4 text-sm font-semibold text-gray-600">{entry.dateLabel}</td>
-                                    <td className="px-6 py-4"><span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-600">{entry.type}</span></td>
-                                    <td className="px-6 py-4 text-sm font-black text-gray-900">{entry.reference}</td>
-                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">{entry.counterparty}</td>
-                                    <td className="px-6 py-4 text-sm text-gray-500">{entry.details}</td>
-                                    <td className="px-6 py-4 text-right text-sm font-black text-gray-900">{entry.quantity === null ? '-' : formatCount(entry.quantity)}</td>
-                                    <td className="px-6 py-4 text-right text-sm font-black text-gray-900">{entry.amount === null ? '-' : formatCurrency(entry.amount)}</td>
-                                    <td className="px-6 py-4 text-right"><span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${statusBadge(entry.status)}`}>{entry.status}</span></td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="px-6 py-6 text-sm font-medium text-gray-400">
-                          Expand this section to review the full activity-by-activity log for this user.
-                        </div>
-                      )}
+                      <UserActivityLogPanel
+                        userId={report.user.id}
+                        isExpanded={isLogExpanded}
+                        filterRange={filterRange}
+                        customDates={customDates}
+                      />
                     </div>
                   </div>
                 </section>
               );
             })}
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex justify-center">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
 
           <style>{`
             @media print {

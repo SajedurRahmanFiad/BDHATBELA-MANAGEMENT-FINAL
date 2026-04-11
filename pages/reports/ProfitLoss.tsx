@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
-import { Button } from '../../components';
+import { Button, ReportPageSkeleton } from '../../components';
 import { theme } from '../../theme';
 import { useOrders, useBills, useTransactions, useCategories } from '../../src/hooks/useQueries';
 import { OrderStatus } from '../../types';
@@ -17,10 +17,10 @@ const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal
 
 const ProfitLoss: React.FC = () => {
   const navigate = useNavigate();
-  const { data: orders = [] } = useOrders();
-  const { data: bills = [] } = useBills();
-  const { data: transactions = [] } = useTransactions();
-  const { data: allCategories = [] } = useCategories();
+  const { data: orders = [], isPending: ordersLoading } = useOrders();
+  const { data: bills = [], isPending: billsLoading } = useBills();
+  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
+  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
   
   // Create category map for ID -> name lookup
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
@@ -30,6 +30,7 @@ const ProfitLoss: React.FC = () => {
   const [dateRange, setDateRange] = useState<DateRangeType>('currentYear');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const isLoading = ordersLoading || billsLoading || transactionsLoading || categoriesLoading;
 
   // Helper to check if date is within selected range
   const isWithinRange = (dateStr: string) => {
@@ -115,6 +116,10 @@ const ProfitLoss: React.FC = () => {
       netProfit
     };
   }, [orders, bills, transactions, dateRange, customFrom, customTo, categoryMap]);
+
+  if (isLoading) {
+    return <ReportPageSkeleton cards={4} showChart={false} showFilters tableColumns={2} tableRows={8} />;
+  }
 
   return (
     <div className="space-y-6">

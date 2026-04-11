@@ -1077,6 +1077,522 @@ final class OperationsApi extends BaseService
         return $results;
     }
 
+    public function fetchUserActivityPerformanceReportPage(array $params): array
+    {
+        $this->requireAdmin();
+
+        $page = max(1, (int) ($params['page'] ?? 1));
+        $pageSize = max(1, min(25, (int) ($params['pageSize'] ?? 10)));
+        $offset = ($page - 1) * $pageSize;
+        $filters = $this->buildDashboardDateFilters($params);
+        $search = trim((string) ($params['search'] ?? ''));
+        $roleFilter = trim((string) ($params['roleFilter'] ?? 'All Users'));
+        $onlyActive = filter_var($params['onlyActive'] ?? false, FILTER_VALIDATE_BOOL);
+
+        [$userWhereSql, $bindings] = $this->buildUserActivityPerformanceUserWhere($search, $roleFilter);
+        $activityExpression = '(COALESCE(oa.ordersCreated, 0) + COALESCE(ba.billsCreated, 0) + COALESCE(ta.transactionsCreated, 0))';
+        $ordersDateSql = $this->buildUserActivityPerformanceDateBoundsSql('o.created_at', $filters, $bindings, 'report_orders');
+        $billsDateSql = $this->buildUserActivityPerformanceDateBoundsSql('b.created_at', $filters, $bindings, 'report_bills');
+        $transactionsDateSql = $this->buildUserActivityPerformanceDateBoundsSql('t.created_at', $filters, $bindings, 'report_transactions');
+
+        $baseSql = "
+            FROM users u
+            LEFT JOIN (
+                SELECT
+                    o.created_by AS user_id,
+                    COUNT(*) AS ordersCreated,
+                    SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completedOrders,
+                    SUM(CASE WHEN o.status = 'Processing' THEN 1 ELSE 0 END) AS processingOrders,
+                    SUM(CASE WHEN o.status = 'Picked' THEN 1 ELSE 0 END) AS pickedOrders,
+                    SUM(CASE WHEN o.status = 'On Hold' THEN 1 ELSE 0 END) AS onHoldOrders,
+                    SUM(CASE WHEN o.status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelledOrders,
+                    COALESCE(SUM(o.total), 0) AS orderValue,
+                    COALESCE(SUM(CASE WHEN o.status = 'Completed' THEN o.total ELSE 0 END), 0) AS completedOrderValue,
+                    COALESCE(SUM(o.paid_amount), 0) AS orderPaidAmount,
+                    COUNT(DISTINCT CASE WHEN o.customer_id IS NULL OR o.customer_id = '' THEN NULL ELSE o.customer_id END) AS uniqueCustomers
+                FROM orders o
+                WHERE o.deleted_at IS NULL{$ordersDateSql}
+                GROUP BY o.created_by
+            ) oa ON oa.user_id = u.id
+            LEFT JOIN (
+                SELECT
+                    b.created_by AS user_id,
+                    COUNT(*) AS billsCreated,
+                    COALESCE(SUM(b.total), 0) AS billValue,
+                    COALESCE(SUM(b.paid_amount), 0) AS billPaidAmount,
+                    COUNT(DISTINCT CASE WHEN b.vendor_id IS NULL OR b.vendor_id = '' THEN NULL ELSE b.vendor_id END) AS uniqueVendors
+                FROM bills b
+                WHERE b.deleted_at IS NULL{$billsDateSql}
+                GROUP BY b.created_by
+            ) ba ON ba.user_id = u.id
+            LEFT JOIN (
+                SELECT
+                    t.created_by AS user_id,
+                    COUNT(*) AS transactionsCreated,
+                    SUM(CASE WHEN t.type = 'Income' THEN 1 ELSE 0 END) AS incomeTransactions,
+                    COALESCE(SUM(CASE WHEN t.type = 'Income' THEN t.amount ELSE 0 END), 0) AS incomeAmount,
+                    SUM(CASE WHEN t.type = 'Expense' THEN 1 ELSE 0 END) AS expenseTransactions,
+                    COALESCE(SUM(CASE WHEN t.type = 'Expense' THEN t.amount ELSE 0 END), 0) AS expenseAmount,
+                    SUM(CASE WHEN t.type = 'Transfer' THEN 1 ELSE 0 END) AS transferTransactions,
+                    COALESCE(SUM(CASE WHEN t.type = 'Transfer' THEN t.amount ELSE 0 END), 0) AS transferAmount
+                FROM transactions t
+                WHERE t.deleted_at IS NULL{$transactionsDateSql}
+                GROUP BY t.created_by
+            ) ta ON ta.user_id = u.id
+            {$userWhereSql}
+        ";
+
+        if ($onlyActive) {
+            $baseSql .= " AND {$activityExpression} > 0";
+        }
+
+        $countRow = $this->database->fetchOne(
+            "SELECT COUNT(*) AS count {$baseSql}",
+            $bindings
+        );
+
+        $totalsRow = $this->database->fetchOne(
+            "SELECT
+                COUNT(*) AS users,
+                COALESCE(SUM(CASE WHEN {$activityExpression} > 0 THEN 1 ELSE 0 END), 0) AS activeUsers,
+                COALESCE(SUM(COALESCE(oa.ordersCreated, 0)), 0) AS orders,
+                COALESCE(SUM(COALESCE(ba.billsCreated, 0)), 0) AS bills,
+                COALESCE(SUM(COALESCE(ta.transactionsCreated, 0)), 0) AS transactions,
+                COALESCE(SUM(COALESCE(oa.orderValue, 0)), 0) AS orderValue
+             {$baseSql}",
+            $bindings
+        );
+
+        $rows = $this->database->fetchAll(
+            "SELECT
+                u.id,
+                u.name,
+                u.phone,
+                u.role,
+                u.image,
+                u.created_at,
+                u.deleted_at,
+                u.deleted_by,
+                COALESCE(oa.ordersCreated, 0) AS ordersCreated,
+                COALESCE(oa.completedOrders, 0) AS completedOrders,
+                COALESCE(oa.processingOrders, 0) AS processingOrders,
+                COALESCE(oa.pickedOrders, 0) AS pickedOrders,
+                COALESCE(oa.onHoldOrders, 0) AS onHoldOrders,
+                COALESCE(oa.cancelledOrders, 0) AS cancelledOrders,
+                COALESCE(oa.orderValue, 0) AS orderValue,
+                COALESCE(oa.completedOrderValue, 0) AS completedOrderValue,
+                COALESCE(oa.orderPaidAmount, 0) AS orderPaidAmount,
+                COALESCE(oa.uniqueCustomers, 0) AS uniqueCustomers,
+                COALESCE(ba.billsCreated, 0) AS billsCreated,
+                COALESCE(ba.billValue, 0) AS billValue,
+                COALESCE(ba.billPaidAmount, 0) AS billPaidAmount,
+                COALESCE(ba.uniqueVendors, 0) AS uniqueVendors,
+                COALESCE(ta.transactionsCreated, 0) AS transactionsCreated,
+                COALESCE(ta.incomeTransactions, 0) AS incomeTransactions,
+                COALESCE(ta.incomeAmount, 0) AS incomeAmount,
+                COALESCE(ta.expenseTransactions, 0) AS expenseTransactions,
+                COALESCE(ta.expenseAmount, 0) AS expenseAmount,
+                COALESCE(ta.transferTransactions, 0) AS transferTransactions,
+                COALESCE(ta.transferAmount, 0) AS transferAmount,
+                {$activityExpression} AS totalActivities
+             {$baseSql}
+             ORDER BY totalActivities DESC, COALESCE(oa.orderValue, 0) DESC, u.name ASC
+             LIMIT {$pageSize} OFFSET {$offset}",
+            $bindings
+        );
+
+        $derivedMetrics = $this->fetchUserActivityPerformanceDerivedMetrics(
+            array_map(static fn (array $row): string => (string) ($row['id'] ?? ''), $rows),
+            $filters
+        );
+
+        return [
+            'data' => array_map(fn (array $row): array => $this->mapUserActivityPerformanceSummary($row, $derivedMetrics[(string) ($row['id'] ?? '')] ?? []), $rows),
+            'count' => (int) ($countRow['count'] ?? 0),
+            'totals' => [
+                'users' => (int) ($totalsRow['users'] ?? 0),
+                'activeUsers' => (int) ($totalsRow['activeUsers'] ?? 0),
+                'orders' => (int) ($totalsRow['orders'] ?? 0),
+                'bills' => (int) ($totalsRow['bills'] ?? 0),
+                'transactions' => (int) ($totalsRow['transactions'] ?? 0),
+                'orderValue' => (float) ($totalsRow['orderValue'] ?? 0),
+            ],
+        ];
+    }
+
+    public function fetchUserActivityPerformanceLog(array $params): array
+    {
+        $this->requireAdmin();
+
+        $userId = trim((string) ($params['userId'] ?? $params['id'] ?? ''));
+        if ($userId === '') {
+            return [];
+        }
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $entries = [];
+
+        $orderBindings = [':user_id' => $userId];
+        $orderDateSql = $this->buildUserActivityPerformanceDateBoundsSql('o.created_at', $filters, $orderBindings, 'log_orders');
+        $orderRows = $this->database->fetchAll(
+            "SELECT
+                o.id,
+                o.order_number,
+                c.name AS customer_name,
+                o.status,
+                o.items,
+                o.total,
+                o.paid_amount,
+                o.created_at
+             FROM orders o
+             LEFT JOIN customers c ON c.id = o.customer_id
+             WHERE o.deleted_at IS NULL
+               AND o.created_by = :user_id{$orderDateSql}
+             ORDER BY o.created_at DESC",
+            $orderBindings
+        );
+
+        foreach ($orderRows as $row) {
+            $items = $this->jsonDecodeList($row['items'] ?? []);
+            $entries[] = [
+                'id' => 'order-' . (string) ($row['id'] ?? ''),
+                'type' => 'Order',
+                'rawDate' => $this->toIso($row['created_at'] ?? null) ?? (string) ($row['created_at'] ?? ''),
+                'reference' => (string) ($row['order_number'] ?? $row['id'] ?? ''),
+                'counterparty' => $this->nullableString($row['customer_name'] ?? null) ?? 'Unknown customer',
+                'details' => $this->summarizeUserActivityItems($items) . ' | Paid ' . $this->formatMoney($row['paid_amount'] ?? 0),
+                'quantity' => $this->sumUserActivityItemsQuantity($items),
+                'amount' => (float) ($row['total'] ?? 0),
+                'status' => (string) ($row['status'] ?? ''),
+            ];
+        }
+
+        $billBindings = [':user_id' => $userId];
+        $billDateSql = $this->buildUserActivityPerformanceDateBoundsSql('b.created_at', $filters, $billBindings, 'log_bills');
+        $billRows = $this->database->fetchAll(
+            "SELECT
+                b.id,
+                b.bill_number,
+                v.name AS vendor_name,
+                b.status,
+                b.items,
+                b.total,
+                b.paid_amount,
+                b.created_at
+             FROM bills b
+             LEFT JOIN vendors v ON v.id = b.vendor_id
+             WHERE b.deleted_at IS NULL
+               AND b.created_by = :user_id{$billDateSql}
+             ORDER BY b.created_at DESC",
+            $billBindings
+        );
+
+        foreach ($billRows as $row) {
+            $items = $this->jsonDecodeList($row['items'] ?? []);
+            $entries[] = [
+                'id' => 'bill-' . (string) ($row['id'] ?? ''),
+                'type' => 'Bill',
+                'rawDate' => $this->toIso($row['created_at'] ?? null) ?? (string) ($row['created_at'] ?? ''),
+                'reference' => (string) ($row['bill_number'] ?? $row['id'] ?? ''),
+                'counterparty' => $this->nullableString($row['vendor_name'] ?? null) ?? 'Unknown vendor',
+                'details' => $this->summarizeUserActivityItems($items) . ' | Paid ' . $this->formatMoney($row['paid_amount'] ?? 0),
+                'quantity' => $this->sumUserActivityItemsQuantity($items),
+                'amount' => (float) ($row['total'] ?? 0),
+                'status' => (string) ($row['status'] ?? ''),
+            ];
+        }
+
+        $transactionBindings = [':user_id' => $userId];
+        $transactionDateSql = $this->buildUserActivityPerformanceDateBoundsSql('t.created_at', $filters, $transactionBindings, 'log_transactions');
+        $transactionRows = $this->database->fetchAll(
+            "SELECT
+                t.id,
+                t.type,
+                t.amount,
+                t.reference_id,
+                t.description,
+                t.category,
+                t.created_at,
+                a.name AS account_name,
+                COALESCE(c.name, v.name) AS contact_name,
+                cat.name AS category_name
+             FROM transactions t
+             LEFT JOIN accounts a ON a.id = t.account_id
+             LEFT JOIN customers c ON c.id = t.contact_id
+                LEFT JOIN vendors v ON v.id = t.contact_id
+                LEFT JOIN categories cat ON cat.id = t.category
+             WHERE t.deleted_at IS NULL
+               AND t.created_by = :user_id{$transactionDateSql}
+             ORDER BY t.created_at DESC",
+            $transactionBindings
+        );
+
+        foreach ($transactionRows as $row) {
+            $parts = array_values(array_filter([
+                $this->nullableString($row['category_name'] ?? null) ?? $this->nullableString($row['category'] ?? null) ?? 'Uncategorized',
+                $this->nullableString($row['account_name'] ?? null) ? 'Account: ' . (string) $row['account_name'] : '',
+                $this->nullableString($row['description'] ?? null) ?? '',
+            ]));
+
+            $entries[] = [
+                'id' => 'transaction-' . (string) ($row['id'] ?? ''),
+                'type' => 'Transaction',
+                'rawDate' => $this->toIso($row['created_at'] ?? null) ?? (string) ($row['created_at'] ?? ''),
+                'reference' => $this->nullableString($row['reference_id'] ?? null) ?? substr((string) ($row['id'] ?? ''), 0, 8),
+                'counterparty' => $this->nullableString($row['contact_name'] ?? null) ?? 'Internal entry',
+                'details' => implode(' | ', $parts),
+                'quantity' => null,
+                'amount' => (float) ($row['amount'] ?? 0),
+                'status' => (string) ($row['type'] ?? ''),
+            ];
+        }
+
+        usort($entries, static function (array $left, array $right): int {
+            return strcmp((string) ($right['rawDate'] ?? ''), (string) ($left['rawDate'] ?? ''));
+        });
+
+        return $entries;
+    }
+
+    /**
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function buildUserActivityPerformanceUserWhere(string $search, string $roleFilter): array
+    {
+        $conditions = ['WHERE u.deleted_at IS NULL'];
+        $bindings = [];
+
+        if ($roleFilter === 'Admins') {
+            $conditions[] = "u.role IN ('Admin', 'Developer')";
+        } elseif ($roleFilter === 'Employees') {
+            $conditions[] = "u.role IN ('Employee', 'Employee1')";
+        }
+
+        if ($search !== '') {
+            $bindings[':user_activity_search'] = '%' . $search . '%';
+            $conditions[] = '(u.name LIKE :user_activity_search OR u.phone LIKE :user_activity_search OR u.role LIKE :user_activity_search)';
+        }
+
+        return [implode(' AND ', $conditions), $bindings];
+    }
+
+    /**
+     * @param array<string, string|null> $filters
+     * @param array<string, mixed> $bindings
+     */
+    private function buildUserActivityPerformanceDateBoundsSql(
+        string $column,
+        array $filters,
+        array &$bindings,
+        string $bindingPrefix
+    ): string {
+        $conditions = [];
+        $this->applyDashboardDateTimeBounds($column, $filters, $conditions, $bindings, $bindingPrefix);
+        return $conditions === [] ? '' : ' AND ' . implode(' AND ', $conditions);
+    }
+
+    /**
+     * @param list<string> $userIds
+     * @param array<string, string|null> $filters
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchUserActivityPerformanceDerivedMetrics(array $userIds, array $filters): array
+    {
+        $normalizedIds = array_values(array_unique(array_filter(
+            array_map(static fn ($id): string => trim((string) $id), $userIds),
+            static fn (string $id): bool => $id !== ''
+        )));
+
+        if ($normalizedIds === []) {
+            return [];
+        }
+
+        $derived = [];
+        foreach ($normalizedIds as $userId) {
+            $derived[$userId] = [
+                'orderQuantity' => 0,
+                'activityDays' => [],
+                'firstActivityRaw' => null,
+                'lastActivityRaw' => null,
+            ];
+        }
+
+        [$orderPlaceholders, $orderBindings] = $this->inClause($normalizedIds, 'report_detail_order_user');
+        $orderSql = "SELECT created_by, created_at, items
+            FROM orders
+            WHERE deleted_at IS NULL
+              AND created_by IN (" . implode(', ', $orderPlaceholders) . ')';
+        $orderSql .= $this->buildUserActivityPerformanceDateBoundsSql('created_at', $filters, $orderBindings, 'report_detail_orders');
+
+        foreach ($this->database->fetchAll($orderSql, $orderBindings) as $row) {
+            $userId = trim((string) ($row['created_by'] ?? ''));
+            if ($userId === '' || !isset($derived[$userId])) {
+                continue;
+            }
+
+            $items = $this->jsonDecodeList($row['items'] ?? []);
+            $derived[$userId]['orderQuantity'] += $this->sumUserActivityItemsQuantity($items);
+            $this->trackUserActivityPerformanceMoment($derived[$userId], $row['created_at'] ?? null);
+        }
+
+        [$billPlaceholders, $billBindings] = $this->inClause($normalizedIds, 'report_detail_bill_user');
+        $billSql = "SELECT created_by, created_at
+            FROM bills
+            WHERE deleted_at IS NULL
+              AND created_by IN (" . implode(', ', $billPlaceholders) . ')';
+        $billSql .= $this->buildUserActivityPerformanceDateBoundsSql('created_at', $filters, $billBindings, 'report_detail_bills');
+
+        foreach ($this->database->fetchAll($billSql, $billBindings) as $row) {
+            $userId = trim((string) ($row['created_by'] ?? ''));
+            if ($userId === '' || !isset($derived[$userId])) {
+                continue;
+            }
+
+            $this->trackUserActivityPerformanceMoment($derived[$userId], $row['created_at'] ?? null);
+        }
+
+        [$transactionPlaceholders, $transactionBindings] = $this->inClause($normalizedIds, 'report_detail_transaction_user');
+        $transactionSql = "SELECT created_by, created_at
+            FROM transactions
+            WHERE deleted_at IS NULL
+              AND created_by IN (" . implode(', ', $transactionPlaceholders) . ')';
+        $transactionSql .= $this->buildUserActivityPerformanceDateBoundsSql('created_at', $filters, $transactionBindings, 'report_detail_transactions');
+
+        foreach ($this->database->fetchAll($transactionSql, $transactionBindings) as $row) {
+            $userId = trim((string) ($row['created_by'] ?? ''));
+            if ($userId === '' || !isset($derived[$userId])) {
+                continue;
+            }
+
+            $this->trackUserActivityPerformanceMoment($derived[$userId], $row['created_at'] ?? null);
+        }
+
+        foreach ($derived as $userId => $metrics) {
+            $derived[$userId] = [
+                'orderQuantity' => (int) ($metrics['orderQuantity'] ?? 0),
+                'activeDays' => count((array) ($metrics['activityDays'] ?? [])),
+                'firstActivity' => $this->toIso($metrics['firstActivityRaw'] ?? null),
+                'lastActivity' => $this->toIso($metrics['lastActivityRaw'] ?? null),
+            ];
+        }
+
+        return $derived;
+    }
+
+    /**
+     * @param array<string, mixed> $bucket
+     * @param mixed $createdAt
+     */
+    private function trackUserActivityPerformanceMoment(array &$bucket, $createdAt): void
+    {
+        $raw = trim((string) ($createdAt ?? ''));
+        if ($raw === '') {
+            return;
+        }
+
+        $localDay = $this->localDateFromUtc($raw);
+        if ($localDay !== '') {
+            if (!is_array($bucket['activityDays'] ?? null)) {
+                $bucket['activityDays'] = [];
+            }
+            $bucket['activityDays'][$localDay] = true;
+        }
+
+        if (!isset($bucket['firstActivityRaw']) || $bucket['firstActivityRaw'] === null || $raw < (string) $bucket['firstActivityRaw']) {
+            $bucket['firstActivityRaw'] = $raw;
+        }
+        if (!isset($bucket['lastActivityRaw']) || $bucket['lastActivityRaw'] === null || $raw > (string) $bucket['lastActivityRaw']) {
+            $bucket['lastActivityRaw'] = $raw;
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function sumUserActivityItemsQuantity(array $items): int
+    {
+        $sum = 0;
+        foreach ($items as $item) {
+            $sum += (int) ($item['quantity'] ?? 0);
+        }
+
+        return $sum;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function summarizeUserActivityItems(array $items): string
+    {
+        if ($items === []) {
+            return 'No line items';
+        }
+
+        $parts = [];
+        foreach (array_slice($items, 0, 3) as $item) {
+            $name = trim((string) ($item['productName'] ?? $item['name'] ?? 'Item'));
+            $parts[] = $name . ' x' . (int) ($item['quantity'] ?? 0);
+        }
+
+        $summary = implode(', ', $parts);
+        if (count($items) > 3) {
+            $summary .= ' +' . (count($items) - 3) . ' more';
+        }
+
+        return $summary;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $derived
+     * @return array<string, mixed>
+     */
+    private function mapUserActivityPerformanceSummary(array $row, array $derived = []): array
+    {
+        $ordersCreated = (int) ($row['ordersCreated'] ?? 0);
+        $orderValue = (float) ($row['orderValue'] ?? 0);
+        $orderPaidAmount = (float) ($row['orderPaidAmount'] ?? 0);
+        $billValue = (float) ($row['billValue'] ?? 0);
+        $billPaidAmount = (float) ($row['billPaidAmount'] ?? 0);
+        $totalActivities = (int) ($row['totalActivities'] ?? 0);
+
+        return [
+            'user' => $this->mapUser($row),
+            'metrics' => [
+                'totalActivities' => $totalActivities,
+                'activeDays' => (int) ($derived['activeDays'] ?? 0),
+                'ordersCreated' => $ordersCreated,
+                'completedOrders' => (int) ($row['completedOrders'] ?? 0),
+                'processingOrders' => (int) ($row['processingOrders'] ?? 0),
+                'pickedOrders' => (int) ($row['pickedOrders'] ?? 0),
+                'onHoldOrders' => (int) ($row['onHoldOrders'] ?? 0),
+                'cancelledOrders' => (int) ($row['cancelledOrders'] ?? 0),
+                'orderValue' => $orderValue,
+                'completedOrderValue' => (float) ($row['completedOrderValue'] ?? 0),
+                'orderPaidAmount' => $orderPaidAmount,
+                'orderQuantity' => (int) ($derived['orderQuantity'] ?? 0),
+                'uniqueCustomers' => (int) ($row['uniqueCustomers'] ?? 0),
+                'averageOrderValue' => $ordersCreated > 0 ? $orderValue / $ordersCreated : 0,
+                'completionRate' => $ordersCreated > 0 ? (((int) ($row['completedOrders'] ?? 0)) / $ordersCreated) * 100 : 0,
+                'collectionRate' => $orderValue > 0 ? ($orderPaidAmount / $orderValue) * 100 : 0,
+                'billsCreated' => (int) ($row['billsCreated'] ?? 0),
+                'billValue' => $billValue,
+                'billPaidAmount' => $billPaidAmount,
+                'uniqueVendors' => (int) ($row['uniqueVendors'] ?? 0),
+                'billSettlementRate' => $billValue > 0 ? ($billPaidAmount / $billValue) * 100 : 0,
+                'transactionsCreated' => (int) ($row['transactionsCreated'] ?? 0),
+                'incomeTransactions' => (int) ($row['incomeTransactions'] ?? 0),
+                'incomeAmount' => (float) ($row['incomeAmount'] ?? 0),
+                'expenseTransactions' => (int) ($row['expenseTransactions'] ?? 0),
+                'expenseAmount' => (float) ($row['expenseAmount'] ?? 0),
+                'transferTransactions' => (int) ($row['transferTransactions'] ?? 0),
+                'transferAmount' => (float) ($row['transferAmount'] ?? 0),
+                'firstActivity' => $this->nullableString($derived['firstActivity'] ?? null),
+                'lastActivity' => $this->nullableString($derived['lastActivity'] ?? null),
+            ],
+        ];
+    }
+
     /**
      * @return array<string, string|null>
      */

@@ -3,17 +3,18 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
-import { Button } from '../../components';
+import { Button, ReportPageSkeleton } from '../../components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { theme } from '../../theme';
 import { useTransactions, useVendors, useAccounts, useCategories } from '../../src/hooks/useQueries';
 
 const ExpenseSummary: React.FC = () => {
   const navigate = useNavigate();
-  const { data: transactions = [] } = useTransactions();
-  const { data: vendors = [] } = useVendors();
-  const { data: accounts = [] } = useAccounts();
-  const { data: allCategories = [] } = useCategories();
+  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
+  const { data: vendors = [], isPending: vendorsLoading } = useVendors();
+  const { data: accounts = [], isPending: accountsLoading } = useAccounts();
+  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
+  const isLoading = transactionsLoading || vendorsLoading || accountsLoading || categoriesLoading;
   
   // Create category map for ID -> name lookup
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
@@ -47,6 +48,10 @@ const ExpenseSummary: React.FC = () => {
     a.click();
     document.body.removeChild(a);
   };
+
+  if (isLoading) {
+    return <ReportPageSkeleton cards={3} showChart tableColumns={3} tableRows={6} />;
+  }
 
   return (
     <div className="space-y-6">

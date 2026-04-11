@@ -3,7 +3,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
-import { Button } from '../../components';
+import { Button, ReportPageSkeleton } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { theme } from '../../theme';
 import { useTransactions, useCategories, useOrders } from '../../src/hooks/useQueries';
@@ -14,10 +14,11 @@ import { OrderStatus } from '../../types';
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: transactions = [] } = useTransactions();
-  const { data: orders = [] } = useOrders();
-  const { data: allCategories = [] } = useCategories();
+  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
+  const { data: orders = [], isPending: ordersLoading } = useOrders();
+  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
   const [topCustomers, setTopCustomers] = React.useState<any[]>([]);
+  const isLoading = transactionsLoading || ordersLoading || categoriesLoading;
   
   // Create category map for ID -> name lookup
   const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
@@ -37,11 +38,17 @@ const IncomeSummary: React.FC = () => {
   const COLORS = ['#10B981', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5'];
 
   // Calculate top customers by completed order revenue
-  const completedOrders = orders.filter(o => o.status === OrderStatus.COMPLETED);
-  const customerRevenue: Record<string, number> = {};
-  completedOrders.forEach(order => {
-    customerRevenue[order.customerId] = (customerRevenue[order.customerId] || 0) + order.total;
-  });
+  const completedOrders = React.useMemo(
+    () => orders.filter(o => o.status === OrderStatus.COMPLETED),
+    [orders]
+  );
+  const customerRevenue = React.useMemo(() => {
+    const revenue: Record<string, number> = {};
+    completedOrders.forEach(order => {
+      revenue[order.customerId] = (revenue[order.customerId] || 0) + order.total;
+    });
+    return revenue;
+  }, [completedOrders]);
 
   React.useEffect(() => {
     // Find top customer IDs by revenue
@@ -59,7 +66,11 @@ const IncomeSummary: React.FC = () => {
     }).catch(() => {
       setTopCustomers([]);
     });
-  }, [orders, transactions]);
+  }, [orders, transactions, customerRevenue, queryClient]);
+
+  if (isLoading) {
+    return <ReportPageSkeleton cards={3} showChart tableColumns={0} />;
+  }
 
   return (
     <div className="space-y-6">

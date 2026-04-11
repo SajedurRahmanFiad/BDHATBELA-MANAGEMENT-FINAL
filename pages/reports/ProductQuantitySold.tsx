@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FilterBar, { FilterRange } from '../../components/FilterBar';
+import { ReportPageSkeleton } from '../../components';
 import { useOrders } from '../../src/hooks/useQueries';
 import { formatCurrency } from '../../constants';
 import { useSearch } from '../../src/contexts/SearchContext';
@@ -8,7 +9,7 @@ import { buildProductSalesRows } from '../../src/utils/salesReportUtils';
 
 const ProductQuantitySold: React.FC = () => {
   const navigate = useNavigate();
-  const { data: orders = [] } = useOrders();
+  const { data: orders = [], isPending: ordersLoading } = useOrders();
   const { searchQuery } = useSearch();
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
@@ -18,6 +19,10 @@ const ProductQuantitySold: React.FC = () => {
   }, [orders, filterRange, customDates, searchQuery]);
 
   const totalQty = rows.reduce((sum, r) => sum + r.quantity, 0);
+
+  if (ordersLoading) {
+    return <ReportPageSkeleton cards={0} showChart={false} showFilters tableColumns={3} tableRows={8} />;
+  }
 
   return (
     <div className="space-y-6">

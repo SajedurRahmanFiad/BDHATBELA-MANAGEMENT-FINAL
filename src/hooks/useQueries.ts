@@ -21,6 +21,8 @@ import {
   fetchTransactions,
   fetchTransactionById,
   fetchUsers,
+  fetchUserActivityPerformanceLog,
+  fetchUserActivityPerformanceReportPage,
   fetchUserById,
   fetchUserByPhone,
   fetchVendors,
@@ -69,6 +71,8 @@ import type {
   PayrollSettings,
   PayrollSummaryRow,
   WalletActivityEntry,
+  UserActivityPerformanceLogEntry,
+  UserActivityPerformanceReportPage,
   WalletEntryType,
   WalletBalanceCard,
   WalletSettings,
@@ -316,6 +320,54 @@ export function useUsers(): UseQueryResult<User[], Error> {
     queryFn: fetchUsers,
     staleTime: 5 * 60 * 1000, // 5 minutes - matches bills/orders cache, creator names stay fresh without refetch on every mutation
     refetchOnMount: false,
+  });
+}
+
+export function useUserActivityPerformanceReportPage(
+  page: number = 1,
+  pageSize: number = 10,
+  filters?: { search?: string; roleFilter?: string; filterRange?: string; customDates?: { from?: string; to?: string }; onlyActive?: boolean },
+  options?: { enabled?: boolean }
+): UseQueryResult<UserActivityPerformanceReportPage, Error> {
+  const normalizedFilters = {
+    search: String(filters?.search || '').trim(),
+    roleFilter: String(filters?.roleFilter || 'All Users'),
+    filterRange: String(filters?.filterRange || 'All Time'),
+    customDates: {
+      from: String(filters?.customDates?.from || ''),
+      to: String(filters?.customDates?.to || ''),
+    },
+    onlyActive: Boolean(filters?.onlyActive),
+  };
+
+  return useQuery({
+    queryKey: ['reports', 'user-activity-performance', page, pageSize, normalizedFilters],
+    queryFn: () => fetchUserActivityPerformanceReportPage(page, pageSize, normalizedFilters),
+    placeholderData: (previousData) => previousData,
+    staleTime: 60 * 1000,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useUserActivityPerformanceLog(
+  userId: string | undefined,
+  filters?: { filterRange?: string; customDates?: { from?: string; to?: string } },
+  options?: { enabled?: boolean }
+): UseQueryResult<UserActivityPerformanceLogEntry[], Error> {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedFilters = {
+    filterRange: String(filters?.filterRange || 'All Time'),
+    customDates: {
+      from: String(filters?.customDates?.from || ''),
+      to: String(filters?.customDates?.to || ''),
+    },
+  };
+
+  return useQuery({
+    queryKey: ['reports', 'user-activity-performance', 'log', normalizedUserId, normalizedFilters],
+    queryFn: () => fetchUserActivityPerformanceLog({ userId: normalizedUserId, ...normalizedFilters }),
+    enabled: (options?.enabled ?? true) && normalizedUserId !== '',
+    staleTime: 60 * 1000,
   });
 }
 

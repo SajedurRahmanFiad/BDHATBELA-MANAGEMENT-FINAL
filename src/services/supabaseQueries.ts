@@ -14,6 +14,8 @@ import type {
   RecycleBinEntityType,
   RecycleBinItem,
   Transaction,
+  UserActivityPerformanceLogEntry,
+  UserActivityPerformanceReportPage,
   User,
   Vendor,
   WalletActivityEntry,
@@ -91,6 +93,16 @@ export async function fetchUsers() { return call<User[]>('fetchUsers'); }
 export async function fetchUsersMini() { return call<Array<{ id: string; name: string }>>('fetchUsersMini'); }
 export async function fetchUserByPhone(phone: string) { return call<User | null>('fetchUserByPhone', { phone }); }
 export async function fetchUserById(id: string) { return call<User | null>('fetchUserById', { id }); }
+export async function fetchUserActivityPerformanceReportPage(
+  page: number = 1,
+  pageSize: number = 10,
+  params?: { search?: string; roleFilter?: string; filterRange?: string; customDates?: { from?: string; to?: string }; onlyActive?: boolean }
+) {
+  return call<UserActivityPerformanceReportPage>('fetchUserActivityPerformanceReportPage', { page, pageSize, ...(params || {}) });
+}
+export async function fetchUserActivityPerformanceLog(params: { userId: string; filterRange?: string; customDates?: { from?: string; to?: string } }) {
+  return call<UserActivityPerformanceLogEntry[]>('fetchUserActivityPerformanceLog', params);
+}
 export async function loginUser(phone: string, password: string) {
   return call<{ user: User | null; token?: string | null; error?: string | null }>('loginUser', { phone, password });
 }

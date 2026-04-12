@@ -25,11 +25,11 @@ import type {
   WalletSettings,
   CompletePickedOrderPayload,
 } from '../../types';
-import { apiAction } from './apiClient';
+import { apiAction, type ApiActionOptions } from './apiClient';
 
 export const DEFAULT_PAGE_SIZE = 25;
 
-const call = <T>(action: string, payload?: unknown) => apiAction<T>(action, payload);
+const call = <T>(action: string, payload?: unknown, options?: ApiActionOptions) => apiAction<T>(action, payload, options);
 const remove = async (action: string, idOrPayload: string | Record<string, unknown>) => {
   await call(action, typeof idOrPayload === 'string' ? { id: idOrPayload } : idOrPayload);
 };
@@ -93,6 +93,9 @@ export async function fetchUsers() { return call<User[]>('fetchUsers'); }
 export async function fetchUsersMini() { return call<Array<{ id: string; name: string }>>('fetchUsersMini'); }
 export async function fetchUserByPhone(phone: string) { return call<User | null>('fetchUserByPhone', { phone }); }
 export async function fetchUserById(id: string) { return call<User | null>('fetchUserById', { id }); }
+export async function fetchBootstrapSession(options?: ApiActionOptions) {
+  return call<{ user: User; permissions: PermissionsSettings }>('bootstrapSession', {}, options);
+}
 export async function fetchUserActivityPerformanceReportPage(
   page: number = 1,
   pageSize: number = 10,

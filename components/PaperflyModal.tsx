@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
 import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
-import { submitPaperflyOrder } from '../src/services/supabaseQueries';
+import { fetchPaperflyOrderTracking, submitPaperflyOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
@@ -13,6 +13,36 @@ interface PaperflyModalProps {
   onClose: () => void;
   order?: Order | null;
   customer?: Customer | null;
+}
+
+function formatHistoryMoment(): string {
+  const now = new Date();
+  const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${date}, at ${time}`;
+}
+
+function getPaperflyPickupMarker(payload: any): string {
+  const firstTrackingEntry = [
+    payload?.success?.trackingStatus,
+    payload?.trackingStatus,
+    payload?.data?.trackingStatus,
+    payload?.data?.success?.trackingStatus,
+  ].find((candidate) => Array.isArray(candidate) && candidate.length > 0 && typeof candidate[0] === 'object')?.[0];
+
+  if (!firstTrackingEntry) {
+    return '';
+  }
+
+  if (typeof firstTrackingEntry.Pick === 'string' && firstTrackingEntry.Pick.trim() !== '') {
+    return firstTrackingEntry.Pick.trim();
+  }
+
+  if (typeof firstTrackingEntry.pick === 'string' && firstTrackingEntry.pick.trim() !== '') {
+    return firstTrackingEntry.pick.trim();
+  }
+
+  return '';
 }
 
 export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, order, customer }) => {
@@ -103,19 +133,41 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
         result?.data?.tracking_number ||
         null;
 
-      const historyText = `Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
-      const pickedHistory = `Marked as picked automatically after successful Paperfly submission on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+      const historyText = `Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${formatHistoryMoment()}${trackingNumber ? ` (Tracking: ${trackingNumber})` : ''}`;
 
       const updates: any = {
-        status: OrderStatus.PICKED,
         history: {
           ...order.history,
           courier: historyText,
-          picked: pickedHistory,
         },
       };
       if (trackingNumber) {
         updates.paperflyTrackingNumber = String(trackingNumber);
+      }
+
+      if (trackingNumber) {
+        try {
+          const pickupCheck = await fetchPaperflyOrderTracking({
+            baseUrl,
+            username,
+            password,
+            referenceNumber: String(trackingNumber),
+          });
+
+          if (!pickupCheck.error && pickupCheck.data) {
+            const pickupMarker = getPaperflyPickupMarker(pickupCheck.data);
+            if (pickupMarker !== '') {
+              updates.status = OrderStatus.PICKED;
+              updates.history.picked = `Marked as picked automatically after Paperfly confirmed pickup${pickupMarker ? ` (${pickupMarker})` : ''} on ${formatHistoryMoment()}`;
+            } else {
+              console.log('[PaperflyModal] Immediate pickup check did not confirm pickup yet.');
+            }
+          } else {
+            console.warn('[PaperflyModal] Immediate pickup verification failed:', pickupCheck.error || 'Unknown error');
+          }
+        } catch (pickupCheckError) {
+          console.warn('[PaperflyModal] Immediate pickup verification threw an error:', pickupCheckError);
+        }
       }
 
       await updateOrder.mutateAsync({ id: order.id, updates });

@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../theme';
 import { OrderStatus, type Order, type Customer } from '../types';
 import { useCourierSettings } from '../src/hooks/useQueries';
-import { submitSteadfastOrder } from '../src/services/supabaseQueries';
+import { fetchSteadfastStatusByTrackingCode, submitSteadfastOrder } from '../src/services/supabaseQueries';
 import { useUpdateOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { db } from '../db';
@@ -13,6 +13,29 @@ interface SteadfastModalProps {
   onClose: () => void;
   order?: Order | null;
   customer?: Customer | null;
+}
+
+const STEADFAST_NON_PICKED_STATUSES = new Set(['pending', 'in_review', 'cancelled']);
+
+function formatHistoryMoment(): string {
+  const now = new Date();
+  const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${date}, at ${time}`;
+}
+
+function getSteadfastPickupStatus(payload: any): { rawStatus: string; isPickedOrBeyond: boolean } {
+  const rawStatus = [
+    payload?.data?.delivery_status,
+    payload?.delivery_status,
+  ].find((candidate) => typeof candidate === 'string' && candidate.trim() !== '')?.trim() ?? '';
+
+  const normalizedStatus = rawStatus.toLowerCase().replace(/[\s-]+/g, '_');
+
+  return {
+    rawStatus,
+    isPickedOrBeyond: rawStatus !== '' && !STEADFAST_NON_PICKED_STATUSES.has(normalizedStatus),
+  };
 }
 
 export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose, order, customer }) => {
@@ -134,19 +157,41 @@ export const SteadfastModal: React.FC<SteadfastModalProps> = ({ isOpen, onClose,
           null
         );
 
-        const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}${trackingOrConsignment ? ` (Tracking: ${trackingOrConsignment})` : ''}`;
-        const pickedHistory = `Marked as picked automatically after successful Steadfast submission${courierStatus ? ` (Courier status: ${courierStatus})` : ''} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}, at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+        const historyText = `Sent to Steadfast by ${db.currentUser?.name || 'System'} on ${formatHistoryMoment()}${trackingOrConsignment ? ` (Tracking: ${trackingOrConsignment})` : ''}${courierStatus ? ` (Submit status: ${courierStatus})` : ''}`;
         console.log('[SteadfastModal] Setting courier history:', historyText);
         const updates: any = {
-          status: OrderStatus.PICKED,
           history: {
             ...order.history,
             courier: historyText,
-            picked: pickedHistory,
           },
         };
 
         if (trackingOrConsignment) updates.steadfastConsignmentId = String(trackingOrConsignment);
+
+        if (trackingOrConsignment) {
+          try {
+            const pickupCheck = await fetchSteadfastStatusByTrackingCode({
+              baseUrl,
+              apiKey,
+              secretKey,
+              trackingCode: String(trackingOrConsignment),
+            });
+
+            if (!pickupCheck.error && pickupCheck.data) {
+              const pickupStatus = getSteadfastPickupStatus(pickupCheck.data);
+              if (pickupStatus.isPickedOrBeyond) {
+                updates.status = OrderStatus.PICKED;
+                updates.history.picked = `Marked as picked automatically after Steadfast confirmed delivery status "${pickupStatus.rawStatus}" on ${formatHistoryMoment()}`;
+              } else {
+                console.log('[SteadfastModal] Immediate pickup check did not confirm pickup yet:', pickupStatus.rawStatus || 'UNKNOWN');
+              }
+            } else {
+              console.warn('[SteadfastModal] Immediate pickup verification failed:', pickupCheck.error || 'Unknown error');
+            }
+          } catch (pickupCheckError) {
+            console.warn('[SteadfastModal] Immediate pickup verification threw an error:', pickupCheckError);
+          }
+        }
 
         await updateOrder.mutateAsync({ id: order.id, updates });
         console.log('[SteadfastModal] Courier status updated and UI refreshed');

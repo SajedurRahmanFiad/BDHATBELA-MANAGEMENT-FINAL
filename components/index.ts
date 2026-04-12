@@ -20,6 +20,7 @@ export { Modal, Dialog } from './Modal';
 export { default as Layout } from './Layout';
 
 export { default as LoadingOverlay } from './LoadingOverlay';
+export { default as StartupScreen } from './StartupScreen';
 
 export { default as TableLoadingSkeleton } from './TableLoadingSkeleton';
 export { default as ReportPageSkeleton } from './ReportPageSkeleton';

@@ -2,20 +2,27 @@ import { db } from '../../db';
 import type { PermissionKey } from '../../types';
 import { hasAdminAccess } from '../../types';
 import { useAuth } from '../contexts/AuthProvider';
-import { getRolePermissions, hasScopedPermission, permissionMapHasAnyPermission, roleHasPermission } from '../utils/permissions';
+import { createBlankPermissionMap, getRolePermissions, hasScopedPermission, permissionMapHasAnyPermission, roleHasPermission } from '../utils/permissions';
 import { usePermissionsSettings } from './useQueries';
 
 export function useRolePermissions() {
   const { user, profile } = useAuth();
   const activeUser = profile || user || db.currentUser;
-  const { data: permissionsSettings } = usePermissionsSettings();
-  const fallbackSettings = permissionsSettings || db.settings.permissions;
   const role = String(activeUser?.role || '');
-  const rolePermissions = getRolePermissions(fallbackSettings, role);
   const isAdminAccessUser = hasAdminAccess(role);
+  const { data: permissionsSettings } = usePermissionsSettings(!!activeUser);
+  const permissionsReady = !activeUser || isAdminAccessUser || !!permissionsSettings;
+  const authoritativeSettings = permissionsReady ? permissionsSettings : null;
+  const rolePermissions = permissionsReady
+    ? getRolePermissions(authoritativeSettings, role)
+    : createBlankPermissionMap();
 
   const can = (permissionKey: PermissionKey): boolean => {
-    return roleHasPermission(role, permissionKey, fallbackSettings);
+    if (!permissionsReady) {
+      return false;
+    }
+
+    return roleHasPermission(role, permissionKey, authoritativeSettings);
   };
 
   const canAny = (permissionKeys: PermissionKey[]): boolean => {
@@ -31,7 +38,8 @@ export function useRolePermissions() {
   };
 
   return {
-    permissionsSettings: fallbackSettings,
+    permissionsSettings: authoritativeSettings,
+    permissionsReady,
     role,
     userId: String(activeUser?.id || ''),
     rolePermissions,

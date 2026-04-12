@@ -13,6 +13,14 @@ final class MasterDataApi extends BaseService
         return $this->mapUser($this->currentUser());
     }
 
+    public function bootstrapSession(array $params = []): array
+    {
+        return [
+            'user' => $this->mapUser($this->currentUser()),
+            'permissions' => $this->buildPermissionsSettingsPayload(),
+        ];
+    }
+
     public function loginUser(array $params): array
     {
         $phone = trim((string) ($params['phone'] ?? ''));

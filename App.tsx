@@ -1,7 +1,6 @@
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { db, saveDb } from './db';
 import { AuthProvider, useAuth } from './src/contexts/AuthProvider';
 import { ToastProvider } from './src/contexts/ToastContext';
 import { SearchProvider } from './src/contexts/SearchContext';
@@ -69,9 +68,10 @@ import PrintBill from './pages/PrintBill';
 import WalletPage from './pages/Wallet';
 import { hasAdminAccess } from './types';
 import { useRolePermissions } from './src/hooks/useRolePermissions';
+import StartupScreen from './components/StartupScreen';
 
 // Inner app component that uses auth context
-const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ user, profile, isLoading }) => {
+const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => {
   // Check authentication state - only require user since profile is GUARANTEED to exist when user exists
   // Profile is always loaded along with user by AuthProvider, never null during normal operation
   const isAuthenticated = !!user;
@@ -289,23 +289,24 @@ const AppRouter: React.FC<{ user: any; profile: any; isLoading: boolean }> = ({ 
 
 // App content component - safely uses auth context and passes to router
 const AppContent: React.FC = () => {
-  const { user, profile, isLoading } = useAuth();
+  const { user, profile, startupStatus, startupError, retrySessionRestore, signOut } = useAuth();
 
-  // Show loading screen during initial auth check or active loading
-  if (isLoading) {
+  if (startupStatus === 'idle' || startupStatus === 'checking') {
+    return <StartupScreen status={startupStatus} />;
+  }
+
+  if (startupStatus === 'timeout' || startupStatus === 'offline' || startupStatus === 'error') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="inline-block p-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-          <p className="mt-4 text-gray-600 font-medium">Loading...</p>
-        </div>
-      </div>
+      <StartupScreen
+        status={startupStatus}
+        error={startupError}
+        onRetry={retrySessionRestore}
+        onBackToLogin={signOut}
+      />
     );
   }
 
-  return <AppRouter user={user} profile={profile} isLoading={isLoading} />;
+  return <AppRouter user={user} profile={profile} />;
 };
 
 const App: React.FC = () => {

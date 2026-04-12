@@ -605,11 +605,12 @@ export function useCourierSettings(): UseQueryResult<any, Error> {
   });
 }
 
-export function usePermissionsSettings(): UseQueryResult<PermissionsSettings, Error> {
+export function usePermissionsSettings(enabled: boolean = true): UseQueryResult<PermissionsSettings, Error> {
   return useQuery({
     queryKey: ['settings', 'permissions'],
     queryFn: fetchPermissionsSettings,
     staleTime: 60 * 60 * 1000,
+    enabled,
   });
 }
 

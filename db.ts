@@ -41,8 +41,8 @@ const getFromStorage = <T,>(key: string): T | null => {
   return stored ? JSON.parse(stored) : null;
 };
 
-// Global State - ONLY for currentUser and settings (sync with localStorage)
-const _storedCurrent = getFromStorage<User | null>('currentUser');
+// Global State - ONLY settings are restored from localStorage.
+// currentUser stays in memory so auth always comes from the live session bootstrap path.
 const _storedSettings = getFromStorage<Settings>('settings');
 const mergedSettings: Settings = _storedSettings
   ? {
@@ -87,15 +87,14 @@ export const db = {
   accounts: [],    // DEPRECATED - Do not use. Fetch via useAccounts()
   transactions: [], // DEPRECATED - Do not use. Fetch via useTransactions()
   
-  currentUser: _storedCurrent ?? null,
+  currentUser: null as User | null,
   settings: mergedSettings,
 };
 
 export const saveDb = () => {
-  // Only save essential data to localStorage to avoid quota exceeded errors
-  // Large datasets (orders, bills, transactions, etc.) are fetched on demand
+  // Only save settings to localStorage to avoid stale session fallbacks
+  // and quota exceeded errors. User/session state stays in memory only.
   try {
-    localStorage.setItem('currentUser', JSON.stringify(db.currentUser));
     localStorage.setItem('settings', JSON.stringify(db.settings));
   } catch (err) {
     console.warn('[DB] localStorage write failed:', err);

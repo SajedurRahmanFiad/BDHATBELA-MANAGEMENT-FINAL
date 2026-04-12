@@ -1,157 +1,240 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loginUser, fetchUserById, fetchAccounts, fetchSystemDefaults } from '../services/supabaseQueries';
-import { clearAuthToken, setAuthToken } from '../services/apiClient';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { fetchAccounts, fetchBootstrapSession, fetchSystemDefaults, loginUser } from '../services/supabaseQueries';
+import { ApiError, clearAuthToken, getAuthToken, setAuthToken } from '../services/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
+import type { PermissionsSettings, User } from '../../types';
 import { db, saveDb } from '../../db';
 
+export type StartupStatus = 'idle' | 'checking' | 'ready' | 'anonymous' | 'timeout' | 'offline' | 'error';
+
 type AuthContextType = {
-  user: any | null;
-  profile?: any | null;
+  user: User | null;
+  profile?: User | null;
   isLoading: boolean;
+  startupStatus: StartupStatus;
+  startupError: string | null;
   signIn: (phoneOrEmail: string, password: string) => Promise<{ error?: any; data?: any }>;
   signOut: () => Promise<void>;
+  retrySessionRestore: () => Promise<void>;
 };
+
+type BootstrapSessionData = {
+  user: User;
+  permissions: PermissionsSettings;
+};
+
+type BootstrapFailure = {
+  status: Extract<StartupStatus, 'timeout' | 'offline' | 'error'>;
+  message: string;
+};
+
+type BootstrapResult =
+  | { kind: 'success'; data: BootstrapSessionData }
+  | { kind: 'anonymous' }
+  | { kind: 'failure'; failure: BootstrapFailure };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const POLL_MS = 2500; // interval to poll for user details when only id stored
-  const queryClient = useQueryClient();
+const BOOTSTRAP_TIMEOUT_MS = 6000;
+const LEGACY_SESSION_KEYS = ['currentUserId', 'isLoggedIn', 'userProfile', 'userData', 'currentUser'] as const;
 
-  // Initialize session from localStorage on mount
-  useEffect(() => {
-    let mounted = true;
+function clearLegacySessionStorage(): void {
+  for (const key of LEGACY_SESSION_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
 
-    const init = async () => {
-      try {
-        const storedId = localStorage.getItem('currentUserId');
-        const storedToken = localStorage.getItem('authToken');
-
-        if (!storedId || !storedToken) {
-          if (mounted) {
-            setUser(null);
-            db.currentUser = null as any;
-            clearAuthToken();
-            localStorage.removeItem('currentUserId');
-            saveDb();
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        // We have a stored user ID - fetch full profile
-        let retries = 0;
-        const maxRetries = 5;
-
-        const fetchWithRetry = async (): Promise<any> => {
-          try {
-            const fetched = await fetchUserById(storedId);
-            if (fetched) {
-              return fetched;
-            }
-          } catch (err) {
-            console.warn('[Auth] Fetch attempt failed:', err);
-            if (retries < maxRetries) {
-              retries++;
-              await new Promise(r => setTimeout(r, POLL_MS));
-              return fetchWithRetry();
-            }
-          }
-          return null;
-        };
-
-        const fetched = await fetchWithRetry();
-
-        if (mounted) {
-          if (fetched) {
-            setUser(fetched);
-            db.currentUser = fetched as any;
-            saveDb();
-            try {
-              queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
-              queryClient.prefetchQuery({ queryKey: ['settings', 'defaults'], queryFn: () => fetchSystemDefaults(), staleTime: 60 * 60 * 1000 }).catch(() => {});
-            } catch (e) {}
-          } else {
-            console.warn('[Auth] Could not restore profile, clearing session');
-            setUser(null);
-            db.currentUser = null as any;
-            localStorage.removeItem('currentUserId');
-            saveDb();
-          }
-          setIsLoading(false);
-        }
-      } catch (err) {
-        console.error('[Auth] Init error:', err);
-        if (mounted) {
-          setUser(null);
-          db.currentUser = null as any;
-          setIsLoading(false);
-        }
-      }
+function classifyBootstrapError(error: unknown): BootstrapFailure {
+  if (error instanceof ApiError && error.code === 'TIMEOUT') {
+    return {
+      status: 'timeout',
+      message: 'Restoring your session took too long. Please try again.',
     };
+  }
 
-    // Start init
-    init();
+  if (!navigator.onLine) {
+    return {
+      status: 'offline',
+      message: 'No internet connection. Reconnect and try again.',
+    };
+  }
+
+  return {
+    status: 'error',
+    message: 'The server did not respond. Please try again.',
+  };
+}
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [startupStatus, setStartupStatus] = useState<StartupStatus>(() => (getAuthToken() ? 'checking' : 'anonymous'));
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const mountedRef = useRef(true);
+
+  const isLoading = startupStatus === 'idle' || startupStatus === 'checking';
+
+  const applyAuthenticatedState = useCallback((session: BootstrapSessionData) => {
+    setUser(session.user);
+    db.currentUser = session.user;
+    queryClient.setQueryData(['settings', 'permissions'], session.permissions);
+    setStartupError(null);
+    setStartupStatus('ready');
+    saveDb();
+  }, [queryClient]);
+
+  const setAnonymousState = useCallback((clearToken: boolean) => {
+    setUser(null);
+    db.currentUser = null;
+    queryClient.removeQueries({ queryKey: ['settings', 'permissions'], exact: true });
+    setStartupError(null);
+    setStartupStatus('anonymous');
+
+    if (clearToken) {
+      clearAuthToken();
+    }
+
+    clearLegacySessionStorage();
+    saveDb();
+  }, [queryClient]);
+
+  const prefetchPostBootstrap = useCallback(() => {
+    try {
+      queryClient.prefetchQuery({
+        queryKey: ['accounts'],
+        queryFn: () => fetchAccounts(),
+        staleTime: 15 * 60 * 1000,
+      }).catch(() => {});
+
+      queryClient.prefetchQuery({
+        queryKey: ['settings', 'defaults'],
+        queryFn: () => fetchSystemDefaults(),
+        staleTime: 60 * 60 * 1000,
+      }).catch(() => {});
+    } catch (error) {
+      console.warn('[Auth] Background prefetch failed to start:', error);
+    }
+  }, [queryClient]);
+
+  const bootstrapFromToken = useCallback(async (): Promise<BootstrapResult> => {
+    const token = getAuthToken();
+
+    if (!token) {
+      if (mountedRef.current) {
+        setAnonymousState(false);
+      }
+      return { kind: 'anonymous' };
+    }
+
+    if (mountedRef.current) {
+      setStartupStatus('checking');
+      setStartupError(null);
+    }
+
+    try {
+      const session = await fetchBootstrapSession({ timeoutMs: BOOTSTRAP_TIMEOUT_MS });
+
+      if (!mountedRef.current) {
+        return { kind: 'success', data: session };
+      }
+
+      applyAuthenticatedState(session);
+      prefetchPostBootstrap();
+      window.dispatchEvent(new Event('authChange'));
+      return { kind: 'success', data: session };
+    } catch (error) {
+      if (!mountedRef.current) {
+        return { kind: 'failure', failure: classifyBootstrapError(error) };
+      }
+
+      if (error instanceof ApiError && error.status === 401) {
+        console.warn('[Auth] Stored token is invalid, clearing session');
+        setAnonymousState(true);
+        window.dispatchEvent(new Event('authChange'));
+        return { kind: 'anonymous' };
+      }
+
+      const failure = classifyBootstrapError(error);
+      console.error('[Auth] Session bootstrap failed:', error);
+      setUser(null);
+      db.currentUser = null;
+      queryClient.removeQueries({ queryKey: ['settings', 'permissions'], exact: true });
+      setStartupStatus(failure.status);
+      setStartupError(failure.message);
+      saveDb();
+      return { kind: 'failure', failure };
+    }
+  }, [applyAuthenticatedState, prefetchPostBootstrap, queryClient, setAnonymousState]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void bootstrapFromToken();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
-  }, []);
+  }, [bootstrapFromToken]);
 
-  const signIn = async (phoneOrEmail: string, password: string) => {
+  const retrySessionRestore = useCallback(async () => {
+    await bootstrapFromToken();
+  }, [bootstrapFromToken]);
+
+  const signIn = useCallback(async (phoneOrEmail: string, password: string) => {
     const phone = (phoneOrEmail.includes('@') ? phoneOrEmail.split('@')[0] : phoneOrEmail).trim();
 
     try {
-      const { user: dbUser, token, error: loginError } = await loginUser(phone, password);
+      const { user: loginUserData, token, error: loginError } = await loginUser(phone, password);
 
-      if (loginError || !dbUser) {
+      if (loginError || !loginUserData) {
         return { error: { message: loginError || 'Login failed' } };
+      }
+
+      if (!token || !token.trim()) {
+        return { error: { message: 'Login succeeded but no session token was returned.' } };
       }
 
       await queryClient.cancelQueries();
       queryClient.clear();
 
-      setUser(dbUser);
-      db.currentUser = dbUser as any;
-      saveDb();
-      setAuthToken(token || '');
+      setAuthToken(token);
+      clearLegacySessionStorage();
 
-      // Store only user ID persistently (allows multi-device login)
-      localStorage.setItem('currentUserId', dbUser.id);
-      localStorage.setItem('isLoggedIn', 'true');
-      setIsLoading(false);
-      window.dispatchEvent(new Event('authChange'));
+      const bootstrapResult = await bootstrapFromToken();
+      if (bootstrapResult.kind === 'success') {
+        return { data: { user: bootstrapResult.data.user, profileLoaded: true }, error: null };
+      }
 
-      try {
-        queryClient.prefetchQuery({ queryKey: ['accounts'], queryFn: () => fetchAccounts(), staleTime: 15 * 60 * 1000 }).catch(() => {});
-        queryClient.prefetchQuery({ queryKey: ['settings', 'defaults'], queryFn: () => fetchSystemDefaults(), staleTime: 60 * 60 * 1000 }).catch(() => {});
-      } catch (e) {}
-      return { data: { user: dbUser, profileLoaded: true }, error: null };
-    } catch (err: any) {
-      console.error('[Auth] signIn exception:', err?.message || err);
-      return { error: { message: err?.message || 'Login failed' } };
+      if (bootstrapResult.kind === 'anonymous') {
+        return { error: { message: 'Your session expired. Please sign in again.' } };
+      }
+
+      return { error: { message: bootstrapResult.failure.message } };
+    } catch (error: any) {
+      console.error('[Auth] signIn exception:', error?.message || error);
+      return { error: { message: error?.message || 'Login failed' } };
     }
-  };
+  }, [bootstrapFromToken, queryClient]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await queryClient.cancelQueries();
     queryClient.clear();
-    setUser(null);
-    db.currentUser = null as any;
-    saveDb();
-    clearAuthToken();
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('currentUserId');
-    localStorage.removeItem('userProfile');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('currentUser');
+    setAnonymousState(true);
     window.dispatchEvent(new Event('authChange'));
-  };
+  }, [queryClient, setAnonymousState]);
 
   return (
-    <AuthContext.Provider value={{ user, profile: user, isLoading, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile: user,
+        isLoading,
+        startupStatus,
+        startupError,
+        signIn,
+        signOut,
+        retrySessionRestore,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -165,8 +248,11 @@ export function useAuth() {
       user: db.currentUser ?? null,
       profile: db.currentUser ?? null,
       isLoading: false,
+      startupStatus: 'anonymous' as StartupStatus,
+      startupError: null,
       signIn: async () => ({ error: { message: 'AuthProvider missing' } }),
       signOut: async () => {},
+      retrySessionRestore: async () => {},
     };
   }
   return ctx;

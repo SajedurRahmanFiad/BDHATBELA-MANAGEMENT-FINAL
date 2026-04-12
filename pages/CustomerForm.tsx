@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Customer } from '../types';
@@ -19,6 +19,7 @@ const CustomerForm: React.FC = () => {
   
   const [form, setForm] = useState({ name: '', phone: '', address: '' });
   const [error, setError] = useState<string | null>(null);
+  const initializedRef = useRef(false);
 
   // Wait for auth to load
   if (authLoading) {
@@ -38,34 +39,47 @@ const CustomerForm: React.FC = () => {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (customer) {
-      setForm({ 
-        name: customer.name, 
-        phone: customer.phone, 
-        address: customer.address 
-      });
+    initializedRef.current = false;
+  }, [id, location.key]);
+
+  useEffect(() => {
+    if (initializedRef.current) {
       return;
     }
 
-    // If this is an optimistic/local-only customer (temp id), populate from cached list
+    if (customer) {
+      setForm({
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address,
+      });
+      initializedRef.current = true;
+      return;
+    }
+
+    // If this is an optimistic/local-only customer (temp id), populate from cached list.
     if (id && isTempId(id)) {
       const optimistic = (customersList || []).find(c => c.id === id);
       if (optimistic) {
         setForm({ name: optimistic.name, phone: optimistic.phone, address: optimistic.address });
-        return;
+        initializedRef.current = true;
       }
+      return;
+    }
+
+    if (isEdit) {
+      return;
     }
 
     const state: any = (location && (location as any).state) || {};
     const preFill = state.fromOrderForm ? state.preFill : null;
-    if (preFill && (preFill.name || preFill.phone || preFill.address)) {
-      setForm({
-        name: preFill.name || '',
-        phone: preFill.phone || '',
-        address: preFill.address || '',
-      });
-    }
-  }, [customer, customersList, id, location]);
+    setForm({
+      name: preFill?.name || '',
+      phone: preFill?.phone || '',
+      address: preFill?.address || '',
+    });
+    initializedRef.current = true;
+  }, [customer, customersList, id, isEdit, location, location.key]);
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {

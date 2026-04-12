@@ -21,6 +21,7 @@ import {
   fetchTransactions,
   fetchTransactionById,
   fetchUsers,
+  fetchUsersPage,
   fetchUserActivityPerformanceLog,
   fetchUserActivityPerformanceReportPage,
   fetchUserById,
@@ -320,6 +321,21 @@ export function useUsers(): UseQueryResult<User[], Error> {
     queryFn: fetchUsers,
     staleTime: 5 * 60 * 1000, // 5 minutes - matches bills/orders cache, creator names stay fresh without refetch on every mutation
     refetchOnMount: false,
+  });
+}
+
+export function useUsersPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  filters?: { search?: string; role?: string },
+  options?: { enabled?: boolean }
+): UseQueryResult<{ data: User[]; count: number; roles: string[] }, Error> {
+  return useQuery({
+    queryKey: ['users', page, pageSize, filters],
+    queryFn: () => fetchUsersPage(page, pageSize, filters),
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
+    enabled: options?.enabled ?? true,
   });
 }
 

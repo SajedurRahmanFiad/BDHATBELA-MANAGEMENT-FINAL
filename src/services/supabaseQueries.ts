@@ -90,6 +90,9 @@ export async function updateTransaction(id: string, updates: Partial<Transaction
 export async function deleteTransaction(id: string) { await remove('deleteTransaction', id); }
 
 export async function fetchUsers() { return call<User[]>('fetchUsers'); }
+export async function fetchUsersPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { search?: string; role?: string }) {
+  return call<{ data: User[]; count: number; roles: string[] }>('fetchUsersPage', { page, pageSize, ...(filters || {}) });
+}
 export async function fetchUsersMini() { return call<Array<{ id: string; name: string }>>('fetchUsersMini'); }
 export async function fetchUserByPhone(phone: string) { return call<User | null>('fetchUserByPhone', { phone }); }
 export async function fetchUserById(id: string) { return call<User | null>('fetchUserById', { id }); }

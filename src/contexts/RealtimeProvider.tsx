@@ -23,6 +23,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const runSync = async () => {
       if (cancelled || syncingRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       syncingRef.current = true;
       try {
         const [carryBeeResult, paperflyResult, steadfastResult] = await Promise.all([

@@ -8,11 +8,11 @@ import { Button } from '../components';
 import { theme } from '../theme';
 import { useBill, useVendor } from '../src/hooks/useQueries';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { fetchProductsMini, fetchProductsSearch, fetchVendors, fetchVendorsPage } from '../src/services/supabaseQueries';
+import { fetchProductsMini, fetchProductsSearch, fetchVendorsPage } from '../src/services/supabaseQueries';
 import { useCreateBill, useUpdateBill } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useRolePermissions } from '../src/hooks/useRolePermissions';
-import { getTodayDate, matchesNamePhoneSearch, sanitizePhoneInput } from '../utils';
+import { getTodayDate, sanitizePhoneInput } from '../utils';
 
 const BillForm: React.FC = () => {
   const { id } = useParams();
@@ -101,20 +101,11 @@ const BillForm: React.FC = () => {
     return () => clearTimeout(t);
   }, [vendorSearchTerm]);
 
-  // Vendors: show the first page by default, but search from the cached full list
-  // so phone lookups behave consistently while typing.
+  // Vendors: fetch just the visible search window instead of the full list.
   const vendorPageSize = 20;
   const { data: vendorsPage } = useQuery({
-    queryKey: ['vendors', 1, vendorPageSize, ''],
-    queryFn: () => fetchVendorsPage(1, vendorPageSize, ''),
-    enabled: showVendorSearch && !debouncedVendorSearch,
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
-
-  const { data: vendorsSearchPool = [] } = useQuery({
-    queryKey: ['vendors'],
-    queryFn: fetchVendors,
+    queryKey: ['vendors', 1, vendorPageSize, debouncedVendorSearch],
+    queryFn: () => fetchVendorsPage(1, vendorPageSize, debouncedVendorSearch),
     enabled: showVendorSearch,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -243,12 +234,8 @@ const BillForm: React.FC = () => {
   };
 
   const visibleVendors = React.useMemo(() => {
-    if (!debouncedVendorSearch) {
-      return vendorsPage?.data || [];
-    }
-
-    return vendorsSearchPool.filter((vendor) => matchesNamePhoneSearch(vendor, debouncedVendorSearch));
-  }, [vendorsPage?.data, vendorsSearchPool, debouncedVendorSearch]);
+    return vendorsPage?.data || [];
+  }, [vendorsPage?.data]);
   const selectedVendor =
     selectedVendorRecord ||
     visibleVendors.find((vendor) => vendor.id === vendorId) ||

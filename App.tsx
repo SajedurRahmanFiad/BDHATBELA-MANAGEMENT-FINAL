@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './src/contexts/AuthProvider';
@@ -29,46 +29,53 @@ const queryClient = new QueryClient({
     },
   },
 });
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Orders from './pages/Orders';
-import OrderForm from './pages/OrderForm';
-import OrderDetails from './pages/OrderDetails';
-import Bills from './pages/Bills';
-import BillForm from './pages/BillForm';
-import BillDetails from './pages/BillDetails';
-import Banking from './pages/Banking';
-import Transactions from './pages/Transactions';
-import TransactionForm from './pages/TransactionForm';
-import Transfer from './pages/Transfer';
-import Products from './pages/Products';
-import ProductForm from './pages/ProductForm';
-import Users from './pages/Users';
-import UserForm from './pages/UserForm';
-import UserDetails from './pages/UserDetails';
-import SettingsPage from './pages/Settings';
-import Customers from './pages/Customers';
-import CustomerForm from './pages/CustomerForm';
-import CustomerDetails from './pages/CustomerDetails';
-import Vendors from './pages/Vendors';
-import VendorForm from './pages/VendorForm';
-import VendorDetails from './pages/VendorDetails';
-import Reports from './pages/Reports';
-import Payroll from './pages/Payroll';
-import RecycleBin from './pages/RecycleBin';
-import ExpenseSummary from './pages/reports/ExpenseSummary';
-import IncomeSummary from './pages/reports/IncomeSummary';
-import IncomeVsExpense from './pages/reports/IncomeVsExpense';
-import ProfitLoss from './pages/reports/ProfitLoss';
-import ProductQuantitySold from './pages/reports/ProductQuantitySold';
-import CustomerSalesReport from './pages/reports/CustomerSalesReport';
-import UserActivityPerformanceReport from './pages/reports/UserActivityPerformanceReport';
-import PrintOrder from './pages/PrintOrder';
-import PrintBill from './pages/PrintBill';
-import WalletPage from './pages/Wallet';
 import { hasAdminAccess } from './types';
 import { useRolePermissions } from './src/hooks/useRolePermissions';
 import StartupScreen from './components/StartupScreen';
+
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Orders = lazy(() => import('./pages/Orders'));
+const OrderForm = lazy(() => import('./pages/OrderForm'));
+const OrderDetails = lazy(() => import('./pages/OrderDetails'));
+const Bills = lazy(() => import('./pages/Bills'));
+const BillForm = lazy(() => import('./pages/BillForm'));
+const BillDetails = lazy(() => import('./pages/BillDetails'));
+const Banking = lazy(() => import('./pages/Banking'));
+const Transactions = lazy(() => import('./pages/Transactions'));
+const TransactionForm = lazy(() => import('./pages/TransactionForm'));
+const Transfer = lazy(() => import('./pages/Transfer'));
+const Products = lazy(() => import('./pages/Products'));
+const ProductForm = lazy(() => import('./pages/ProductForm'));
+const Users = lazy(() => import('./pages/Users'));
+const UserForm = lazy(() => import('./pages/UserForm'));
+const UserDetails = lazy(() => import('./pages/UserDetails'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const Customers = lazy(() => import('./pages/Customers'));
+const CustomerForm = lazy(() => import('./pages/CustomerForm'));
+const CustomerDetails = lazy(() => import('./pages/CustomerDetails'));
+const Vendors = lazy(() => import('./pages/Vendors'));
+const VendorForm = lazy(() => import('./pages/VendorForm'));
+const VendorDetails = lazy(() => import('./pages/VendorDetails'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Payroll = lazy(() => import('./pages/Payroll'));
+const RecycleBin = lazy(() => import('./pages/RecycleBin'));
+const ExpenseSummary = lazy(() => import('./pages/reports/ExpenseSummary'));
+const IncomeSummary = lazy(() => import('./pages/reports/IncomeSummary'));
+const IncomeVsExpense = lazy(() => import('./pages/reports/IncomeVsExpense'));
+const ProfitLoss = lazy(() => import('./pages/reports/ProfitLoss'));
+const ProductQuantitySold = lazy(() => import('./pages/reports/ProductQuantitySold'));
+const CustomerSalesReport = lazy(() => import('./pages/reports/CustomerSalesReport'));
+const UserActivityPerformanceReport = lazy(() => import('./pages/reports/UserActivityPerformanceReport'));
+const PrintOrder = lazy(() => import('./pages/PrintOrder'));
+const PrintBill = lazy(() => import('./pages/PrintBill'));
+const WalletPage = lazy(() => import('./pages/Wallet'));
+
+const RouteFallback: React.FC = () => (
+  <div className="min-h-[40vh] flex items-center justify-center px-6 py-12 text-center text-sm font-medium text-gray-500">
+    Loading page...
+  </div>
+);
 
 // Inner app component that uses auth context
 const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => {
@@ -111,7 +118,8 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
               : '/dashboard';
   
   return (
-    <Routes>
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
       {/* Public login route - redirect to dashboard if logged in */}
       <Route path="/login" element={
         isAuthenticated ? <Navigate to={defaultProtectedRoute} replace /> : <Login />
@@ -283,7 +291,8 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
 
       {/* Catch all - redirect based on auth state */}
       <Route path="*" element={isAuthenticated ? <Navigate to={defaultProtectedRoute} replace /> : <Navigate to="/login" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 };
 

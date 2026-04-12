@@ -11,7 +11,7 @@ const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 /**
  * NetworkProvider monitors internet connectivity using browser online/offline events.
  * When connection is lost, it sets isOnline=false to trigger UI changes (banner appears).
- * When connection is restored, it refetches all queries automatically and banner disappears.
+ * When connection is restored, it refreshes only active stale queries and banner disappears.
  * 
  * This prevents user confusion when network fails by displaying a clear offline message.
  */
@@ -24,10 +24,9 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const handleOnline = () => {
       setIsOnline(true);
       setWasOffline(true);
-      
-      // Refetch all queries when connection is restored
-      // This ensures UI is synced with latest data from server
-      queryClient.refetchQueries();
+
+      // Avoid a reconnect storm by refetching only visible stale work.
+      queryClient.refetchQueries({ type: 'active', stale: true }).catch(() => {});
     };
 
     const handleOffline = () => {

@@ -1,14 +1,16 @@
 
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, hasAdminAccess } from '../types';
+import { hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
-import { Button, Table, TableCell, IconButton } from '../components';
+import { Button, Table, IconButton } from '../components';
+import Pagination from '../src/components/Pagination';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { useUsers } from '../src/hooks/useQueries';
+import { useSystemDefaults, useUsersPage } from '../src/hooks/useQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
-import { buildHistoryBackState } from '../src/utils/navigation';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 
 type RoleFilter = 'All' | string;
 
@@ -16,11 +18,36 @@ const Users: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    data: systemDefaults,
+    isPending: systemDefaultsLoading,
+    isError: systemDefaultsError,
+  } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const canLoadUsers = !systemDefaultsLoading || !!systemDefaults || systemDefaultsError;
   const { user } = useAuth();
   const currentSearchParams = searchParams.toString();
+  const urlPage = getPositivePageParam(searchParams.get('page'));
   const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
+  const [syncedSearchParams, setSyncedSearchParams] = React.useState<string | null>(null);
+  const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
+  const [page, setPage] = React.useState<number>(urlPage);
+  const previousSearchQueryRef = React.useRef(searchQuery);
   const roleFilter = (searchParams.get('role') as RoleFilter | null) || 'All';
-  const { data: users = [], isPending: loading } = useUsers();
+  const previousRoleFilterRef = React.useRef(roleFilter);
+  const effectivePage = shouldHydrateFromUrl ? urlPage : page;
+  const { data: usersPage, isFetching: loading } = useUsersPage(
+    effectivePage,
+    pageSize,
+    {
+      search: searchQuery || undefined,
+      role: roleFilter !== 'All' ? roleFilter : undefined,
+    },
+    { enabled: canLoadUsers },
+  );
+  const users = usersPage?.data || [];
+  const total = usersPage?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const isAdmin = hasAdminAccess(user?.role);
 
   // Track location to detect browser back navigation
@@ -46,6 +73,27 @@ const Users: React.FC = () => {
     previousLocationRef.current = currentLocation;
   }, [location.pathname, location.search]);
 
+  useEffect(() => {
+    if (!shouldHydrateFromUrl) return;
+
+    setPage(urlPage);
+    setSyncedSearchParams(currentSearchParams);
+  }, [shouldHydrateFromUrl, urlPage, currentSearchParams]);
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl) {
+      previousSearchQueryRef.current = searchQuery;
+      previousRoleFilterRef.current = roleFilter;
+      return;
+    }
+
+    if (previousSearchQueryRef.current !== searchQuery || previousRoleFilterRef.current !== roleFilter) {
+      setPage(1);
+      previousSearchQueryRef.current = searchQuery;
+      previousRoleFilterRef.current = roleFilter;
+    }
+  }, [roleFilter, searchQuery, shouldHydrateFromUrl]);
+
   const handleRoleFilterChange = (filter: RoleFilter) => {
     const next = new URLSearchParams(searchParams);
     if (filter === 'All') {
@@ -53,37 +101,21 @@ const Users: React.FC = () => {
     } else {
       next.set('role', filter);
     }
+    next.delete('page');
     setSearchParams(next, { replace: true });
   };
 
-  React.useEffect(() => {
-    if (isNavigatingViaHistory) return;
-
+  useEffect(() => {
+    if (shouldHydrateFromUrl || isNavigatingViaHistory) return;
     const params: Record<string, string> = {};
+    if (effectivePage > 1) params.page = String(effectivePage);
     if (searchQuery) params.search = searchQuery;
     if (roleFilter !== 'All') params.role = roleFilter;
 
     if (new URLSearchParams(params).toString() !== currentSearchParams) {
       setSearchParams(params, { replace: true });
     }
-  }, [searchQuery, roleFilter, currentSearchParams, setSearchParams, isNavigatingViaHistory]);
-
-  const filteredUsers = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return users.filter((candidate) => {
-      if (roleFilter !== 'All' && candidate.role !== roleFilter) {
-        return false;
-      }
-      if (!query) {
-        return true;
-      }
-      return (
-        candidate.name.toLowerCase().includes(query) ||
-        candidate.phone.includes(query) ||
-        candidate.role.toLowerCase().includes(query)
-      );
-    });
-  }, [users, searchQuery, roleFilter]);
+  }, [shouldHydrateFromUrl, isNavigatingViaHistory, effectivePage, searchQuery, roleFilter, currentSearchParams, setSearchParams]);
 
   const roleBadgeClass = (role: string) => {
     if (hasAdminAccess(role)) {
@@ -93,8 +125,8 @@ const Users: React.FC = () => {
   };
 
   const roleFilters: RoleFilter[] = useMemo(
-    () => ['All', ...Array.from(new Set(users.map((candidate) => candidate.role).filter(Boolean))).sort()],
-    [users],
+    () => ['All', ...Array.from(new Set((usersPage?.roles || []).filter(Boolean))).sort()],
+    [usersPage?.roles],
   );
 
   return (
@@ -181,11 +213,12 @@ const Users: React.FC = () => {
             ),
           },
         ]}
-        data={filteredUsers}
+        data={users}
         onRowClick={(user) => navigate(`/users/${user.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No users found"
-        loading={loading}
+        loading={!canLoadUsers || loading}
       />
+      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(nextPage) => setPage(nextPage)} disabled={loading} />
     </div>
   );
 };

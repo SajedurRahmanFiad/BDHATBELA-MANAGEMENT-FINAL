@@ -6,7 +6,7 @@ import { OrderStatus, Order } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
-import { useOrder, useCustomer, useUsers, useProductImagesByIds, useCompanySettings, useInvoiceSettings } from '../src/hooks/useQueries';
+import { useOrder, useCustomer, useProductImagesByIds, useCompanySettings, useInvoiceSettings, useUser } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCompletePickedOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
@@ -39,7 +39,7 @@ const OrderDetails: React.FC = () => {
   // Query data
   const { data: order, isPending: orderLoading, error: orderError } = useOrder(id || '');
   const { data: customer } = useCustomer(order ? order.customerId : undefined);
-  const { data: users = [] } = useUsers();
+  const { data: createdByUser } = useUser(order?.createdBy);
   const orderItemProductIds = useMemo(
     () => Array.from(new Set((order?.items || []).map((item) => String(item?.productId || '').trim()).filter(Boolean))),
     [order?.items]
@@ -63,7 +63,6 @@ const OrderDetails: React.FC = () => {
   
   // Get customer and created by user from query results
   // `customer` is obtained via `useCustomer` above
-  const createdByUser = order ? users.find(u => u.id === order.createdBy) : undefined;
   const completionHistory = order?.history?.returned || order?.history?.completed || order?.history?.payment || '';
   const orderBranding = React.useMemo(
     () => getOrderCompanyPage(order, companySettings || db.settings.company),

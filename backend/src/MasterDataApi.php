@@ -62,6 +62,52 @@ final class MasterDataApi extends BaseService
         return array_map(fn (array $row): array => $this->mapUser($row), $rows);
     }
 
+    public function fetchUsersPage(array $params): array
+    {
+        $page = max(1, (int) ($params['page'] ?? 1));
+        $pageSize = max(1, min(200, (int) ($params['pageSize'] ?? self::DEFAULT_PAGE_SIZE)));
+        $offset = ($page - 1) * $pageSize;
+        $search = trim((string) ($params['search'] ?? ''));
+        $role = trim((string) ($params['role'] ?? ''));
+
+        $where = 'WHERE deleted_at IS NULL';
+        $bindings = [];
+
+        if ($role !== '' && $role !== 'All') {
+            $where .= ' AND role = :role';
+            $bindings[':role'] = $role;
+        }
+
+        if ($search !== '') {
+            $where .= ' AND (name LIKE :search_name OR phone LIKE :search_phone OR role LIKE :search_role)';
+            $bindings[':search_name'] = '%' . $search . '%';
+            $bindings[':search_phone'] = '%' . $search . '%';
+            $bindings[':search_role'] = '%' . $search . '%';
+        }
+
+        $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM users {$where}", $bindings);
+        $rows = $this->database->fetchAll(
+            "SELECT id, name, phone, role, image, created_at, deleted_at, deleted_by
+             FROM users
+             {$where}
+             ORDER BY created_at DESC, name ASC
+             LIMIT {$pageSize} OFFSET {$offset}",
+            $bindings
+        );
+        $roleRows = $this->database->fetchAll(
+            'SELECT DISTINCT role FROM users WHERE deleted_at IS NULL ORDER BY role ASC'
+        );
+
+        return [
+            'data' => array_map(fn (array $row): array => $this->mapUser($row), $rows),
+            'count' => (int) ($countRow['count'] ?? 0),
+            'roles' => array_values(array_filter(array_map(
+                static fn (array $row): string => trim((string) ($row['role'] ?? '')),
+                $roleRows
+            ))),
+        ];
+    }
+
     public function fetchUsersMini(array $params = []): array
     {
         return $this->database->fetchAll(

@@ -5,6 +5,36 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      build: {
+        chunkSizeWarningLimit: 900,
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (!id.includes('node_modules')) {
+                return;
+              }
+
+              if (id.includes('recharts')) {
+                return 'charts';
+              }
+
+              if (id.includes('@tanstack/react-query')) {
+                return 'react-query';
+              }
+
+              if (id.includes('react-router')) {
+                return 'router';
+              }
+
+              if (id.includes('lucide-react')) {
+                return 'icons';
+              }
+
+              return 'vendor';
+            },
+          },
+        },
+      },
       server: {
         port: 3000,
         host: '0.0.0.0',

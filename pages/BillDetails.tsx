@@ -1,11 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
 import { BillStatus, Bill, Transaction } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { theme } from '../theme';
-import { useBill, useVendors, useUsers, useAccounts, useCompanySettings, useInvoiceSettings, useProducts } from '../src/hooks/useQueries';
+import { useAccounts, useBill, useCompanySettings, useInvoiceSettings, useProductImagesByIds, useUser, useVendor } from '../src/hooks/useQueries';
 import { useUpdateBill, useCreateTransaction } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { LoadingOverlay, CommonPaymentModal } from '../components';
@@ -23,10 +23,14 @@ const BillDetails: React.FC = () => {
   
   // Query data
   const { data: bill, isPending: billLoading, error: billError } = useBill(id || '');
-  const { data: vendors = [] } = useVendors();
-  const { data: users = [] } = useUsers();
+  const { data: vendor } = useVendor(bill?.vendorId);
+  const { data: createdByUser } = useUser(bill?.createdBy);
   const { data: accounts = [] } = useAccounts();
-  const { data: products = [] } = useProducts();
+  const billItemProductIds = useMemo(
+    () => Array.from(new Set((bill?.items || []).map((item) => String(item?.productId || '').trim()).filter(Boolean))),
+    [bill?.items]
+  );
+  const { data: productImages = {} } = useProductImagesByIds(billItemProductIds);
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
   
@@ -35,10 +39,6 @@ const BillDetails: React.FC = () => {
   const createTransactionMutation = useCreateTransaction();
   const toast = useToastNotifications();
   const isPaymentLoading = updateMutation.isPending || createTransactionMutation.isPending;
-  
-  // Get vendor and created by user from query results
-  const vendor = bill ? vendors.find(v => v.id === bill.vendorId) : undefined;
-  const createdByUser = bill ? users.find(u => u.id === bill.createdBy) : undefined;
   
   const loading = billLoading;
   
@@ -300,12 +300,18 @@ const BillDetails: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {bill.items.map((item, idx) => {
-                      const product = products.find(p => p.id === item.productId);
+                      const imageSrc = productImages[String(item.productId || '').trim()] || '';
                       return (
                         <tr key={idx} className="group">
                           <td className="py-3 sm:py-4 lg:py-6">
                             <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 min-w-0">
-                              <img src={product?.image} className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full object-cover border border-gray-100 shadow-sm flex-shrink-0" />
+                              {imageSrc ? (
+                                <img src={imageSrc} className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full object-cover border border-gray-100 shadow-sm flex-shrink-0" alt={item.productName} />
+                              ) : (
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full border border-gray-100 shadow-sm bg-gray-50 text-gray-400 text-xs flex items-center justify-center flex-shrink-0">
+                                  {(item.productName || '?').slice(0, 1).toUpperCase()}
+                                </div>
+                              )}
                               <span className="font-bold text-gray-900 text-[10px] sm:text-xs lg:text-base break-words">{item.productName}</span>
                             </div>
                           </td>

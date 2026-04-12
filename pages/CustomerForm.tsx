@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Customer } from '../types';
 import { Button } from '../components';
 import { theme } from '../theme';
-import { useCustomer, useCustomers } from '../src/hooks/useQueries';
+import { useCustomer } from '../src/hooks/useQueries';
 import { useCreateCustomer, useUpdateCustomer } from '../src/hooks/useMutations';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { isTempId } from '../src/utils/optimisticIdMap';
@@ -32,7 +32,6 @@ const CustomerForm: React.FC = () => {
   }
 
   const { data: customer, isPending: loading, error: fetchError } = useCustomer(isEdit ? id : undefined);
-  const { data: customersList = [] } = useCustomers();
   const createMutation = useCreateCustomer();
   const updateMutation = useUpdateCustomer();
   const location = useLocation();
@@ -59,7 +58,8 @@ const CustomerForm: React.FC = () => {
 
     // If this is an optimistic/local-only customer (temp id), populate from cached list.
     if (id && isTempId(id)) {
-      const optimistic = (customersList || []).find(c => c.id === id);
+      const cachedCustomers = queryClient.getQueryData<Customer[]>(['customers']) || [];
+      const optimistic = cachedCustomers.find(c => c.id === id);
       if (optimistic) {
         setForm({ name: optimistic.name, phone: optimistic.phone, address: optimistic.address });
         initializedRef.current = true;
@@ -79,7 +79,7 @@ const CustomerForm: React.FC = () => {
       address: preFill?.address || '',
     });
     initializedRef.current = true;
-  }, [customer, customersList, id, isEdit, location, location.key]);
+  }, [customer, id, isEdit, location, location.key, queryClient]);
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {

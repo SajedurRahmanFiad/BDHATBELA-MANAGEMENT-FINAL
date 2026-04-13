@@ -9,6 +9,9 @@ export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'T
 
 const APP_TIME_ZONE = 'Asia/Dhaka';
 const UTC_OFFSET_SUFFIX_PATTERN = /(?:[zZ]|[+-]\d{2}(?::?\d{2})?)$/;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_MINUTE_PATTERN = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/;
+const DATE_TIME_SECOND_PATTERN = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/;
 const HISTORY_CREATED_PATTERNS = [
   /\bon\s+([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}),\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
   /\bon\s+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}),\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)\b/i,
@@ -24,7 +27,7 @@ const formatYmd = (value: Date): string => {
 };
 
 const parseYmd = (value: string, endOfDay: boolean): Date | null => {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  if (!value || !DATE_ONLY_PATTERN.test(value)) return null;
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   if (!isValidDate(date)) return null;
@@ -38,6 +41,50 @@ const parseDateInput = (value: string): Date | null => {
   if (ymd) return ymd;
   const date = new Date(value);
   return isValidDate(date) ? date : null;
+};
+
+const parseCustomDateBoundary = (value: string, edge: 'start' | 'end'): Date | null => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+
+  if (DATE_ONLY_PATTERN.test(trimmed)) {
+    return parseYmd(trimmed, edge === 'end');
+  }
+
+  const date = parseDateInput(trimmed);
+  if (!date) return null;
+
+  if (DATE_TIME_MINUTE_PATTERN.test(trimmed)) {
+    if (edge === 'end') {
+      date.setSeconds(59, 999);
+    } else {
+      date.setSeconds(0, 0);
+    }
+    return date;
+  }
+
+  if (DATE_TIME_SECOND_PATTERN.test(trimmed)) {
+    if (edge === 'end') {
+      date.setMilliseconds(999);
+    } else {
+      date.setMilliseconds(0);
+    }
+  }
+
+  return date;
+};
+
+export const toDateTimeLocalInputValue = (value: string, edge: 'start' | 'end' = 'start'): string => {
+  const date = parseCustomDateBoundary(value, edge);
+  if (!date) return '';
+
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 export const normalizeUtcTimestamp = (value?: string | null): string => {
@@ -161,8 +208,8 @@ const buildDateRange = (
     return { from, to: endOfDay(now) };
   }
 
-  const from = parseYmd(customDates.from, false) || undefined;
-  const to = parseYmd(customDates.to, true) || undefined;
+  const from = parseCustomDateBoundary(customDates.from, 'start') || undefined;
+  const to = parseCustomDateBoundary(customDates.to, 'end') || undefined;
 
   if (from && to && from.getTime() > to.getTime()) {
     return { from: to, to: from };

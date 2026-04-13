@@ -157,6 +157,7 @@ const Dashboard: React.FC = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
+  const [includeTime, setIncludeTime] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -203,6 +204,8 @@ const Dashboard: React.FC = () => {
           setFilterRange={setFilterRange}
           customDates={customDates}
           setCustomDates={setCustomDates}
+          includeTime={includeTime}
+          setIncludeTime={setIncludeTime}
         />
 
         <div className="space-y-6">
@@ -394,6 +397,8 @@ const Dashboard: React.FC = () => {
         setFilterRange={setFilterRange}
         customDates={customDates}
         setCustomDates={setCustomDates}
+        includeTime={includeTime}
+        setIncludeTime={setIncludeTime}
       />
 
       <section className="rounded-[16px] border border-gray-100 bg-white p-5 shadow-sm md:p-8">

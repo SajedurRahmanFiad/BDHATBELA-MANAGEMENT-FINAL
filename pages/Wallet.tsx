@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { LoadingOverlay, Table } from '../components';
 import type { TableColumn } from '../components/Table';
 import { formatCurrency } from '../constants';
 import { UserRole, type WalletActivityEntry } from '../types';
+import Pagination from '../src/components/Pagination';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { useMyWallet, useWalletActivity, useWalletSettings } from '../src/hooks/useQueries';
+import { useMyWallet, useSystemDefaults, useWalletActivityPage, useWalletSettings } from '../src/hooks/useQueries';
+import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 
 const formatTimestamp = (value?: string): string => {
   if (!value) return '-';
@@ -44,12 +46,31 @@ const SummaryCard: React.FC<{
 
 const Wallet: React.FC = () => {
   const { user } = useAuth();
+  const [historyPage, setHistoryPage] = useState(1);
   const isEmployee = user?.role === UserRole.EMPLOYEE || user?.role === UserRole.EMPLOYEE1;
   const { data: walletSettings = { unitAmount: 0, countedStatuses: [] }, isPending: walletSettingsLoading } = useWalletSettings();
   const { data: myWallet, isPending: myWalletLoading } = useMyWallet();
-  const { data: walletActivity = [], isPending: walletActivityLoading } = useWalletActivity(undefined, true, ['payout']);
+  const { data: systemDefaults } = useSystemDefaults();
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const { data: walletActivityPage = { data: [], count: 0 }, isPending: walletActivityLoading } = useWalletActivityPage(
+    historyPage,
+    pageSize,
+    {
+      enabled: isEmployee,
+      entryTypes: ['payout'],
+    }
+  );
+  const walletActivity = walletActivityPage.data;
+  const walletActivityTotal = walletActivityPage.count;
+  const walletActivityTotalPages = Math.max(1, Math.ceil(walletActivityTotal / pageSize));
 
   const loading = walletSettingsLoading || myWalletLoading || walletActivityLoading;
+
+  useEffect(() => {
+    if (historyPage > walletActivityTotalPages) {
+      setHistoryPage(walletActivityTotalPages);
+    }
+  }, [historyPage, walletActivityTotalPages]);
 
   const historyColumns = useMemo<TableColumn[]>(
     () => [
@@ -196,6 +217,20 @@ const Wallet: React.FC = () => {
             size="sm"
             loading={walletActivityLoading}
             emptyMessage="No payment history found yet."
+          />
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <p className="text-sm font-medium text-gray-500">
+            Showing {walletActivityTotal === 0 ? 0 : (historyPage - 1) * pageSize + 1}
+            {' - '}
+            {Math.min(historyPage * pageSize, walletActivityTotal)} of {walletActivityTotal} payment records
+          </p>
+          <Pagination
+            page={historyPage}
+            totalPages={walletActivityTotalPages}
+            onPageChange={setHistoryPage}
+            disabled={walletActivityLoading}
           />
         </div>
       </section>

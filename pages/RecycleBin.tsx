@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Table } from '../components';
 import { ICONS } from '../constants';
 import Pagination from '../src/components/Pagination';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { usePermanentlyDeleteDeletedItem, useRestoreDeletedItem } from '../src/hooks/useMutations';
-import { useRecycleBin, useSystemDefaults } from '../src/hooks/useQueries';
+import { useRecycleBinPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { RecycleBinEntityType, RecycleBinItem, hasAdminAccess } from '../types';
 
@@ -45,54 +45,32 @@ const RecycleBin: React.FC = () => {
   const toast = useToastNotifications();
   const { data: systemDefaults } = useSystemDefaults();
   const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
-  const { data: deletedItems = [], isPending, isFetching } = useRecycleBin();
   const restoreMutation = useRestoreDeletedItem();
   const permanentlyDeleteMutation = usePermanentlyDeleteDeletedItem();
 
   const [page, setPage] = useState<number>(1);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<'all' | RecycleBinEntityType>('all');
+  const deferredSearchQuery = React.useDeferredValue(searchQuery);
 
   const isAdmin = hasAdminAccess(user?.role);
   const isMutating = restoreMutation.isPending || permanentlyDeleteMutation.isPending;
-
-  const filteredItems = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-
-    return deletedItems.filter((item) => {
-      if (typeFilter !== 'all' && item.entityType !== typeFilter) {
-        return false;
-      }
-
-      if (!normalizedSearch) {
-        return true;
-      }
-
-      const haystack = [
-        item.title,
-        item.description,
-        item.deletedByName,
-        item.createdByName,
-        item.status,
-        ...item.details,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return haystack.includes(normalizedSearch);
-    });
-  }, [deletedItems, searchQuery, typeFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-  const visibleItems = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filteredItems.slice(start, start + pageSize);
-  }, [filteredItems, page, pageSize]);
+  const { data: recycleBinPage = { data: [], count: 0 }, isPending, isFetching } = useRecycleBinPage(
+    page,
+    pageSize,
+    {
+      enabled: isAdmin,
+      search: deferredSearchQuery,
+      entityType: typeFilter,
+    }
+  );
+  const visibleItems = recycleBinPage.data;
+  const totalItems = recycleBinPage.count;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, typeFilter]);
+  }, [deferredSearchQuery, typeFilter]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -257,14 +235,14 @@ const RecycleBin: React.FC = () => {
         data={visibleItems}
         hover={false}
         loading={isPending || isFetching}
-        emptyMessage={searchQuery || typeFilter !== 'all' ? 'No deleted items match the current filters.' : 'Recycle bin is empty.'}
+        emptyMessage={deferredSearchQuery || typeFilter !== 'all' ? 'No deleted items match the current filters.' : 'Recycle bin is empty.'}
       />
 
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-gray-500">
-          Showing {filteredItems.length === 0 ? 0 : (page - 1) * pageSize + 1}
+          Showing {totalItems === 0 ? 0 : (page - 1) * pageSize + 1}
           {' - '}
-          {Math.min(page * pageSize, filteredItems.length)} of {filteredItems.length} deleted items
+          {Math.min(page * pageSize, totalItems)} of {totalItems} deleted items
         </p>
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} disabled={isPending || isFetching} />
       </div>

@@ -58,12 +58,14 @@ const Orders: React.FC = () => {
     from: searchParams.get('from') || '',
     to: searchParams.get('to') || '',
   };
+  const urlIncludeTime = searchParams.get('includeTime') === 'true';
   const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
   const [syncedSearchParams, setSyncedSearchParams] = useState<string | null>(null);
   const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
 
   const [filterRange, setFilterRange] = useState<FilterRange>(urlFilterRange);
   const [customDates, setCustomDates] = useState(urlCustomDates);
+  const [includeTime, setIncludeTime] = useState<boolean>(urlIncludeTime);
   const [statusTab, setStatusTab] = useState<OrderStatus | 'All'>(urlStatusTab);
   const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
   const [page, setPage] = useState<number>(urlPage);
@@ -88,6 +90,7 @@ const Orders: React.FC = () => {
     setFilterRange(urlFilterRange);
     setCreatedByFilter(urlCreatedByFilter);
     setCustomDates(urlCustomDates);
+    setIncludeTime(urlIncludeTime);
     setSyncedSearchParams(currentSearchParams);
   }, [
     shouldHydrateFromUrl,
@@ -96,6 +99,7 @@ const Orders: React.FC = () => {
     urlFilterRange,
     urlCreatedByFilter,
     urlCustomDates,
+    urlIncludeTime,
     currentSearchParams,
   ]);
 
@@ -125,6 +129,7 @@ const Orders: React.FC = () => {
   const effectiveFilterRange = shouldHydrateFromUrl ? urlFilterRange : filterRange;
   const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
   const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
+  const effectiveIncludeTime = shouldHydrateFromUrl ? urlIncludeTime : includeTime;
 
   // Compute server-side created_at range based on selected filter
   const timeFilters = useMemo(() => {
@@ -191,6 +196,7 @@ const Orders: React.FC = () => {
     if (effectiveFilterRange && effectiveFilterRange !== 'All Time') params.range = effectiveFilterRange;
     if (effectiveCustomDates.from) params.from = effectiveCustomDates.from;
     if (effectiveCustomDates.to) params.to = effectiveCustomDates.to;
+    if (effectiveIncludeTime) params.includeTime = 'true';
     if (effectiveCreatedByFilter && effectiveCreatedByFilter !== 'all') params.createdBy = effectiveCreatedByFilter;
     if (searchQuery) params.search = searchQuery;
 
@@ -206,6 +212,7 @@ const Orders: React.FC = () => {
     effectiveFilterRange,
     effectiveCustomDates.from,
     effectiveCustomDates.to,
+    effectiveIncludeTime,
     effectiveCreatedByFilter,
     searchQuery,
     setSearchParams,
@@ -229,6 +236,11 @@ const Orders: React.FC = () => {
   const handleCustomDatesChange = (dates: { from: string; to: string }) => {
     setPage(1);
     setCustomDates(dates);
+  };
+
+  const handleIncludeTimeChange = (include: boolean) => {
+    setPage(1);
+    setIncludeTime(include);
   };
 
   const handleCreatedByFilterChange = (filter: string) => {
@@ -457,6 +469,8 @@ const Orders: React.FC = () => {
         setFilterRange={handleFilterRangeChange}
         customDates={effectiveCustomDates}
         setCustomDates={handleCustomDatesChange}
+        includeTime={effectiveIncludeTime}
+        setIncludeTime={handleIncludeTimeChange}
         statusTab={effectiveStatusTab}
         setStatusTab={handleStatusTabChange}
         statusOptions={Object.values(OrderStatus)}

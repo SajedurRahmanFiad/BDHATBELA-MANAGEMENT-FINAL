@@ -259,38 +259,11 @@ const Transactions: React.FC = () => {
     return null;
   };
 
-  const filteredTransactions = useMemo(() => {
-    let results = transactions.filter((transaction) => (
-      effectiveTypeTab === 'All' || transaction.type === effectiveTypeTab
-    ));
-
-    if (effectiveCategoryFilter !== 'all') {
-      results = results.filter((transaction) => transaction.category === effectiveCategoryFilter);
-    }
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter((transaction) => {
-        const contact = transaction.contactId ? getContactName(transaction.contactId, transaction) : null;
-        const creator = getCreatorName(transaction);
-        const category = categoryNameMap.get(transaction.category) || transaction.category || '';
-
-        return (
-          transaction.description.toLowerCase().includes(query) ||
-          category.toLowerCase().includes(query) ||
-          transaction.type.toLowerCase().includes(query) ||
-          Boolean(contact?.name.toLowerCase().includes(query)) ||
-          Boolean(creator?.toLowerCase?.().includes(query)) ||
-          formatCurrency(transaction.amount).includes(query)
-        );
-      });
-    }
-
-    return results;
-  }, [transactions, effectiveTypeTab, effectiveCategoryFilter, searchQuery, categoryNameMap, users]);
+  // Active filters are applied server-side so counts stay consistent across pages.
+  const displayedTransactions = transactions;
 
   const transactionSummary = useMemo(() => {
-    const summary = filteredTransactions.reduce(
+    const summary = displayedTransactions.reduce(
       (acc, transaction) => {
         if (transaction.type === 'Income') acc.income += transaction.amount;
         if (transaction.type === 'Expense') acc.expense += transaction.amount;
@@ -301,13 +274,13 @@ const Transactions: React.FC = () => {
     );
 
     return {
-      count: filteredTransactions.length,
+      count: totalTransactions,
       income: summary.income,
       expense: summary.expense,
       transfer: summary.transfer,
       net: summary.income - summary.expense,
     };
-  }, [filteredTransactions]);
+  }, [displayedTransactions, totalTransactions]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
@@ -441,12 +414,12 @@ const Transactions: React.FC = () => {
             <tbody className="divide-y divide-gray-50">
               {showTransactionsTableLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
-              ) : filteredTransactions.length === 0 ? (
+              ) : displayedTransactions.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center text-gray-400 italic font-medium">No transactions found.</td>
                 </tr>
               ) : (
-                filteredTransactions.map((transaction) => {
+                displayedTransactions.map((transaction) => {
                   const contact = transaction.contactId ? getContactName(transaction.contactId, transaction) : null;
                   const creator = getCreatorName(transaction);
                   const hasLink = Boolean(transaction.referenceId) && (
@@ -617,7 +590,7 @@ const Transactions: React.FC = () => {
         <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Filtered Transactions</p>
           <p className="mt-3 text-lg font-black text-gray-900">{transactionSummary.count}</p>
-          <p className="mt-2 text-sm font-medium text-gray-500">Rows matching active filters.</p>
+          <p className="mt-2 text-sm font-medium text-gray-500">Matching records across all filtered pages.</p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Total Income</p>
@@ -638,7 +611,12 @@ const Transactions: React.FC = () => {
         </div>
       </section>
 
-      <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(nextPage) => setPage(nextPage)} disabled={transactionsLoading} />
+      <div className="mt-4 flex items-center justify-between">
+        <div className="text-sm text-gray-600">
+          {`Showing ${Math.min((effectivePage - 1) * pageSize + 1, totalTransactions || 0)} - ${Math.min(effectivePage * pageSize, totalTransactions || 0)} of ${totalTransactions} transactions`}
+        </div>
+        <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(nextPage) => setPage(nextPage)} disabled={transactionsLoading} />
+      </div>
     </div>
   );
 };

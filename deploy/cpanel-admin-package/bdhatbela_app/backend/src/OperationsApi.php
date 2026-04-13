@@ -1598,6 +1598,40 @@ final class OperationsApi extends BaseService
     /**
      * @return array<string, string|null>
      */
+    private function parseCustomDateBoundary(string $value, \DateTimeZone $localTimezone, bool $endOfRange): ?\DateTimeImmutable
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $trimmed) === 1) {
+            $candidate = \DateTimeImmutable::createFromFormat('!Y-m-d', $trimmed, $localTimezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                return $endOfRange ? $candidate->setTime(23, 59, 59) : $candidate->setTime(0, 0, 0);
+            }
+        }
+
+        $normalized = str_replace('T', ' ', $trimmed);
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $normalized) === 1) {
+            $candidate = \DateTimeImmutable::createFromFormat('Y-m-d H:i', $normalized, $localTimezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                $hour = (int) $candidate->format('H');
+                $minute = (int) $candidate->format('i');
+                return $endOfRange ? $candidate->setTime($hour, $minute, 59) : $candidate->setTime($hour, $minute, 0);
+            }
+        }
+
+        try {
+            return new \DateTimeImmutable($trimmed, $localTimezone);
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array<string, string|null>
+     */
     private function buildDashboardDateFilters(array $params): array
     {
         $filterRange = trim((string) ($params['filterRange'] ?? 'All Time'));
@@ -1626,19 +1660,8 @@ final class OperationsApi extends BaseService
             $fromValue = trim((string) ($customDates['from'] ?? ''));
             $toValue = trim((string) ($customDates['to'] ?? ''));
 
-            if ($fromValue !== '') {
-                $candidate = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $fromValue . ' 00:00:00', $localTimezone);
-                if ($candidate instanceof \DateTimeImmutable) {
-                    $fromLocal = $candidate;
-                }
-            }
-
-            if ($toValue !== '') {
-                $candidate = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $toValue . ' 23:59:59', $localTimezone);
-                if ($candidate instanceof \DateTimeImmutable) {
-                    $toLocal = $candidate;
-                }
-            }
+            $fromLocal = $this->parseCustomDateBoundary($fromValue, $localTimezone, false);
+            $toLocal = $this->parseCustomDateBoundary($toValue, $localTimezone, true);
         }
 
         if ($fromLocal instanceof \DateTimeImmutable && $toLocal instanceof \DateTimeImmutable && $fromLocal > $toLocal) {
@@ -3527,23 +3550,36 @@ final class OperationsApi extends BaseService
         $bindings = [];
 
         if (!empty($filters['type'])) {
-            $where .= ' AND type = :type';
+            $where .= ' AND twr.type = :type';
             $bindings[':type'] = trim((string) $filters['type']);
         }
         if (!empty($filters['category'])) {
-            $where .= ' AND category = :category';
+            $where .= ' AND twr.category = :category';
             $bindings[':category'] = trim((string) $filters['category']);
         }
         if (!empty($filters['from'])) {
-            $where .= ' AND date >= :from';
+            $where .= ' AND twr.date >= :from';
             $bindings[':from'] = $this->normalizeDateTimeInput((string) $filters['from']);
         }
         if (!empty($filters['to'])) {
-            $where .= ' AND date <= :to';
+            $where .= ' AND twr.date <= :to';
             $bindings[':to'] = $this->normalizeDateTimeInput((string) $filters['to']);
         }
         if (!empty($filters['search'])) {
-            $where .= ' AND description LIKE :search';
+            $where .= " AND (
+                twr.description LIKE :search
+                OR twr.type LIKE :search
+                OR twr.category LIKE :search
+                OR COALESCE(twr.contactName, '') LIKE :search
+                OR COALESCE(twr.creatorName, '') LIKE :search
+                OR CAST(twr.amount AS CHAR) LIKE :search
+                OR EXISTS (
+                    SELECT 1
+                    FROM categories cat
+                    WHERE cat.id = twr.category
+                      AND cat.name LIKE :search
+                )
+            )";
             $bindings[':search'] = '%' . trim((string) $filters['search']) . '%';
         }
 
@@ -3551,37 +3587,37 @@ final class OperationsApi extends BaseService
         $createdByIds = array_values(array_filter(array_map('strval', $createdByIds), static fn (string $id): bool => trim($id) !== ''));
         if ($createdByIds !== []) {
             [$placeholders, $inBindings] = $this->inClause($createdByIds, 'created_by');
-            $where .= ' AND createdBy IN (' . implode(', ', $placeholders) . ')';
+            $where .= ' AND twr.createdBy IN (' . implode(', ', $placeholders) . ')';
             $bindings += $inBindings;
         }
 
-        $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM transactions_with_relations {$where}", $bindings);
+        $countRow = $this->database->fetchOne("SELECT COUNT(*) AS count FROM transactions_with_relations twr {$where}", $bindings);
         $rows = $this->database->fetchAll(
             "SELECT
-                id,
-                date,
-                type,
-                category,
-                accountId,
-                accountName,
-                toAccountId,
-                amount,
-                description,
-                referenceId,
-                contactId,
-                contactName,
-                contactType,
-                paymentMethod,
-                attachmentName,
-                attachmentUrl,
-                createdBy,
-                creatorName,
-                createdAt,
-                deletedAt,
-                deletedBy
-             FROM transactions_with_relations
+                twr.id,
+                twr.date,
+                twr.type,
+                twr.category,
+                twr.accountId,
+                twr.accountName,
+                twr.toAccountId,
+                twr.amount,
+                twr.description,
+                twr.referenceId,
+                twr.contactId,
+                twr.contactName,
+                twr.contactType,
+                twr.paymentMethod,
+                twr.attachmentName,
+                twr.attachmentUrl,
+                twr.createdBy,
+                twr.creatorName,
+                twr.createdAt,
+                twr.deletedAt,
+                twr.deletedBy
+             FROM transactions_with_relations twr
              {$where}
-             ORDER BY createdAt DESC
+             ORDER BY twr.createdAt DESC
              LIMIT {$pageSize} OFFSET {$offset}",
             $bindings
         );
@@ -4209,6 +4245,33 @@ final class OperationsApi extends BaseService
     }
 
     /**
+     * @param array<int, array<string, mixed>> $cards
+     * @return array<string, float|int>
+     */
+    private function summarizeWalletCards(array $cards): array
+    {
+        return array_reduce(
+            $cards,
+            static function (array $summary, array $card): array {
+                $summary['totalBalance'] += (float) ($card['currentBalance'] ?? 0);
+                $summary['totalEarned'] += (float) ($card['totalEarned'] ?? 0);
+                $summary['totalPaid'] += (float) ($card['totalPaid'] ?? 0);
+                if ((float) ($card['currentBalance'] ?? 0) > 0) {
+                    $summary['employeesDue'] += 1;
+                }
+
+                return $summary;
+            },
+            [
+                'totalBalance' => 0.0,
+                'totalEarned' => 0.0,
+                'totalPaid' => 0.0,
+                'employeesDue' => 0,
+            ]
+        );
+    }
+
+    /**
      * @param array<string, mixed> $walletSettings
      */
     private function syncWalletCreditsForPayableStatuses(array $walletSettings): void
@@ -4491,10 +4554,44 @@ final class OperationsApi extends BaseService
         }
 
         $walletSettings = $this->fetchWalletSettings();
-        $employeeIds = array_map(static fn (array $employee): string => (string) ($employee['id'] ?? ''), $employees);
-        $this->syncWalletCreditsForEmployees($employeeIds, $walletSettings);
-
         return $this->buildWalletCardsForEmployees($employees, $walletSettings);
+    }
+
+    public function fetchEmployeeWalletCardsPage(array $params = []): array
+    {
+        $employees = $this->fetchPayrollEmployees();
+        $search = $this->normalizeReportSearchTerm((string) ($params['search'] ?? ''));
+        $pageSize = $this->pageSize($params);
+        $offset = $this->pageOffset($params);
+
+        if ($search !== '') {
+            $employees = array_values(array_filter($employees, function (array $employee) use ($search): bool {
+                $haystack = implode(' ', array_filter([
+                    (string) ($employee['name'] ?? ''),
+                    (string) ($employee['phone'] ?? ''),
+                    (string) ($employee['role'] ?? ''),
+                ]));
+
+                return str_contains($this->normalizeReportSearchTerm($haystack), $search);
+            }));
+        }
+
+        if ($employees === []) {
+            return [
+                'data' => [],
+                'count' => 0,
+                'summary' => $this->summarizeWalletCards([]),
+            ];
+        }
+
+        $walletSettings = $this->fetchWalletSettings();
+        $cards = $this->buildWalletCardsForEmployees($employees, $walletSettings);
+
+        return [
+            'data' => array_slice($cards, $offset, $pageSize),
+            'count' => count($cards),
+            'summary' => $this->summarizeWalletCards($cards),
+        ];
     }
 
     public function fetchMyWallet(array $params = []): ?array
@@ -4518,7 +4615,6 @@ final class OperationsApi extends BaseService
             'name' => (string) ($currentUser['name'] ?? 'Unknown Employee'),
             'role' => (string) ($currentUser['role'] ?? 'Employee'),
         ];
-        $this->syncWalletCreditsForEmployees([(string) $currentUser['id']], $walletSettings);
         $cards = $this->buildWalletCardsForEmployees([$employee], $walletSettings);
 
         return $cards[0] ?? [
@@ -4725,10 +4821,8 @@ final class OperationsApi extends BaseService
         });
     }
 
-    public function fetchRecycleBinItems(array $params = []): array
+    private function buildRecycleBinItems(): array
     {
-        $this->requireAdmin();
-
         $users = $this->keyBy($this->database->fetchAll('SELECT id, name, phone, role FROM users'), 'id');
         $customers = $this->keyBy($this->database->fetchAll('SELECT id, name, phone FROM customers'), 'id');
         $vendors = $this->keyBy($this->database->fetchAll('SELECT id, name, phone FROM vendors'), 'id');
@@ -4912,6 +5006,60 @@ final class OperationsApi extends BaseService
         });
 
         return $items;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterRecycleBinItems(array $items, string $search, string $entityType): array
+    {
+        if ($search === '' && ($entityType === '' || $entityType === 'all')) {
+            return $items;
+        }
+
+        return array_values(array_filter($items, function (array $item) use ($search, $entityType): bool {
+            if ($entityType !== '' && $entityType !== 'all' && (string) ($item['entityType'] ?? '') !== $entityType) {
+                return false;
+            }
+
+            if ($search === '') {
+                return true;
+            }
+
+            $haystack = implode(' ', array_filter([
+                (string) ($item['title'] ?? ''),
+                (string) ($item['description'] ?? ''),
+                (string) ($item['deletedByName'] ?? ''),
+                (string) ($item['createdByName'] ?? ''),
+                (string) ($item['status'] ?? ''),
+                implode(' ', is_array($item['details'] ?? null) ? $item['details'] : []),
+            ]));
+
+            return str_contains($this->normalizeReportSearchTerm($haystack), $search);
+        }));
+    }
+
+    public function fetchRecycleBinItems(array $params = []): array
+    {
+        $this->requireAdmin();
+        return $this->buildRecycleBinItems();
+    }
+
+    public function fetchRecycleBinPage(array $params = []): array
+    {
+        $this->requireAdmin();
+
+        $pageSize = $this->pageSize($params);
+        $offset = $this->pageOffset($params);
+        $search = $this->normalizeReportSearchTerm((string) ($params['search'] ?? ''));
+        $entityType = trim((string) ($params['entityType'] ?? 'all'));
+        $items = $this->filterRecycleBinItems($this->buildRecycleBinItems(), $search, $entityType);
+
+        return [
+            'data' => array_slice($items, $offset, $pageSize),
+            'count' => count($items),
+        ];
     }
 
     public function restoreDeletedItem(array $params): array

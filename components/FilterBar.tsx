@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ICONS } from '../constants';
 import { theme } from '../theme';
 import { useSearch } from '../src/contexts/SearchContext';
+import { toDateTimeLocalInputValue } from '../utils';
 
 export type FilterRange = 'All Time' | 'Today' | 'This Week' | 'This Month' | 'This Year' | 'Custom';
 
@@ -11,6 +12,8 @@ interface FilterBarProps {
   setFilterRange: (range: FilterRange) => void;
   customDates: { from: string; to: string };
   setCustomDates: (dates: { from: string; to: string }) => void;
+  includeTime?: boolean;
+  setIncludeTime?: (include: boolean) => void;
   statusTab?: string;
   setStatusTab?: (status: any) => void;
   statusOptions?: string[];
@@ -22,6 +25,8 @@ const FilterBar: React.FC<FilterBarProps> = ({
   setFilterRange,
   customDates,
   setCustomDates,
+  includeTime = false,
+  setIncludeTime,
   statusTab,
   setStatusTab,
   statusOptions = [],
@@ -30,6 +35,9 @@ const FilterBar: React.FC<FilterBarProps> = ({
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const { searchQuery, setSearchQuery } = useSearch();
   const ranges: FilterRange[] = ['All Time', 'Today', 'This Week', 'This Month', 'This Year', 'Custom'];
+  const updateCustomDate = (field: 'from' | 'to', value: string) => {
+    setCustomDates({ ...customDates, [field]: value });
+  };
 
   return (
     <>
@@ -51,20 +59,38 @@ const FilterBar: React.FC<FilterBarProps> = ({
               </button>
             ))}
             {filterRange === 'Custom' && (
-              <div className="flex items-center gap-2 px-3 border-l border-gray-100 ml-1">
-                <input 
-                  type="date" 
-                  value={customDates.from} 
-                  onChange={e => setCustomDates({ ...customDates, from: e.target.value })}
-                  className={`px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]`} 
-                />
-                <span className="text-gray-300 text-[10px] font-black tracking-widest uppercase">To</span>
-                <input 
-                  type="date" 
-                  value={customDates.to} 
-                  onChange={e => setCustomDates({ ...customDates, to: e.target.value })}
-                  className={`px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]`} 
-                />
+              <div className="flex items-end gap-2 px-3 border-l border-gray-100 ml-1">
+                {setIncludeTime && (
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={includeTime}
+                      onChange={(e) => setIncludeTime(e.target.checked)}
+                      className="w-3 h-3"
+                    />
+                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Time</span>
+                  </label>
+                )}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">From</span>
+                  <input
+                    type={includeTime ? "datetime-local" : "date"}
+                    step={includeTime ? 60 : undefined}
+                    value={includeTime ? toDateTimeLocalInputValue(customDates.from, 'start') : (customDates.from ? customDates.from.split('T')[0] : customDates.from)}
+                    onChange={(event) => updateCustomDate('from', event.target.value)}
+                    className="px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">To</span>
+                  <input
+                    type={includeTime ? "datetime-local" : "date"}
+                    step={includeTime ? 60 : undefined}
+                    value={includeTime ? toDateTimeLocalInputValue(customDates.to, 'end') : (customDates.to ? customDates.to.split('T')[0] : customDates.to)}
+                    onChange={(event) => updateCustomDate('to', event.target.value)}
+                    className="px-2 py-1 border rounded-lg text-[10px] font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-[#3c5a82]"
+                  />
+                </label>
               </div>
             )}
           </div>
@@ -148,24 +174,39 @@ const FilterBar: React.FC<FilterBarProps> = ({
                 </div>
                 
                 {filterRange === 'Custom' && (
-                  <div className="mt-4 grid grid-cols-2 gap-4 animate-in fade-in duration-200">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-gray-400 uppercase ml-2">From</label>
-                      <input 
-                        type="date" 
-                        value={customDates.from} 
-                        onChange={e => setCustomDates({ ...customDates, from: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none" 
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-gray-400 uppercase ml-2">To</label>
-                      <input 
-                        type="date" 
-                        value={customDates.to} 
-                        onChange={e => setCustomDates({ ...customDates, to: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none" 
-                      />
+                  <div className="mt-4 space-y-4 animate-in fade-in duration-200">
+                    {setIncludeTime && (
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeTime}
+                          onChange={(e) => setIncludeTime(e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm font-bold text-gray-700">Include Time</span>
+                      </label>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase ml-2">From</label>
+                        <input
+                          type={includeTime ? "datetime-local" : "date"}
+                          step={includeTime ? 60 : undefined}
+                          value={includeTime ? toDateTimeLocalInputValue(customDates.from, 'start') : (customDates.from ? customDates.from.split('T')[0] : customDates.from)}
+                          onChange={(event) => updateCustomDate('from', event.target.value)}
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase ml-2">To</label>
+                        <input
+                          type={includeTime ? "datetime-local" : "date"}
+                          step={includeTime ? 60 : undefined}
+                          value={includeTime ? toDateTimeLocalInputValue(customDates.to, 'end') : (customDates.to ? customDates.to.split('T')[0] : customDates.to)}
+                          onChange={(event) => updateCustomDate('to', event.target.value)}
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#3c5a82] outline-none"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}

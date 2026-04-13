@@ -653,6 +653,19 @@ export interface WalletBalanceCard {
   lastActivityAt?: string;
 }
 
+export interface WalletBalanceSummary {
+  totalBalance: number;
+  totalEarned: number;
+  totalPaid: number;
+  employeesDue: number;
+}
+
+export interface WalletBalanceCardPage {
+  data: WalletBalanceCard[];
+  count: number;
+  summary: WalletBalanceSummary;
+}
+
 export interface WalletActivityEntry {
   id: string;
   employeeId: string;
@@ -727,4 +740,9 @@ export interface RecycleBinItem {
   createdByName?: string;
   status?: string;
   amount?: number;
+}
+
+export interface RecycleBinPage {
+  data: RecycleBinItem[];
+  count: number;
 }

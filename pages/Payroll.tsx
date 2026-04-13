@@ -12,7 +12,7 @@ import { formatDateTimeParts, getTodayDate } from '../utils';
 import {
   useAccounts,
   useCategories,
-  useEmployeeWalletCards,
+  useEmployeeWalletCardsPage,
   usePaymentMethods,
   useSystemDefaults,
   useWalletActivityPage,
@@ -107,7 +107,9 @@ const Payroll: React.FC = () => {
   const toast = useToastNotifications();
   const payEmployeeWalletMutation = usePayEmployeeWallet();
   const [selectedCard, setSelectedCard] = useState<WalletBalanceCard | null>(null);
+  const [cardsPage, setCardsPage] = useState<number>(1);
   const [historyPage, setHistoryPage] = useState<number>(1);
+  const [cardSearch, setCardSearch] = useState<string>('');
   const [payoutForm, setPayoutForm] = useState<PayoutFormState>({
     amount: '',
     accountId: '',
@@ -117,16 +119,29 @@ const Payroll: React.FC = () => {
   });
 
   const isAdmin = hasAdminAccess(user?.role);
+  const isPayoutModalOpen = !!selectedCard;
+  const deferredCardSearch = React.useDeferredValue(cardSearch);
   const { data: walletSettings = { unitAmount: 0, countedStatuses: [] }, isPending: walletSettingsLoading } = useWalletSettings();
-  const { data: walletCards = [], isPending: walletCardsLoading } = useEmployeeWalletCards(isAdmin);
-  const { data: accounts = [], isPending: accountsLoading } = useAccounts();
-  const { data: paymentMethods = [], isPending: paymentMethodsLoading } = usePaymentMethods();
-  const { data: categories = [], isPending: categoriesLoading } = useCategories();
   const { data: systemDefaults, isPending: defaultsLoading } = useSystemDefaults();
-  const historyPageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const pageSize = systemDefaults?.recordsPerPage || DEFAULT_PAGE_SIZE;
+  const { data: walletCardsPage = { data: [], count: 0, summary: { totalBalance: 0, totalEarned: 0, totalPaid: 0, employeesDue: 0 } }, isPending: walletCardsLoading } = useEmployeeWalletCardsPage(
+    cardsPage,
+    pageSize,
+    {
+      enabled: isAdmin,
+      search: deferredCardSearch,
+    }
+  );
+  const walletCards = walletCardsPage.data;
+  const walletCardsTotal = walletCardsPage.count;
+  const walletCardsTotalPages = Math.max(1, Math.ceil(walletCardsTotal / pageSize));
+  const summary = walletCardsPage.summary;
+  const { data: accounts = [], isPending: accountsLoading } = useAccounts({ enabled: isAdmin && isPayoutModalOpen });
+  const { data: paymentMethods = [], isPending: paymentMethodsLoading } = usePaymentMethods(true, { enabled: isAdmin && isPayoutModalOpen });
+  const { data: categories = [], isPending: categoriesLoading } = useCategories(undefined, { enabled: isAdmin && isPayoutModalOpen });
   const { data: walletActivityPage = { data: [], count: 0 }, isPending: walletActivityLoading } = useWalletActivityPage(
     historyPage,
-    historyPageSize,
+    pageSize,
     {
       enabled: isAdmin,
       entryTypes: ['payout'],
@@ -134,7 +149,7 @@ const Payroll: React.FC = () => {
   );
   const walletActivity = walletActivityPage.data;
   const walletActivityTotal = walletActivityPage.count;
-  const walletActivityTotalPages = Math.max(1, Math.ceil(walletActivityTotal / historyPageSize));
+  const walletActivityTotalPages = Math.max(1, Math.ceil(walletActivityTotal / pageSize));
 
   const expenseCategories = useMemo(
     () => categories.filter((category) => category.type === 'Expense'),
@@ -158,6 +173,16 @@ const Payroll: React.FC = () => {
   }, [selectedCard, systemDefaults, accounts, paymentMethods]);
 
   useEffect(() => {
+    setCardsPage(1);
+  }, [deferredCardSearch]);
+
+  useEffect(() => {
+    if (cardsPage > walletCardsTotalPages) {
+      setCardsPage(walletCardsTotalPages);
+    }
+  }, [cardsPage, walletCardsTotalPages]);
+
+  useEffect(() => {
     if (historyPage > walletActivityTotalPages) {
       setHistoryPage(walletActivityTotalPages);
     }
@@ -166,34 +191,12 @@ const Payroll: React.FC = () => {
   const loading = walletSettingsLoading
     || walletCardsLoading
     || walletActivityLoading
-    || accountsLoading
-    || paymentMethodsLoading
-    || categoriesLoading
-    || defaultsLoading;
+    || defaultsLoading
+    || (isPayoutModalOpen && (accountsLoading || paymentMethodsLoading || categoriesLoading));
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === payoutForm.accountId) || null,
     [accounts, payoutForm.accountId]
-  );
-
-  const summary = useMemo(
-    () =>
-      walletCards.reduce(
-        (acc, card) => {
-          acc.totalBalance += card.currentBalance;
-          acc.totalEarned += card.totalEarned;
-          acc.totalPaid += card.totalPaid;
-          if (card.currentBalance > 0) acc.employeesDue += 1;
-          return acc;
-        },
-        {
-          totalBalance: 0,
-          totalEarned: 0,
-          totalPaid: 0,
-          employeesDue: 0,
-        }
-      ),
-    [walletCards]
   );
 
   const historyColumns = useMemo<TableColumn[]>(
@@ -392,18 +395,42 @@ const Payroll: React.FC = () => {
               Each new employee-created order adds the current unit amount directly to that employee wallet. Balances start counting from Apr 1, 2026.
             </p>
           </div>
+          <div className="w-full max-w-sm">
+            <input
+              value={cardSearch}
+              onChange={(event) => setCardSearch(event.target.value)}
+              placeholder="Search employees"
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 outline-none transition focus:border-[#0f2f57] focus:ring-2 focus:ring-[#dfeaf7]"
+            />
+          </div>
         </div>
 
         {walletCards.length === 0 ? (
           <div className="mt-6 rounded-[22px] border border-dashed border-gray-200 bg-gray-50 px-6 py-14 text-center text-sm font-medium text-gray-400">
-            No employee wallets are available yet.
+            {cardSearch.trim() ? 'No employee wallets match the current search.' : 'No employee wallets are available yet.'}
           </div>
         ) : (
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
-            {walletCards.map((card) => (
-              <WalletCard key={card.employeeId} card={card} onPay={handleOpenPayout} />
-            ))}
-          </div>
+          <>
+            <div className="mt-6 grid gap-4 xl:grid-cols-2">
+              {walletCards.map((card) => (
+                <WalletCard key={card.employeeId} card={card} onPay={handleOpenPayout} />
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <p className="text-sm font-medium text-gray-500">
+                Showing {walletCardsTotal === 0 ? 0 : (cardsPage - 1) * pageSize + 1}
+                {' - '}
+                {Math.min(cardsPage * pageSize, walletCardsTotal)} of {walletCardsTotal} employee wallets
+              </p>
+              <Pagination
+                page={cardsPage}
+                totalPages={walletCardsTotalPages}
+                onPageChange={setCardsPage}
+                disabled={walletCardsLoading}
+              />
+            </div>
+          </>
         )}
       </section>
 

@@ -18,6 +18,7 @@ import type {
   PermissionsSettings,
   ProductQuantitySoldReport,
   ProfitLossReport,
+  RecycleBinPage,
   RecycleBinEntityType,
   RecycleBinItem,
   Transaction,
@@ -27,6 +28,7 @@ import type {
   Vendor,
   WalletActivityEntry,
   WalletBalanceCard,
+  WalletBalanceCardPage,
   WalletEntryType,
   WalletPayout,
   WalletSettings,
@@ -177,6 +179,9 @@ export async function updateProduct(id: string, updates: Partial<Product>) { ret
 export async function deleteProduct(id: string) { await remove('deleteProduct', id); }
 
 export async function fetchRecycleBinItems(): Promise<RecycleBinItem[]> { return call<RecycleBinItem[]>('fetchRecycleBinItems'); }
+export async function fetchRecycleBinPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, params?: { search?: string; entityType?: string }): Promise<RecycleBinPage> {
+  return call<RecycleBinPage>('fetchRecycleBinPage', { page, pageSize, ...(params || {}) });
+}
 export async function restoreDeletedItem(target: { entityType: RecycleBinEntityType; id: string }): Promise<void> { await call('restoreDeletedItem', target); }
 export async function permanentlyDeleteDeletedItem(target: { entityType: RecycleBinEntityType; id: string }): Promise<void> { await call('permanentlyDeleteDeletedItem', target); }
 
@@ -229,6 +234,9 @@ export async function markPayrollPaid(payload: { employeeId: string; periodStart
 export async function fetchWalletSettings(): Promise<WalletSettings> { return call<WalletSettings>('fetchWalletSettings'); }
 export async function updateWalletSettings(updates: Partial<WalletSettings>): Promise<WalletSettings> { return call<WalletSettings>('updateWalletSettings', updates); }
 export async function fetchEmployeeWalletCards(params?: { currentUser?: Pick<User, 'id' | 'role'> | null; }): Promise<WalletBalanceCard[]> { return call<WalletBalanceCard[]>('fetchEmployeeWalletCards', params || {}); }
+export async function fetchEmployeeWalletCardsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, params?: { search?: string; currentUser?: Pick<User, 'id' | 'role'> | null; }): Promise<WalletBalanceCardPage> {
+  return call<WalletBalanceCardPage>('fetchEmployeeWalletCardsPage', { page, pageSize, ...(params || {}) });
+}
 export async function fetchMyWallet(params?: { currentUser?: Pick<User, 'id' | 'role' | 'name'> | null; }): Promise<WalletBalanceCard | null> { return call<WalletBalanceCard | null>('fetchMyWallet', params || {}); }
 export async function fetchWalletActivity(params?: { employeeId?: string; currentUser?: Pick<User, 'id' | 'role'> | null; entryTypes?: WalletEntryType[]; }): Promise<WalletActivityEntry[]> {
   return call<WalletActivityEntry[]>('fetchWalletActivity', params || {});

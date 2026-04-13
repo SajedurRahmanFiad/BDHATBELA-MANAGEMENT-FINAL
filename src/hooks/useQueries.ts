@@ -57,10 +57,12 @@ import {
   fetchPayrollSummaries,
   fetchWalletSettings,
   fetchEmployeeWalletCards,
+  fetchEmployeeWalletCardsPage,
   fetchMyWallet,
   fetchWalletActivity,
   fetchWalletActivityPage,
   fetchRecycleBinItems,
+  fetchRecycleBinPage,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type {
@@ -85,11 +87,13 @@ import type {
   PayrollSummaryRow,
   ProductQuantitySoldReport,
   ProfitLossReport,
+  RecycleBinPage,
   WalletActivityEntry,
   UserActivityPerformanceLogEntry,
   UserActivityPerformanceReportPage,
   WalletEntryType,
   WalletBalanceCard,
+  WalletBalanceCardPage,
   WalletSettings,
   RecycleBinItem,
 } from '../../types';
@@ -398,11 +402,12 @@ export function useBill(id: string | undefined): UseQueryResult<Bill | null, Err
 
 // ========== ACCOUNTS ==========
 
-export function useAccounts(): UseQueryResult<Account[], Error> {
+export function useAccounts(options?: { enabled?: boolean }): UseQueryResult<Account[], Error> {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: fetchAccounts,
     staleTime: 15 * 60 * 1000, // 15 minutes for master accounts cache (prefetched on auth)
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -632,7 +637,33 @@ export function useRecycleBin(): UseQueryResult<RecycleBinItem[], Error> {
     queryKey: ['recycle-bin'],
     queryFn: fetchRecycleBinItems,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
+  });
+}
+
+export function useRecycleBinPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  options?: {
+    search?: string;
+    entityType?: string;
+    enabled?: boolean;
+  }
+): UseQueryResult<RecycleBinPage, Error> {
+  const normalizedSearch = String(options?.search || '').trim();
+  const normalizedEntityType = String(options?.entityType || 'all');
+
+  return useQuery({
+    queryKey: ['recycle-bin', 'page', page, pageSize, normalizedSearch, normalizedEntityType],
+    queryFn: () =>
+      fetchRecycleBinPage(page, pageSize, {
+        search: normalizedSearch,
+        entityType: normalizedEntityType,
+      }),
+    enabled: options?.enabled ?? true,
+    placeholderData: (previousData) => previousData,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
   });
 }
 
@@ -661,11 +692,12 @@ export function useProductImagesByIds(
 
 // ========== CATEGORIES ==========
 
-export function useCategories(type?: string): UseQueryResult<any[], Error> {
+export function useCategories(type?: string, options?: { enabled?: boolean }): UseQueryResult<any[], Error> {
   return useQuery({
     queryKey: ['categories', type],
     queryFn: () => fetchCategories(type),
     staleTime: 60 * 60 * 1000, // 60 minutes for categories
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -680,11 +712,12 @@ export function useCategory(id: string | undefined): UseQueryResult<any | null, 
 
 // ========== PAYMENT METHODS ==========
 
-export function usePaymentMethods(activeOnly?: boolean): UseQueryResult<any[], Error> {
+export function usePaymentMethods(activeOnly?: boolean, options?: { enabled?: boolean }): UseQueryResult<any[], Error> {
   return useQuery({
     queryKey: ['paymentMethods', activeOnly],
     queryFn: () => fetchPaymentMethods(activeOnly),
     staleTime: 60 * 60 * 1000, // 60 minutes for payment methods
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -802,7 +835,7 @@ export function usePayrollSummaries(
       }),
     enabled: !!currentUser?.id && !!periodStart && !!periodEnd,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 }
 
@@ -825,7 +858,7 @@ export function usePayrollHistory(
       }),
     enabled: enabled && !!currentUser?.id,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 }
 
@@ -850,7 +883,32 @@ export function useEmployeeWalletCards(
       }),
     enabled: enabled && !!currentUser?.id,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
+  });
+}
+
+export function useEmployeeWalletCardsPage(
+  page: number = 1,
+  pageSize: number = DEFAULT_PAGE_SIZE,
+  options?: {
+    search?: string;
+    enabled?: boolean;
+  }
+): UseQueryResult<WalletBalanceCardPage, Error> {
+  const currentUser = db.currentUser ?? null;
+  const normalizedSearch = String(options?.search || '').trim();
+
+  return useQuery({
+    queryKey: ['wallet', 'cards', 'page', page, pageSize, normalizedSearch, currentUser?.id, currentUser?.role],
+    queryFn: () =>
+      fetchEmployeeWalletCardsPage(page, pageSize, {
+        search: normalizedSearch,
+        currentUser,
+      }),
+    enabled: (options?.enabled ?? true) && !!currentUser?.id,
+    placeholderData: (previousData) => previousData,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
   });
 }
 
@@ -865,7 +923,7 @@ export function useMyWallet(enabled: boolean = true): UseQueryResult<WalletBalan
       }),
     enabled: enabled && !!currentUser?.id,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 }
 
@@ -886,7 +944,7 @@ export function useWalletActivity(
       }),
     enabled: enabled && !!currentUser?.id,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 }
 
@@ -922,6 +980,6 @@ export function useWalletActivityPage(
     enabled: (options?.enabled ?? true) && !!currentUser?.id,
     placeholderData: (previousData) => previousData,
     staleTime: 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 }

@@ -168,6 +168,98 @@ final class CourierApi extends BaseService
         return rtrim(trim((string) ($params[$field] ?? '')), '/');
     }
 
+    private function normalizeBanglaDigits(string $value): string
+    {
+        return strtr($value, [
+            '০' => '0',
+            '১' => '1',
+            '২' => '2',
+            '৩' => '3',
+            '৪' => '4',
+            '৫' => '5',
+            '৬' => '6',
+            '৭' => '7',
+            '৮' => '8',
+            '৯' => '9',
+        ]);
+    }
+
+    private function normalizeFraudCheckerPhone(string $value): string
+    {
+        $normalized = $this->normalizeBanglaDigits(trim($value));
+        return preg_replace('/[^0-9]/', '', $normalized) ?? '';
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function mapFraudCheckResponse(array $payload, string $phone): array
+    {
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $couriers = [];
+
+        foreach ($data as $key => $value) {
+            if ($key === 'summary' || !is_array($value)) {
+                continue;
+            }
+
+            $couriers[] = [
+                'key' => (string) $key,
+                'name' => (string) ($value['name'] ?? $key),
+                'logo' => (string) ($value['logo'] ?? ''),
+                'totalParcel' => (int) ($value['total_parcel'] ?? 0),
+                'successParcel' => (int) ($value['success_parcel'] ?? 0),
+                'cancelledParcel' => (int) ($value['cancelled_parcel'] ?? 0),
+                'successRatio' => round((float) ($value['success_ratio'] ?? 0), 2),
+            ];
+        }
+
+        usort($couriers, static function (array $left, array $right): int {
+            return ($right['totalParcel'] <=> $left['totalParcel']) ?: strcmp((string) $left['name'], (string) $right['name']);
+        });
+
+        $summaryPayload = is_array($data['summary'] ?? null) ? $data['summary'] : [];
+        $summary = [
+            'totalParcel' => (int) ($summaryPayload['total_parcel'] ?? array_sum(array_map(static fn (array $row): int => (int) ($row['totalParcel'] ?? 0), $couriers))),
+            'successParcel' => (int) ($summaryPayload['success_parcel'] ?? array_sum(array_map(static fn (array $row): int => (int) ($row['successParcel'] ?? 0), $couriers))),
+            'cancelledParcel' => (int) ($summaryPayload['cancelled_parcel'] ?? array_sum(array_map(static fn (array $row): int => (int) ($row['cancelledParcel'] ?? 0), $couriers))),
+            'successRatio' => round((float) ($summaryPayload['success_ratio'] ?? 0), 2),
+        ];
+
+        if ($summary['totalParcel'] > 0 && $summary['successRatio'] <= 0) {
+            $summary['successRatio'] = round(($summary['successParcel'] / $summary['totalParcel']) * 100, 2);
+        }
+
+        $reports = [];
+        foreach ((is_array($payload['reports'] ?? null) ? $payload['reports'] : []) as $report) {
+            if (!is_array($report)) {
+                continue;
+            }
+
+            $reports[] = [
+                'id' => (string) ($report['id'] ?? ''),
+                'name' => (string) ($report['name'] ?? ''),
+                'details' => (string) ($report['details'] ?? ''),
+                'createdAt' => $this->toIso($report['created_at'] ?? null) ?? (string) ($report['created_at'] ?? ''),
+                'courierLogo' => (string) ($report['courierLogo'] ?? ''),
+                'courierName' => (string) ($report['courierName'] ?? ''),
+            ];
+        }
+
+        usort($reports, static function (array $left, array $right): int {
+            return strcmp((string) ($right['createdAt'] ?? ''), (string) ($left['createdAt'] ?? ''));
+        });
+
+        return [
+            'status' => (string) ($payload['status'] ?? 'success'),
+            'phone' => $phone,
+            'couriers' => $couriers,
+            'summary' => $summary,
+            'reports' => $reports,
+        ];
+    }
+
     /**
      * @return array<int, array{id:string, name:string}>
      */
@@ -214,6 +306,50 @@ final class CourierApi extends BaseService
         );
 
         return $this->carryBeeCollectionResponse($response, 'stores');
+    }
+
+    public function checkFraudCourierHistory(array $params): array
+    {
+        $user = $this->currentUser();
+        if (!$this->roleHasPermission((string) ($user['role'] ?? ''), 'fraudChecker.check')) {
+            throw new RuntimeException('You do not have permission to use the Fraud Checker.');
+        }
+
+        if (!$this->columnExists('courier_settings', 'fraud_checker_api_key')) {
+            throw new RuntimeException('Fraud Checker settings are missing. Run the fraud checker migration first.');
+        }
+
+        $phone = $this->normalizeFraudCheckerPhone((string) ($params['phone'] ?? ''));
+        if (preg_match('/^0\d{10}$/', $phone) !== 1) {
+            throw new RuntimeException('Enter a valid 11-digit phone number starting with 0.');
+        }
+
+        $settings = $this->database->fetchOne('SELECT fraud_checker_api_key FROM courier_settings LIMIT 1');
+        $apiKey = trim((string) ($settings['fraud_checker_api_key'] ?? ''));
+        if ($apiKey === '') {
+            throw new RuntimeException('Fraud Checker API key is not configured in Settings.');
+        }
+
+        $response = $this->request(
+            'POST',
+            'https://api.bdcourier.com/courier-check',
+            [
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Accept' => 'application/json',
+            ],
+            ['phone' => $phone]
+        );
+
+        $payload = is_array($response['json']) ? $response['json'] : [];
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw new RuntimeException((string) ($payload['message'] ?? $payload['error'] ?? ('Fraud Checker request failed with HTTP ' . $response['status'] . '.')));
+        }
+
+        if (($payload['status'] ?? 'success') !== 'success' && !is_array($payload['data'] ?? null)) {
+            throw new RuntimeException((string) ($payload['message'] ?? $payload['error'] ?? 'Fraud Checker request failed.'));
+        }
+
+        return $this->mapFraudCheckResponse($payload, $phone);
     }
 
     public function fetchCarryBeeCities(array $params): array

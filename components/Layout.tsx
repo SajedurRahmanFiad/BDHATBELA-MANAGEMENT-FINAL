@@ -319,6 +319,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               />
             )}
 
+            {can('fraudChecker.check') && (
+              <SidebarItem to="/fraud-checker" icon={ICONS.FraudChecker} label="Fraud Checker" active={isActive('/fraud-checker')} onClick={() => setIsSidebarOpen(false)} />
+            )}
+
             {(can('reports.view') || can('recycleBin.view') || isAdminAccessUser) && (
               <>
                 {can('reports.view') && (

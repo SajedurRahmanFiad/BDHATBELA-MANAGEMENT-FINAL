@@ -5,7 +5,7 @@ import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button, PermissionsSettingsPanel } from '../components';
 import { theme } from '../theme';
-import { OrderStatus, hasAdminAccess, type CompanyPage, type PermissionsSettings, type Settings } from '../types';
+import { OrderStatus, hasAdminAccess, type CompanyPage, type CourierSettings, type PermissionsSettings, type Settings } from '../types';
 import { 
   useCategories, usePaymentMethods, useUnits,
   useCompanySettings, useOrderSettings, useInvoiceSettings, 
@@ -59,10 +59,11 @@ const SettingsPage: React.FC = () => {
   // Local state for forms (these need to be maintained locally until save)
   const [companySettings, setCompanySettings] = useState<Settings['company']>(() => normalizeCompanySettings(db.settings.company));
   const [orderSettings, setOrderSettings] = useState({ prefix: 'ORD-', nextNumber: 1 });
-  const [courierSettings, setCourierSettings] = useState({
+  const [courierSettings, setCourierSettings] = useState<CourierSettings>({
     steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
     paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
+    fraudChecker: { apiKey: '' },
   });
   const PAYROLL_STATUS_OPTIONS = [
     OrderStatus.ON_HOLD,
@@ -517,6 +518,7 @@ const SettingsPage: React.FC = () => {
     { id: 'order', label: 'Order & Invoice', icon: ICONS.Sales },
     { id: 'defaults', label: 'Defaults', icon: ICONS.Settings },
     { id: 'wallet', label: 'Wallet', icon: ICONS.Payroll },
+    { id: 'fraud-checker', label: 'Fraud Checker', icon: ICONS.FraudChecker },
     { id: 'permissions', label: 'Permissions', icon: ICONS.Users },
     { id: 'categories', label: 'Categories', icon: ICONS.More },
     { id: 'payments', label: 'Payment Methods', icon: ICONS.Banking },
@@ -534,7 +536,7 @@ const SettingsPage: React.FC = () => {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Admin Access Only</p>
           <h2 className="mt-3 text-2xl font-black text-gray-900">Settings are available to admin-access users only.</h2>
           <p className="mt-2 text-sm font-medium text-gray-500">
-            Wallet configuration, order defaults, and courier credentials can only be managed by admin-access users.
+            Wallet configuration, fraud checker access, order defaults, and courier credentials can only be managed by admin-access users.
           </p>
         </div>
       </div>
@@ -1295,6 +1297,54 @@ const SettingsPage: React.FC = () => {
                         }
                       })}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'fraud-checker' && (
+            <div className="space-y-8 animate-in fade-in duration-300">
+              <section className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="text-xl font-bold text-gray-800">Fraud Checker</h3>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        title="Uses https://app.bdcourier.com/"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-100 bg-white text-gray-400 transition-all hover:bg-gray-50 hover:text-[#0f2f57]"
+                      >
+                        {ICONS.Info}
+                      </button>
+                      <div className="pointer-events-none absolute left-full top-1/2 z-10 ml-3 w-64 -translate-y-1/2 rounded-2xl border border-gray-100 bg-white px-3 py-2 text-xs font-medium text-gray-600 shadow-xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+                        Uses <span className="font-black text-gray-900">https://app.bdcourier.com/</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-sm text-gray-500">
+                    The base URL is set to <a href="https://app.bdcourier.com/" className="font-black text-gray-900">https://api.bdcourier.com/courier-check</a> by default.
+                  </p>
+                </div>
+
+                <div className="grid gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">API Key</label>
+                    <input
+                      type="text"
+                      value={courierSettings.fraudChecker.apiKey}
+                      onChange={(event) =>
+                        setCourierSettings((current) => ({
+                          ...current,
+                          fraudChecker: {
+                            ...current.fraudChecker,
+                            apiKey: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Paste your BDCourier API key"
+                      className="w-full rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 font-medium transition-all focus:ring-2 focus:ring-[#3c5a82]"
                     />
                   </div>
                 </div>

@@ -67,6 +67,7 @@ export type PermissionKey =
   | 'accounts.create'
   | 'accounts.edit'
   | 'accounts.delete'
+  | 'fraudChecker.check'
   | 'transfers.create'
   | 'reports.view'
   | 'wallet.view'
@@ -189,6 +190,24 @@ export interface CompanySettings {
   email: string;
   address: string;
   pages: CompanyPage[];
+}
+
+export interface FraudCheckerSettings {
+  apiKey: string;
+}
+
+export interface CourierSettings {
+  steadfast: { baseUrl: string; apiKey: string; secretKey: string };
+  carryBee: { baseUrl: string; clientId: string; clientSecret: string; clientContext: string; storeId: string };
+  paperfly: {
+    baseUrl: string;
+    username: string;
+    password: string;
+    paperflyKey: string;
+    defaultShopName: string;
+    maxWeightKg: number;
+  };
+  fraudChecker: FraudCheckerSettings;
 }
 
 export interface Order {
@@ -578,23 +597,46 @@ export interface Settings {
     name: string;
     description: string;
   }[];
-  courier: {
-    steadfast: { baseUrl: string; apiKey: string; secretKey: string };
-    carryBee: { baseUrl: string; clientId: string; clientSecret: string; clientContext: string; storeId: string };
-    paperfly: {
-      baseUrl: string;
-      username: string;
-      password: string;
-      paperflyKey: string;
-      defaultShopName: string;
-      maxWeightKg: number;
-    };
-  };
+  courier: CourierSettings;
   payroll: {
     unitAmount: number;
     countedStatuses: OrderStatus[];
   };
   permissions?: PermissionsSettings;
+}
+
+export interface FraudCheckCourierHistory {
+  key: string;
+  name: string;
+  logo: string;
+  totalParcel: number;
+  successParcel: number;
+  cancelledParcel: number;
+  successRatio: number;
+}
+
+export interface FraudCheckSummary {
+  totalParcel: number;
+  successParcel: number;
+  cancelledParcel: number;
+  successRatio: number;
+}
+
+export interface FraudCheckReport {
+  id: string;
+  name: string;
+  details: string;
+  createdAt: string;
+  courierLogo: string;
+  courierName: string;
+}
+
+export interface FraudCheckResult {
+  status: string;
+  phone: string;
+  couriers: FraudCheckCourierHistory[];
+  summary: FraudCheckSummary;
+  reports: FraudCheckReport[];
 }
 
 export interface PayrollSettings {

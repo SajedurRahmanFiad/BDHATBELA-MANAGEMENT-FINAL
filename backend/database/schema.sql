@@ -208,6 +208,7 @@ CREATE TABLE IF NOT EXISTS courier_settings (
   paperfly_key VARCHAR(500) NULL,
   paperfly_default_shop_name VARCHAR(255) NULL,
   paperfly_max_weight_kg DECIMAL(10,3) NOT NULL DEFAULT 0.300,
+  fraud_checker_api_key VARCHAR(500) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)

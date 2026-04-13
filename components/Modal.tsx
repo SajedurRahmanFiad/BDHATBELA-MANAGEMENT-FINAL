@@ -7,7 +7,9 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  containerClassName?: string;
+  contentClassName?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -17,6 +19,8 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
   size = 'md',
+  containerClassName = '',
+  contentClassName = '',
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -33,6 +37,7 @@ export const Modal: React.FC<ModalProps> = ({
     sm: 'max-w-sm',
     md: 'max-w-md',
     lg: 'max-w-2xl',
+    xl: 'max-w-5xl',
   };
 
   return (
@@ -46,7 +51,7 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          className={`${theme.card.elevated} w-full ${sizeClasses[size]} animate-in fade-in slide-in-from-bottom-4 duration-300`}
+          className={`${theme.card.elevated} w-full ${sizeClasses[size]} animate-in fade-in slide-in-from-bottom-4 duration-300 ${containerClassName}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -55,7 +60,7 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
 
           {/* Content */}
-          <div className="p-6 max-h-[60vh] overflow-y-auto">{children}</div>
+          <div className={`p-6 max-h-[60vh] overflow-y-auto ${contentClassName}`}>{children}</div>
 
           {/* Footer */}
           {footer && (

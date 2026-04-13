@@ -75,6 +75,7 @@ import type {
   Vendor,
   Product,
   CompanySettings,
+  CourierSettings,
   CustomerSalesReportData,
   DashboardSnapshot,
   ExpenseSummaryCsvRow,
@@ -783,7 +784,7 @@ export function useSystemDefaults(): UseQueryResult<any, Error> {
   });
 }
 
-export function useCourierSettings(): UseQueryResult<any, Error> {
+export function useCourierSettings(): UseQueryResult<CourierSettings, Error> {
   return useQuery({
     queryKey: ['settings', 'courier'],
     queryFn: fetchCourierSettings,

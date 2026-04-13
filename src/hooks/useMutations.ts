@@ -39,6 +39,7 @@ import {
   updateInvoiceSettings,
   updateSystemDefaults,
   updateCourierSettings,
+  checkFraudCourierHistory,
   updatePermissionsSettings,
   updatePayrollSettings,
   markPayrollPaid,
@@ -67,6 +68,7 @@ import type {
   WalletSettings,
   RecycleBinEntityType,
   CompletePickedOrderPayload,
+  FraudCheckResult,
 } from '../../types';
 import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
@@ -2392,6 +2394,12 @@ export function usePayEmployeeWallet(): UseMutationResult<
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       invalidateDashboardQueries(queryClient);
     },
+  });
+}
+
+export function useCheckFraudCourierHistory(): UseMutationResult<FraudCheckResult, Error, { phone: string }, unknown> {
+  return useMutation({
+    mutationFn: ({ phone }) => checkFraudCourierHistory(phone),
   });
 }
 

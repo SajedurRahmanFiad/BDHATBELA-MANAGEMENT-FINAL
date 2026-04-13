@@ -1105,6 +1105,7 @@ final class MasterDataApi extends BaseService
     public function fetchCourierSettings(array $params = []): array
     {
         $row = $this->database->fetchOne('SELECT * FROM courier_settings LIMIT 1');
+        $hasFraudCheckerColumn = $this->columnExists('courier_settings', 'fraud_checker_api_key');
         return [
             'steadfast' => [
                 'baseUrl' => (string) ($row['steadfast_base_url'] ?? ''),
@@ -1126,6 +1127,9 @@ final class MasterDataApi extends BaseService
                 'defaultShopName' => (string) ($row['paperfly_default_shop_name'] ?? ''),
                 'maxWeightKg' => (float) ($row['paperfly_max_weight_kg'] ?? 0.3),
             ],
+            'fraudChecker' => [
+                'apiKey' => $hasFraudCheckerColumn ? (string) ($row['fraud_checker_api_key'] ?? '') : '',
+            ],
         ];
     }
 
@@ -1136,26 +1140,42 @@ final class MasterDataApi extends BaseService
         $steadfast = is_array($params['steadfast'] ?? null) ? $params['steadfast'] : [];
         $carryBee = is_array($params['carryBee'] ?? null) ? $params['carryBee'] : [];
         $paperfly = is_array($params['paperfly'] ?? null) ? $params['paperfly'] : [];
+        $fraudChecker = is_array($params['fraudChecker'] ?? null) ? $params['fraudChecker'] : [];
+        $hasFraudCheckerColumn = $this->columnExists('courier_settings', 'fraud_checker_api_key');
+
+        if (
+            !$hasFraudCheckerColumn
+            && array_key_exists('apiKey', $fraudChecker)
+            && trim((string) $fraudChecker['apiKey']) !== trim((string) ($current['fraudChecker']['apiKey'] ?? ''))
+        ) {
+            throw new RuntimeException('Fraud Checker settings column is missing. Run the fraud checker migration first.');
+        }
+
+        $updates = [
+            'steadfast_base_url' => $steadfast['baseUrl'] ?? $current['steadfast']['baseUrl'],
+            'steadfast_api_key' => $steadfast['apiKey'] ?? $current['steadfast']['apiKey'],
+            'steadfast_secret_key' => $steadfast['secretKey'] ?? $current['steadfast']['secretKey'],
+            'carrybee_base_url' => $carryBee['baseUrl'] ?? $current['carryBee']['baseUrl'],
+            'carrybee_client_id' => $carryBee['clientId'] ?? $current['carryBee']['clientId'],
+            'carrybee_client_secret' => $carryBee['clientSecret'] ?? $current['carryBee']['clientSecret'],
+            'carrybee_client_context' => $carryBee['clientContext'] ?? $current['carryBee']['clientContext'],
+            'carrybee_store_id' => $carryBee['storeId'] ?? $current['carryBee']['storeId'],
+            'paperfly_base_url' => $paperfly['baseUrl'] ?? $current['paperfly']['baseUrl'],
+            'paperfly_username' => $paperfly['username'] ?? $current['paperfly']['username'],
+            'paperfly_password' => $paperfly['password'] ?? $current['paperfly']['password'],
+            'paperfly_key' => $paperfly['paperflyKey'] ?? $current['paperfly']['paperflyKey'],
+            'paperfly_default_shop_name' => $paperfly['defaultShopName'] ?? $current['paperfly']['defaultShopName'],
+            'paperfly_max_weight_kg' => array_key_exists('maxWeightKg', $paperfly) ? (float) $paperfly['maxWeightKg'] : $current['paperfly']['maxWeightKg'],
+        ];
+
+        if ($hasFraudCheckerColumn) {
+            $updates['fraud_checker_api_key'] = $fraudChecker['apiKey'] ?? $current['fraudChecker']['apiKey'];
+        }
 
         return $this->saveSingleton(
             'courier_settings',
             'courier-default',
-            [
-                'steadfast_base_url' => $steadfast['baseUrl'] ?? $current['steadfast']['baseUrl'],
-                'steadfast_api_key' => $steadfast['apiKey'] ?? $current['steadfast']['apiKey'],
-                'steadfast_secret_key' => $steadfast['secretKey'] ?? $current['steadfast']['secretKey'],
-                'carrybee_base_url' => $carryBee['baseUrl'] ?? $current['carryBee']['baseUrl'],
-                'carrybee_client_id' => $carryBee['clientId'] ?? $current['carryBee']['clientId'],
-                'carrybee_client_secret' => $carryBee['clientSecret'] ?? $current['carryBee']['clientSecret'],
-                'carrybee_client_context' => $carryBee['clientContext'] ?? $current['carryBee']['clientContext'],
-                'carrybee_store_id' => $carryBee['storeId'] ?? $current['carryBee']['storeId'],
-                'paperfly_base_url' => $paperfly['baseUrl'] ?? $current['paperfly']['baseUrl'],
-                'paperfly_username' => $paperfly['username'] ?? $current['paperfly']['username'],
-                'paperfly_password' => $paperfly['password'] ?? $current['paperfly']['password'],
-                'paperfly_key' => $paperfly['paperflyKey'] ?? $current['paperfly']['paperflyKey'],
-                'paperfly_default_shop_name' => $paperfly['defaultShopName'] ?? $current['paperfly']['defaultShopName'],
-                'paperfly_max_weight_kg' => array_key_exists('maxWeightKg', $paperfly) ? (float) $paperfly['maxWeightKg'] : $current['paperfly']['maxWeightKg'],
-            ],
+            $updates,
             fn (): array => $this->fetchCourierSettings()
         );
     }

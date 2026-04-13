@@ -27,7 +27,8 @@ import {
   AlertCircle,
   Info,
   Wallet,
-  Eye
+  Eye,
+  ShieldAlert
 } from 'lucide-react';
 
 // Fixed missing properties on ICONS object by adding 'Users' and 'Briefcase' keys
@@ -61,7 +62,8 @@ export const ICONS = {
   Transfer: <ArrowRightLeft size={18} />,
   Check: <Check size={20} />,
   AlertCircle: <AlertCircle size={20} />,
-  Info: <Info size={20} />
+  Info: <Info size={20} />,
+  FraudChecker: <ShieldAlert size={20} />
 };
 
 export const formatCurrency = (amount: number) => {

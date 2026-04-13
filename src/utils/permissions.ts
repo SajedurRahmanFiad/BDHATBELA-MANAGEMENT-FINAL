@@ -388,6 +388,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     section: 'Inventory & Banking',
   },
   {
+    key: 'fraudChecker.check',
+    label: 'Use Fraud Checker',
+    description: 'Run courier history and fraud checks from banking and order details.',
+    section: 'Inventory & Banking',
+  },
+  {
     key: 'transfers.create',
     label: 'Create Transfers',
     description: 'Create balance transfers between accounts.',
@@ -460,6 +466,7 @@ export const DEFAULT_ROLE_PERMISSION_SETTINGS: PermissionsSettings = {
         'customers.create',
         'customers.edit',
         'products.view',
+        'fraudChecker.check',
         'wallet.view',
       ]),
     },
@@ -476,6 +483,7 @@ export const DEFAULT_ROLE_PERMISSION_SETTINGS: PermissionsSettings = {
         'customers.create',
         'customers.edit',
         'products.view',
+        'fraudChecker.check',
         'wallet.view',
       ]),
     },

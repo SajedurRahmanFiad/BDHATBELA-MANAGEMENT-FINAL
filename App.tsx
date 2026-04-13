@@ -73,6 +73,7 @@ const Bills = lazyPage(() => import('./pages/Bills'));
 const BillForm = lazyPage(() => import('./pages/BillForm'));
 const BillDetails = lazyPage(() => import('./pages/BillDetails'));
 const Banking = lazyPage(() => import('./pages/Banking'));
+const FraudCheckerPage = lazyPage(() => import('./pages/FraudChecker'));
 const Transactions = lazyPage(() => import('./pages/Transactions'));
 const TransactionForm = lazyPage(() => import('./pages/TransactionForm'));
 const Transfer = lazyPage(() => import('./pages/Transfer'));
@@ -134,6 +135,8 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
                 ? '/banking/transactions'
                 : can('accounts.view')
                   ? '/banking/accounts'
+                  : can('fraudChecker.check')
+                    ? '/fraud-checker'
                   : can('transfers.create')
                     ? '/banking/transfer'
                     : can('wallet.view')
@@ -186,6 +189,7 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
     if (can('transactions.view')) preloaders.add(Transactions.preload);
     if (can('transactions.create') || can('transactions.edit')) preloaders.add(TransactionForm.preload);
     if (can('accounts.view')) preloaders.add(Banking.preload);
+    if (can('fraudChecker.check')) preloaders.add(FraudCheckerPage.preload);
     if (can('transfers.create')) preloaders.add(Transfer.preload);
     if (can('users.view')) {
       preloaders.add(Users.preload);
@@ -269,6 +273,9 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
 
       <Route path="/banking/accounts" element={
         isAuthenticated ? (can('accounts.view') ? <Layout><Banking /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
+      } />
+      <Route path="/fraud-checker" element={
+        isAuthenticated ? (can('fraudChecker.check') ? <Layout><FraudCheckerPage /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       <Route path="/banking/transfer" element={
         isAuthenticated ? (can('transfers.create') ? <Layout><Transfer /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />

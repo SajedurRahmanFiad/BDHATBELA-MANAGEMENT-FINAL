@@ -33,6 +33,8 @@ import type {
   WalletPayout,
   WalletSettings,
   CompletePickedOrderPayload,
+  CourierSettings,
+  FraudCheckResult,
 } from '../../types';
 import { apiAction, type ApiActionOptions } from './apiClient';
 
@@ -211,8 +213,16 @@ export async function fetchInvoiceSettings() { return call<any>('fetchInvoiceSet
 export async function updateInvoiceSettings(updates: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }) { return call<any>('updateInvoiceSettings', updates); }
 export async function fetchSystemDefaults() { return call<any>('fetchSystemDefaults'); }
 export async function updateSystemDefaults(updates: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }) { return call<any>('updateSystemDefaults', updates); }
-export async function fetchCourierSettings() { return call<any>('fetchCourierSettings'); }
-export async function updateCourierSettings(updates: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }) { return call<any>('updateCourierSettings', updates); }
+export async function fetchCourierSettings(): Promise<CourierSettings> { return call<CourierSettings>('fetchCourierSettings'); }
+export async function updateCourierSettings(updates: {
+  steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string };
+  carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string };
+  paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number };
+  fraudChecker?: { apiKey?: string };
+}): Promise<CourierSettings> { return call<CourierSettings>('updateCourierSettings', updates); }
+export async function checkFraudCourierHistory(phone: string): Promise<FraudCheckResult> {
+  return call<FraudCheckResult>('checkFraudCourierHistory', { phone }, { timeoutMs: 30000 });
+}
 export async function fetchPermissionsSettings(): Promise<PermissionsSettings> { return call<PermissionsSettings>('fetchPermissionsSettings'); }
 export async function updatePermissionsSettings(updates: PermissionsSettings): Promise<PermissionsSettings> {
   return call<PermissionsSettings>('updatePermissionsSettings', updates);
@@ -264,7 +274,7 @@ export async function fetchPaperflyOrderTracking(params: { baseUrl: string; user
 export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncPaperflyOrderStatuses'); }
 export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncSteadfastDeliveryStatuses'); }
 
-export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
+export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; fraudChecker?: { apiKey?: string }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
   const { permissions, ...batchEligibleUpdates } = updates;
   const hasBatchEligibleUpdates = Object.keys(batchEligibleUpdates).length > 0;
   const batchResult = hasBatchEligibleUpdates

@@ -21,6 +21,7 @@ const defaultSettings: Settings = {
     steadfast: { baseUrl: '', apiKey: '', secretKey: '' },
     carryBee: { baseUrl: '', clientId: '', clientSecret: '', clientContext: '', storeId: '' },
     paperfly: { baseUrl: '', username: '', password: '', paperflyKey: '', defaultShopName: '', maxWeightKg: 0.3 },
+    fraudChecker: { apiKey: '' },
   },
   payroll: {
     unitAmount: 0,
@@ -69,6 +70,7 @@ const mergedSettings: Settings = _storedSettings
         steadfast: { ...defaultSettings.courier.steadfast, ...(_storedSettings as any).courier?.steadfast },
         carryBee: { ...defaultSettings.courier.carryBee, ...(_storedSettings as any).courier?.carryBee },
         paperfly: { ...defaultSettings.courier.paperfly, ...(_storedSettings as any).courier?.paperfly },
+        fraudChecker: { ...defaultSettings.courier.fraudChecker, ...(_storedSettings as any).courier?.fraudChecker },
       },
       payroll: { ...defaultSettings.payroll, ...(_storedSettings as any).payroll },
       permissions: clonePermissionsSettings((_storedSettings as any).permissions || defaultSettings.permissions),

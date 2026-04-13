@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../db';
 import { OrderStatus, Order } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
-import { Button, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
+import { Button, FraudCheckModal, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
 import { useOrder, useCustomer, useProductImagesByIds, useCompanySettings, useInvoiceSettings, useUser } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCompletePickedOrder } from '../src/hooks/useMutations';
@@ -14,7 +14,7 @@ import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
 import { useRolePermissions } from '../src/hooks/useRolePermissions';
-import { buildLocalDateTime, getTodayDate } from '../utils';
+import { buildLocalDateTime, getTodayDate, normalizePhoneSearchValue } from '../utils';
 import { getOrderCompanyPage } from '../src/utils/companyPages';
 
 const OrderDetails: React.FC = () => {
@@ -58,6 +58,7 @@ const OrderDetails: React.FC = () => {
   const [showSteadfast, setShowSteadfast] = useState(false);
   const [showCarryBee, setShowCarryBee] = useState(false);
   const [showPaperfly, setShowPaperfly] = useState(false);
+  const [showFraudCheckModal, setShowFraudCheckModal] = useState(false);
   const [completionForm, setCompletionForm] = useState<OrderCompletionFormState>(createCompletionForm());
   const [isActionOpen, setIsActionOpen] = useState(false);
   
@@ -68,6 +69,11 @@ const OrderDetails: React.FC = () => {
     () => getOrderCompanyPage(order, companySettings || db.settings.company),
     [companySettings, order],
   );
+  const orderPhone = React.useMemo(
+    () => String(customer?.phone || order?.customerPhone || '').trim(),
+    [customer?.phone, order?.customerPhone],
+  );
+  const normalizedOrderPhone = normalizePhoneSearchValue(orderPhone);
   
   const loading = orderLoading;
 
@@ -104,6 +110,8 @@ const OrderDetails: React.FC = () => {
   );
   const canFinalizeOrders = canMarkCurrentOrderCompleted || canMarkCurrentOrderReturned;
   const canCancelCurrentOrder = canAccessRecord(order.createdBy, 'orders.cancelOwn', 'orders.cancelAny');
+  const canUseFraudChecker = can('fraudChecker.check');
+  const canRunFraudChecker = canUseFraudChecker && /^0\d{10}$/.test(normalizedOrderPhone);
   const courierHistoryLower = String(order.history?.courier || '').toLowerCase();
   const sentToSteadfast = courierHistoryLower.includes('steadfast') || !!order.steadfastConsignmentId;
   const sentToCarryBee = courierHistoryLower.includes('carrybee') || !!order.carrybeeConsignmentId;
@@ -293,6 +301,17 @@ const OrderDetails: React.FC = () => {
     }
   };
 
+  const openFraudChecker = () => {
+    if (!canRunFraudChecker) {
+      toast.warning('This order does not have a valid 11-digit customer phone number.');
+      setIsActionOpen(false);
+      return;
+    }
+
+    setShowFraudCheckModal(true);
+    setIsActionOpen(false);
+  };
+
   const canSendCurrentOrderToCourier =
     canSendCurrentOrderToCourierPermission
     && order.status !== OrderStatus.PICKED
@@ -307,7 +326,8 @@ const OrderDetails: React.FC = () => {
     canEditCurrentOrder
     || canFinalizeCurrentOrder
     || sentToAnyCourier
-    || canCancelCurrentOrder;
+    || canCancelCurrentOrder
+    || canUseFraudChecker;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -375,6 +395,15 @@ const OrderDetails: React.FC = () => {
                     {canFinalizeCurrentOrder && (
                       <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold text-gray-700" onClick={() => { openCompletion(); setIsActionOpen(false); }}>
                         {ICONS.Check} Finalize Order
+                      </button>
+                    )}
+                    {canUseFraudChecker && (
+                      <button
+                        onClick={openFraudChecker}
+                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2 font-bold ${canRunFraudChecker ? 'text-gray-700' : 'cursor-not-allowed text-gray-300'}`}
+                        disabled={!canRunFraudChecker}
+                      >
+                        {ICONS.FraudChecker} Check Courier History
                       </button>
                     )}
                     {sentToAnyCourier && (
@@ -535,7 +564,7 @@ const OrderDetails: React.FC = () => {
           </div>
 
           {/* Process Section */}
-          {order.history?.processing || canMoveCurrentOrderToProcessing || canSendCurrentOrderToCourier ? (
+          {order.history?.processing || canMoveCurrentOrderToProcessing || canSendCurrentOrderToCourier || canUseFraudChecker ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 border-b flex justify-between items-center">
               <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">2. Processing</h3>
@@ -544,6 +573,16 @@ const OrderDetails: React.FC = () => {
               </div>
             </div>
             <div className="p-5 space-y-4">
+                {canUseFraudChecker && (
+                  <button
+                    type="button"
+                    onClick={openFraudChecker}
+                    disabled={!canRunFraudChecker}
+                    className={`w-full rounded-xl py-3 font-bold shadow-md transition-all active:scale-95 ${canRunFraudChecker ? 'bg-[#0f2f57] text-white hover:bg-[#0a1f38]' : 'cursor-not-allowed bg-gray-100 text-gray-400 shadow-none'}`}
+                  >
+                    Check Courier History
+                  </button>
+                )}
                 {order.history.processing ? (
                   <p className="text-xs ${theme.colors.primary[600]} leading-relaxed font-bold bg-[#ebf4ff] p-3 rounded-xl">
                     {order.history.processing}
@@ -704,6 +743,12 @@ const OrderDetails: React.FC = () => {
         onClose={() => setShowPaperfly(false)}
         order={order}
         customer={customer}
+      />
+      <FraudCheckModal
+        isOpen={showFraudCheckModal}
+        onClose={() => setShowFraudCheckModal(false)}
+        phone={orderPhone}
+        customerName={customer?.name || order.customerName || ''}
       />
     </div>
   );

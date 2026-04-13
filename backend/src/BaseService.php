@@ -69,6 +69,7 @@ abstract class BaseService
         'accounts.create',
         'accounts.edit',
         'accounts.delete',
+        'fraudChecker.check',
         'transfers.create',
         'reports.view',
         'wallet.view',
@@ -938,6 +939,24 @@ abstract class BaseService
                AND TABLE_NAME = :table
              LIMIT 1',
             [':table' => $table]
+        );
+
+        return $row !== null;
+    }
+
+    protected function columnExists(string $table, string $column): bool
+    {
+        $row = $this->database->fetchOne(
+            'SELECT 1 AS present
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column
+             LIMIT 1',
+            [
+                ':table' => $table,
+                ':column' => $column,
+            ]
         );
 
         return $row !== null;

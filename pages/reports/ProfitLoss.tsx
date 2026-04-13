@@ -1,12 +1,11 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
-import { Button, ReportPageSkeleton } from '../../components';
+import { ReportPageSkeleton } from '../../components';
 import { theme } from '../../theme';
-import { useOrders, useBills, useTransactions, useCategories } from '../../src/hooks/useQueries';
-import { OrderStatus } from '../../types';
+import { useProfitLossReport } from '../../src/hooks/useQueries';
 
 const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal?: boolean; indent?: boolean }> = ({ label, amount, isBold, isTotal, indent }) => (
   <div className={`flex justify-between py-2 ${isBold ? 'font-bold text-gray-900' : 'text-gray-600'} ${isTotal ? 'border-t-2 border-gray-100 pt-4 mt-2' : ''} ${indent ? 'pl-6' : ''}`}>
@@ -17,105 +16,14 @@ const PLRow: React.FC<{ label: string; amount: number; isBold?: boolean; isTotal
 
 const ProfitLoss: React.FC = () => {
   const navigate = useNavigate();
-  const { data: orders = [], isPending: ordersLoading } = useOrders();
-  const { data: bills = [], isPending: billsLoading } = useBills();
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
-  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
-  
-  // Create category map for ID -> name lookup
-  const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
-  
   // Date range filter state
   type DateRangeType = 'currentYear' | 'currentMonth' | 'custom';
   const [dateRange, setDateRange] = useState<DateRangeType>('currentYear');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
-  const isLoading = ordersLoading || billsLoading || transactionsLoading || categoriesLoading;
-
-  // Helper to check if date is within selected range
-  const isWithinRange = (dateStr: string) => {
-    if (!dateStr) return false;
-    const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return false;
-    const now = new Date();
-    
-    if (dateRange === 'currentYear') {
-      return date.getFullYear() === now.getFullYear();
-    } else if (dateRange === 'currentMonth') {
-      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
-    } else if (dateRange === 'custom') {
-      const fromDate = customFrom ? new Date(customFrom) : null;
-      const toDate = customTo ? new Date(customTo) : null;
-
-      if (fromDate && !Number.isNaN(fromDate.getTime())) {
-        fromDate.setHours(0, 0, 0, 0);
-        if (date < fromDate) return false;
-      }
-
-      if (toDate && !Number.isNaN(toDate.getTime())) {
-        toDate.setHours(23, 59, 59, 999);
-        if (date > toDate) return false;
-      }
-
-      return true;
-    }
-    return true;
-  };
-
-  // Filter and calculate P&L based on date range
-  const plData = useMemo(() => {
-    // Prefer sales from transactions (Income type), fallback to completed orders
-    const salesFromTransactions = transactions
-      .filter(t => t.type === 'Income' && !!t.referenceId && isWithinRange(t.date))
-      .reduce((s, t) => s + t.amount, 0);
-
-    const grossSales = salesFromTransactions > 0
-      ? salesFromTransactions
-      : orders.filter(o => o.status === OrderStatus.COMPLETED && isWithinRange(o.orderDate))
-          .reduce((s, o) => s + o.total, 0);
-    
-    // Prefer purchases from transactions (Expense type with expense_purchases category), fallback to bills
-    const purchasesFromTransactions = transactions
-      .filter(t => t.type === 'Expense' && t.category === 'expense_purchases' && isWithinRange(t.date))
-      .reduce((s, t) => s + t.amount, 0);
-
-    const costOfPurchases = purchasesFromTransactions > 0
-      ? purchasesFromTransactions
-      : bills.filter(b => isWithinRange(b.billDate))
-          .reduce((s, b) => s + b.total, 0);
-    
-    const grossProfit = grossSales - costOfPurchases;
-
-    // Aggregate operating expenses by category name (not individual transactions)
-    const expensesByCategory: Record<string, number> = {};
-    const operatingExpenseTransactions = transactions.filter(t =>
-      t.type === 'Expense' &&
-      t.category !== 'expense_purchases' &&
-      isWithinRange(t.date)
-    );
-
-    operatingExpenseTransactions.forEach(txn => {
-      const categoryName = categoryMap.get(txn.category) || txn.category || 'Uncategorized';
-      expensesByCategory[categoryName] = (expensesByCategory[categoryName] || 0) + txn.amount;
-    });
-
-    const expenses = Object.entries(expensesByCategory)
-      .map(([categoryName, amount]) => ({ categoryName, amount }))
-      .sort((a, b) => b.amount - a.amount); // Sort by amount descending
-
-    const totalOperatingExpenses = Object.values(expensesByCategory).reduce((s, amt) => s + amt, 0);
-    
-    const netProfit = grossProfit - totalOperatingExpenses;
-
-    return {
-      grossSales,
-      costOfPurchases,
-      grossProfit,
-      expenses,
-      totalOperatingExpenses,
-      netProfit
-    };
-  }, [orders, bills, transactions, dateRange, customFrom, customTo, categoryMap]);
+  const reportFilterRange = dateRange === 'currentMonth' ? 'This Month' : dateRange === 'custom' ? 'Custom' : 'This Year';
+  const { data: plData, isPending: isLoading } = useProfitLossReport(reportFilterRange, { from: customFrom, to: customTo });
+  const expenseRows = plData?.expenses || [];
 
   if (isLoading) {
     return <ReportPageSkeleton cards={4} showChart={false} showFilters tableColumns={2} tableRows={8} />;
@@ -213,31 +121,31 @@ const ProfitLoss: React.FC = () => {
 
         <div className="p-8 space-y-2">
           <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Revenue</h4>
-          <PLRow label="Gross Sales (Completed Orders)" amount={plData.grossSales} />
+          <PLRow label="Gross Sales (Completed Orders)" amount={plData?.grossSales || 0} />
           <PLRow label="Other Operating Income" amount={0} />
-          <PLRow label="Total Revenue" amount={plData.grossSales} isBold isTotal />
+          <PLRow label="Total Revenue" amount={plData?.grossSales || 0} isBold isTotal />
 
           <div className="pt-8">
             <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Cost of Goods Sold</h4>
-            <PLRow label="Purchases" amount={plData.costOfPurchases} />
-            <PLRow label="Total COGS" amount={plData.costOfPurchases} isBold isTotal />
+            <PLRow label="Purchases" amount={plData?.costOfPurchases || 0} />
+            <PLRow label="Total COGS" amount={plData?.costOfPurchases || 0} isBold isTotal />
           </div>
 
           <div className="pt-8">
-            <PLRow label="Gross Profit" amount={plData.grossProfit} isBold />
+            <PLRow label="Gross Profit" amount={plData?.grossProfit || 0} isBold />
           </div>
 
           <div className="pt-8">
             <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Operating Expenses</h4>
-            {plData.expenses.length > 0 ? (
+            {expenseRows.length > 0 ? (
               <>
-                {plData.expenses.slice(0, 5).map((e, i) => (
+                {expenseRows.slice(0, 5).map((e, i) => (
                   <PLRow key={i} label={e.categoryName} amount={e.amount} indent />
                 ))}
-                {plData.expenses.length > 5 && (
+                {expenseRows.length > 5 && (
                   <PLRow 
                     label="Other Expenses" 
-                    amount={plData.expenses.slice(5).reduce((s,e) => s+e.amount, 0)} 
+                    amount={expenseRows.slice(5).reduce((s,e) => s+e.amount, 0)} 
                     indent 
                   />
                 )}
@@ -245,13 +153,13 @@ const ProfitLoss: React.FC = () => {
             ) : (
               <PLRow label="None" amount={0} indent />
             )}
-            <PLRow label="Total Operating Expenses" amount={plData.totalOperatingExpenses} isBold isTotal />
+            <PLRow label="Total Operating Expenses" amount={plData?.totalOperatingExpenses || 0} isBold isTotal />
           </div>
 
           <div className="pt-12">
-            <div className={`p-6 rounded-lg flex justify-between items-center ${plData.netProfit >= 0 ? theme.colors.primary[600] : 'bg-red-600'} text-white shadow-xl`}>
+            <div className={`p-6 rounded-lg flex justify-between items-center ${(plData?.netProfit || 0) >= 0 ? theme.colors.primary[600] : 'bg-red-600'} text-white shadow-xl`}>
               <span className="text-lg font-black uppercase tracking-widest">Net Profit / Loss</span>
-              <span className="text-lg font-black">{formatCurrency(plData.netProfit)}</span>
+              <span className="text-lg font-black">{formatCurrency(plData?.netProfit || 0)}</span>
             </div>
           </div>
         </div>

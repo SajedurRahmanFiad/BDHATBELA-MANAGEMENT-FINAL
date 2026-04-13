@@ -153,7 +153,7 @@ const Orders: React.FC = () => {
     enabled: canLoadOrders,
   });
   const orders = ordersPage?.data ?? [];
-  const showInitialOrdersLoading = !canLoadOrders || (ordersLoading && orders.length === 0);
+  const showOrdersTableLoading = !canLoadOrders || ordersLoading;
   const totalOrdersCount = ordersPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalOrdersCount / pageSize));
 
@@ -488,11 +488,6 @@ const Orders: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
-        {ordersLoading && orders.length > 0 && (
-          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
-            Updating orders...
-          </div>
-        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -506,7 +501,7 @@ const Orders: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {showInitialOrdersLoading ? (
+              {showOrdersTableLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : displayedOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No sales orders found for this period.</td></tr>
@@ -528,13 +523,20 @@ const Orders: React.FC = () => {
                   || canSendSelectedOrderToCourier
                   || canTrackSelectedOrder;
                 return (
-                  <tr 
-                    key={order.id} 
-                    onMouseEnter={() => setHoveredRow(order.id)} 
-                    onMouseLeave={() => setHoveredRow(null)} 
-                    onClick={() => navigate(`/orders/${order.id}`, { state: buildHistoryBackState(location) })} 
-                    className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
-                  >
+                <tr 
+                  key={order.id} 
+                  onMouseEnter={() => {
+                    setHoveredRow(order.id);
+                    queryClient.prefetchQuery({
+                      queryKey: ['order', order.id],
+                      queryFn: () => fetchOrderById(order.id),
+                      staleTime: 5 * 60 * 1000,
+                    }).catch(() => {});
+                  }} 
+                  onMouseLeave={() => setHoveredRow(null)} 
+                  onClick={() => navigate(`/orders/${order.id}`, { state: buildHistoryBackState(location) })} 
+                  className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"
+                >
                     <td className="px-6 py-5">
                       <span className="font-black text-gray-900">#{order.orderNumber}</span>
                       <p className="text-[10px] text-gray-400 font-bold mt-1 tracking-tight">{formatDate(getOrderActivityDate(order))}</p>

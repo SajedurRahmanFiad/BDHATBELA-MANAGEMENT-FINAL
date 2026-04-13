@@ -120,7 +120,7 @@ const Bills: React.FC = () => {
     enabled: canLoadBills,
   });
   const bills = billsPage?.data ?? [];
-  const showInitialBillsLoading = !canLoadBills || (billsLoading && bills.length === 0);
+  const showBillsTableLoading = !canLoadBills || billsLoading;
   const total = billsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -317,11 +317,6 @@ const Bills: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
-        {billsLoading && bills.length > 0 && (
-          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
-            Updating bills...
-          </div>
-        )}
         <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full text-left">
             <thead>
@@ -335,7 +330,7 @@ const Bills: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {showInitialBillsLoading ? (
+              {showBillsTableLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredBills.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 italic font-medium">No purchase bills found for this period.</td></tr>
@@ -347,7 +342,14 @@ const Bills: React.FC = () => {
                 return (
                 <tr 
                   key={bill.id} 
-                  onMouseEnter={() => setHoveredRow(bill.id)} 
+                  onMouseEnter={() => {
+                    setHoveredRow(bill.id);
+                    queryClient.prefetchQuery({
+                      queryKey: ['bill', bill.id],
+                      queryFn: () => fetchBillById(bill.id),
+                      staleTime: 5 * 60 * 1000,
+                    }).catch(() => {});
+                  }} 
                   onMouseLeave={() => setHoveredRow(null)} 
                   onClick={() => navigate(`/bills/${bill.id}`, { state: buildHistoryBackState(location) })} 
                   className="group relative hover:bg-[#ebf4ff]/20 cursor-pointer transition-all"

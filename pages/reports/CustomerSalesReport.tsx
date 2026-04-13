@@ -1,24 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FilterBar, { FilterRange } from '../../components/FilterBar';
 import { ReportPageSkeleton } from '../../components';
-import { useOrders } from '../../src/hooks/useQueries';
+import { useCustomerSalesReportData } from '../../src/hooks/useQueries';
 import { formatCurrency } from '../../constants';
 import { useSearch } from '../../src/contexts/SearchContext';
-import { buildCustomerSalesRows } from '../../src/utils/salesReportUtils';
 
 const CustomerSalesReport: React.FC = () => {
   const navigate = useNavigate();
-  const { data: orders = [], isPending: ordersLoading } = useOrders();
   const { searchQuery } = useSearch();
   const [filterRange, setFilterRange] = useState<FilterRange>('All Time');
   const [customDates, setCustomDates] = useState({ from: '', to: '' });
+  const deferredSearchQuery = React.useDeferredValue(searchQuery);
+  const { data, isPending } = useCustomerSalesReportData(filterRange, customDates, deferredSearchQuery);
+  const rows = data?.rows || [];
 
-  const rows = useMemo(() => {
-    return buildCustomerSalesRows(orders, filterRange, customDates, searchQuery);
-  }, [orders, filterRange, customDates, searchQuery]);
-
-  if (ordersLoading) {
+  if (isPending) {
     return <ReportPageSkeleton cards={0} showChart={false} showFilters tableColumns={4} tableRows={8} />;
   }
 

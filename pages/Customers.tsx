@@ -13,7 +13,7 @@ import { useDeleteCustomer } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
-import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, fetchCustomerById, getErrorMessage } from '../src/services/supabaseQueries';
 import { useMemo, useEffect } from 'react';
 import { isTempId } from '../src/utils/optimisticIdMap';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
@@ -241,6 +241,13 @@ const Customers: React.FC = () => {
         ]}
         data={filteredCustomers}
         loading={!canLoadCustomers || isFetching}
+        onRowHover={(customer) => {
+          queryClient.prefetchQuery({
+            queryKey: ['customer', customer.id],
+            queryFn: () => fetchCustomerById(customer.id),
+            staleTime: 5 * 60 * 1000,
+          }).catch(() => {});
+        }}
         onRowClick={(customer) => navigate(`/customers/${customer.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No customers found"
       />

@@ -4,13 +4,20 @@ import type {
   Bill,
   CompanySettings,
   Customer,
+  CustomerSalesReportData,
   Order,
   PayrollPayment,
   PayrollSettings,
   PayrollSummaryRow,
   Product,
   DashboardSnapshot,
+  ExpenseSummaryCsvRow,
+  ExpenseSummaryReport,
+  IncomeSummaryReport,
+  IncomeVsExpenseReport,
   PermissionsSettings,
+  ProductQuantitySoldReport,
+  ProfitLossReport,
   RecycleBinEntityType,
   RecycleBinItem,
   Transaction,
@@ -60,6 +67,27 @@ export async function fetchOrderSearchPreview(search: string, limit: number = 10
 export async function fetchDashboardSnapshot(params?: { filterRange?: string; customDates?: { from?: string; to?: string } }) {
   return call<DashboardSnapshot>('fetchDashboardSnapshot', params || {});
 }
+export async function fetchIncomeSummaryReport() {
+  return call<IncomeSummaryReport>('fetchIncomeSummaryReport');
+}
+export async function fetchExpenseSummaryReport() {
+  return call<ExpenseSummaryReport>('fetchExpenseSummaryReport');
+}
+export async function fetchExpenseSummaryCsv() {
+  return call<ExpenseSummaryCsvRow[]>('fetchExpenseSummaryCsv');
+}
+export async function fetchIncomeVsExpenseReport() {
+  return call<IncomeVsExpenseReport>('fetchIncomeVsExpenseReport');
+}
+export async function fetchProfitLossReport(params?: { filterRange?: string; customDates?: { from?: string; to?: string } }) {
+  return call<ProfitLossReport>('fetchProfitLossReport', params || {});
+}
+export async function fetchProductQuantitySoldReport(params?: { filterRange?: string; customDates?: { from?: string; to?: string }; search?: string }) {
+  return call<ProductQuantitySoldReport>('fetchProductQuantitySoldReport', params || {});
+}
+export async function fetchCustomerSalesReport(params?: { filterRange?: string; customDates?: { from?: string; to?: string }; search?: string }) {
+  return call<CustomerSalesReportData>('fetchCustomerSalesReport', params || {});
+}
 export async function fetchOrdersPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { status?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }) {
   return call<{ data: Order[]; count: number }>('fetchOrdersPage', { page, pageSize, filters });
 }
@@ -81,7 +109,7 @@ export async function updateAccount(id: string, updates: Partial<Account>) { ret
 export async function deleteAccount(id: string) { await remove('deleteAccount', id); }
 
 export async function fetchTransactions() { return call<Transaction[]>('fetchTransactions'); }
-export async function fetchTransactionsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }) {
+export async function fetchTransactionsPage(page: number = 1, pageSize: number = DEFAULT_PAGE_SIZE, filters?: { type?: string; category?: string; from?: string; to?: string; search?: string; createdByIds?: string[] }) {
   return call<{ data: Transaction[]; count: number }>('fetchTransactionsPage', { page, pageSize, filters });
 }
 export async function fetchTransactionById(id: string) { return call<Transaction | null>('fetchTransactionById', { id }); }

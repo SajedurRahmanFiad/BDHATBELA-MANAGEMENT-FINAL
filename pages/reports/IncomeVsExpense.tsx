@@ -1,66 +1,16 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatCurrency, ICONS } from '../../constants';
 import { Button, ReportPageSkeleton } from '../../components';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useTransactions } from '../../src/hooks/useQueries';
+import { useIncomeVsExpenseReport } from '../../src/hooks/useQueries';
 
 const IncomeVsExpense: React.FC = () => {
   const navigate = useNavigate();
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
+  const { data, isPending } = useIncomeVsExpenseReport();
+  const chartData = data?.chartData || [];
 
-  const chartData = useMemo(() => {
-    const now = new Date();
-    const buckets = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-      return {
-        key: `${date.getFullYear()}-${date.getMonth()}`,
-        name: date.toLocaleDateString('en-BD', { month: 'short' }),
-        label: date.toLocaleDateString('en-BD', { month: 'short', year: 'numeric' }),
-        income: 0,
-        expense: 0,
-      };
-    });
-
-    const bucketMap = new Map(buckets.map((bucket) => [bucket.key, bucket]));
-
-    transactions.forEach((transaction) => {
-      const transactionDate = new Date(transaction.date || transaction.createdAt || '');
-      if (Number.isNaN(transactionDate.getTime())) return;
-
-      const bucket = bucketMap.get(`${transactionDate.getFullYear()}-${transactionDate.getMonth()}`);
-      if (!bucket) return;
-
-      if (transaction.type === 'Income') {
-        bucket.income += Number(transaction.amount || 0);
-      } else if (transaction.type === 'Expense') {
-        bucket.expense += Number(transaction.amount || 0);
-      }
-    });
-
-    return buckets.map((bucket) => ({
-      name: bucket.name,
-      label: bucket.label,
-      income: bucket.income,
-      expense: bucket.expense,
-      profit: bucket.income - bucket.expense,
-    }));
-  }, [transactions]);
-
-  const totalIncome = chartData.reduce((sum, entry) => sum + entry.income, 0);
-  const totalExpense = chartData.reduce((sum, entry) => sum + entry.expense, 0);
-  const averageProfit = chartData.length > 0 ? (totalIncome - totalExpense) / chartData.length : 0;
-  const monthsWithActivity = chartData.filter((entry) => entry.income > 0 || entry.expense > 0);
-  const highestRevenueMonth = monthsWithActivity.reduce<typeof chartData[number] | null>((best, current) => {
-    if (!best || current.income > best.income) return current;
-    return best;
-  }, null);
-  const lowestExpenseMonth = monthsWithActivity.reduce<typeof chartData[number] | null>((best, current) => {
-    if (!best || current.expense < best.expense) return current;
-    return best;
-  }, null);
-
-  if (transactionsLoading) {
+  if (isPending) {
     return <ReportPageSkeleton cards={3} showChart tableColumns={0} />;
   }
 
@@ -105,20 +55,20 @@ const IncomeVsExpense: React.FC = () => {
         {[
           {
             label: 'Highest Revenue Month',
-            value: highestRevenueMonth?.label || 'N/A',
-            amount: highestRevenueMonth?.income || 0,
+            value: data?.highestRevenueMonth?.label || 'N/A',
+            amount: data?.highestRevenueMonth?.amount || 0,
             color: '',
           },
           {
             label: 'Least Expense Month',
-            value: lowestExpenseMonth?.label || 'N/A',
-            amount: lowestExpenseMonth?.expense || 0,
+            value: data?.lowestExpenseMonth?.label || 'N/A',
+            amount: data?.lowestExpenseMonth?.amount || 0,
             color: '',
           },
           {
             label: 'Average Monthly Profit',
             value: 'Monthly Avg',
-            amount: averageProfit,
+            amount: data?.averageProfit || 0,
             color: 'text-purple-600',
           },
         ].map((stat, index) => (

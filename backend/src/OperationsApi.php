@@ -1708,6 +1708,59 @@ final class OperationsApi extends BaseService
         }
     }
 
+    private function ensureReportsViewPermission(): void
+    {
+        if (!$this->currentUserHasPermission('reports.view')) {
+            throw new RuntimeException('You do not have permission to view reports.');
+        }
+    }
+
+    private function normalizeReportSearchTerm(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return function_exists('mb_strtolower')
+            ? mb_strtolower($trimmed, 'UTF-8')
+            : strtolower($trimmed);
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     */
+    private function normalizeProfitLossFilterParams(array $params): array
+    {
+        $filterRange = trim((string) ($params['filterRange'] ?? ''));
+        $dateRange = trim((string) ($params['dateRange'] ?? ''));
+        $customDates = is_array($params['customDates'] ?? null) ? $params['customDates'] : [];
+
+        if ($dateRange !== '' && $filterRange === '') {
+            if ($dateRange === 'currentMonth') {
+                $filterRange = 'This Month';
+            } elseif ($dateRange === 'custom') {
+                $filterRange = 'Custom';
+                $customDates = [
+                    'from' => trim((string) ($params['customFrom'] ?? ($customDates['from'] ?? ''))),
+                    'to' => trim((string) ($params['customTo'] ?? ($customDates['to'] ?? ''))),
+                ];
+            } else {
+                $filterRange = 'This Year';
+            }
+        }
+
+        if ($filterRange === '') {
+            $filterRange = 'This Year';
+        }
+
+        return [
+            'filterRange' => $filterRange,
+            'customDates' => $customDates,
+        ];
+    }
+
     /**
      * @param array<string, string|null> $filters
      * @return array<string, mixed>
@@ -2119,6 +2172,585 @@ final class OperationsApi extends BaseService
             'admin' => $canViewAdminDashboard ? $this->buildDashboardAdminSnapshot($filters) : null,
             'employee' => $canViewEmployeeDashboard ? $this->buildDashboardEmployeeSnapshot($filters) : null,
             'refreshedAt' => gmdate('c'),
+        ];
+    }
+
+    public function fetchIncomeSummaryReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $conditions = [
+            't.deleted_at IS NULL',
+            "t.type = 'Income'",
+        ];
+        $bindings = [];
+        $this->applyDashboardDateTimeBounds('t.date', $filters, $conditions, $bindings, 'income_summary');
+
+        $summary = $this->database->fetchOne(
+            'SELECT
+                COALESCE(SUM(t.amount), 0) AS totalRevenue,
+                COUNT(*) AS transactionCount
+             FROM transactions t
+             WHERE ' . implode(' AND ', $conditions),
+            $bindings
+        ) ?? [];
+
+        $revenueMixRows = $this->database->fetchAll(
+            'SELECT
+                COALESCE(NULLIF(c.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS name,
+                COALESCE(SUM(t.amount), 0) AS value
+             FROM transactions t
+             LEFT JOIN categories c ON c.id = t.category
+             WHERE ' . implode(' AND ', $conditions) . '
+             GROUP BY name
+             ORDER BY value DESC',
+            $bindings
+        );
+
+        $topCustomerConditions = [
+            'o.deleted_at IS NULL',
+            'o.status = :income_summary_completed_status',
+        ];
+        $topCustomerBindings = [':income_summary_completed_status' => 'Completed'];
+        $this->applyDashboardDateBounds('o.order_date', $filters, $topCustomerConditions, $topCustomerBindings, 'income_summary_customer');
+
+        $topCustomerRows = $this->database->fetchAll(
+            'SELECT
+                o.customer_id AS customerId,
+                COALESCE(NULLIF(c.name, \'\'), \'Unknown Customer\') AS customerName,
+                COALESCE(SUM(o.total), 0) AS revenue
+             FROM orders o
+             LEFT JOIN customers c ON c.id = o.customer_id
+             WHERE ' . implode(' AND ', $topCustomerConditions) . '
+             GROUP BY o.customer_id, c.name
+             ORDER BY revenue DESC
+             LIMIT 3',
+            $topCustomerBindings
+        );
+
+        $totalRevenue = (float) ($summary['totalRevenue'] ?? 0);
+        $transactionCount = (int) ($summary['transactionCount'] ?? 0);
+
+        return [
+            'totalRevenue' => $totalRevenue,
+            'averageTransactionSize' => $transactionCount > 0 ? $totalRevenue / $transactionCount : 0,
+            'revenueMix' => array_map(
+                static fn (array $row): array => [
+                    'name' => (string) ($row['name'] ?? 'Uncategorized'),
+                    'value' => (float) ($row['value'] ?? 0),
+                ],
+                $revenueMixRows
+            ),
+            'topCustomers' => array_map(
+                static fn (array $row): array => [
+                    'id' => (string) ($row['customerId'] ?? ''),
+                    'name' => (string) ($row['customerName'] ?? 'Unknown Customer'),
+                    'revenue' => (float) ($row['revenue'] ?? 0),
+                ],
+                $topCustomerRows
+            ),
+        ];
+    }
+
+    public function fetchExpenseSummaryReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $conditions = [
+            't.deleted_at IS NULL',
+            "t.type = 'Expense'",
+        ];
+        $bindings = [];
+        $this->applyDashboardDateTimeBounds('t.date', $filters, $conditions, $bindings, 'expense_summary');
+
+        $summary = $this->database->fetchOne(
+            'SELECT COALESCE(SUM(t.amount), 0) AS totalOutflow
+             FROM transactions t
+             WHERE ' . implode(' AND ', $conditions),
+            $bindings
+        ) ?? [];
+
+        $categoryRows = $this->database->fetchAll(
+            'SELECT
+                COALESCE(NULLIF(c.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS name,
+                COALESCE(SUM(t.amount), 0) AS value
+             FROM transactions t
+             LEFT JOIN categories c ON c.id = t.category
+             WHERE ' . implode(' AND ', $conditions) . '
+             GROUP BY name
+             ORDER BY value DESC',
+            $bindings
+        );
+
+        $recentRows = $this->database->fetchAll(
+            'SELECT
+                t.id,
+                t.date,
+                COALESCE(NULLIF(c.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS categoryName,
+                t.amount
+             FROM transactions t
+             LEFT JOIN categories c ON c.id = t.category
+             WHERE ' . implode(' AND ', $conditions) . '
+             ORDER BY t.date DESC, t.created_at DESC
+             LIMIT 10',
+            $bindings
+        );
+
+        return [
+            'totalOutflow' => (float) ($summary['totalOutflow'] ?? 0),
+            'byCategory' => array_map(
+                static fn (array $row): array => [
+                    'name' => (string) ($row['name'] ?? 'Uncategorized'),
+                    'value' => (float) ($row['value'] ?? 0),
+                ],
+                $categoryRows
+            ),
+            'recentExpenses' => array_map(
+                fn (array $row): array => [
+                    'id' => (string) ($row['id'] ?? ''),
+                    'date' => $this->toIso($row['date'] ?? null) ?? (string) ($row['date'] ?? ''),
+                    'categoryName' => (string) ($row['categoryName'] ?? 'Uncategorized'),
+                    'amount' => (float) ($row['amount'] ?? 0),
+                ],
+                $recentRows
+            ),
+        ];
+    }
+
+    public function fetchExpenseSummaryCsv(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $conditions = [
+            't.deleted_at IS NULL',
+            "t.type = 'Expense'",
+        ];
+        $bindings = [];
+        $this->applyDashboardDateTimeBounds('t.date', $filters, $conditions, $bindings, 'expense_summary_csv');
+
+        $rows = $this->database->fetchAll(
+            'SELECT
+                t.date,
+                COALESCE(NULLIF(cat.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS categoryName,
+                COALESCE(NULLIF(v.name, \'\'), NULLIF(cu.name, \'\'), \'N/A\') AS contactName,
+                COALESCE(NULLIF(a.name, \'\'), \'N/A\') AS accountName,
+                t.amount,
+                t.description
+             FROM transactions t
+             LEFT JOIN categories cat ON cat.id = t.category
+             LEFT JOIN vendors v ON v.id = t.contact_id
+             LEFT JOIN customers cu ON cu.id = t.contact_id
+             LEFT JOIN accounts a ON a.id = t.account_id
+             WHERE ' . implode(' AND ', $conditions) . '
+             ORDER BY t.date DESC, t.created_at DESC',
+            $bindings
+        );
+
+        return array_map(
+            fn (array $row): array => [
+                'date' => $this->toIso($row['date'] ?? null) ?? (string) ($row['date'] ?? ''),
+                'categoryName' => (string) ($row['categoryName'] ?? 'Uncategorized'),
+                'contactName' => (string) ($row['contactName'] ?? 'N/A'),
+                'accountName' => (string) ($row['accountName'] ?? 'N/A'),
+                'amount' => (float) ($row['amount'] ?? 0),
+                'description' => (string) ($row['description'] ?? ''),
+            ],
+            $rows
+        );
+    }
+
+    public function fetchIncomeVsExpenseReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $localTimezone = new \DateTimeZone($this->config->timezone());
+        $utcTimezone = $this->utcTimezone();
+        $nowLocal = new \DateTimeImmutable('now', $localTimezone);
+        $startLocal = $nowLocal->modify('first day of this month')->setTime(0, 0, 0)->modify('-5 months');
+        $endLocal = $nowLocal->modify('first day of next month')->setTime(0, 0, 0);
+
+        $buckets = [];
+        $bucketOrder = [];
+        for ($offset = 0; $offset < 6; $offset += 1) {
+            $month = $startLocal->modify('+' . $offset . ' months');
+            $key = $month->format('Y-n');
+            $buckets[$key] = [
+                'name' => $month->format('M'),
+                'label' => $month->format('M Y'),
+                'income' => 0.0,
+                'expense' => 0.0,
+                'profit' => 0.0,
+            ];
+            $bucketOrder[] = $key;
+        }
+
+        $rows = $this->database->fetchAll(
+            'SELECT date, type, amount
+             FROM transactions
+             WHERE deleted_at IS NULL
+               AND date >= :income_vs_expense_from
+               AND date < :income_vs_expense_to',
+            [
+                ':income_vs_expense_from' => $startLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+                ':income_vs_expense_to' => $endLocal->setTimezone($utcTimezone)->format('Y-m-d H:i:s'),
+            ]
+        );
+
+        foreach ($rows as $row) {
+            $date = $this->parseDateTimeValue((string) ($row['date'] ?? ''), $utcTimezone);
+            if (!$date instanceof \DateTimeImmutable) {
+                continue;
+            }
+
+            $bucketKey = $date->setTimezone($localTimezone)->format('Y-n');
+            if (!isset($buckets[$bucketKey])) {
+                continue;
+            }
+
+            $amount = (float) ($row['amount'] ?? 0);
+            $type = (string) ($row['type'] ?? '');
+            if ($type === 'Income') {
+                $buckets[$bucketKey]['income'] += $amount;
+                $buckets[$bucketKey]['profit'] += $amount;
+            } elseif ($type === 'Expense') {
+                $buckets[$bucketKey]['expense'] += $amount;
+                $buckets[$bucketKey]['profit'] -= $amount;
+            }
+        }
+
+        $chartData = array_map(
+            static fn (string $key): array => $buckets[$key],
+            $bucketOrder
+        );
+
+        $totalIncome = 0.0;
+        $totalExpense = 0.0;
+        $highestRevenueMonth = null;
+        $lowestExpenseMonth = null;
+
+        foreach ($chartData as $entry) {
+            $totalIncome += (float) ($entry['income'] ?? 0);
+            $totalExpense += (float) ($entry['expense'] ?? 0);
+
+            $hasActivity = (float) ($entry['income'] ?? 0) > 0 || (float) ($entry['expense'] ?? 0) > 0;
+            if (!$hasActivity) {
+                continue;
+            }
+
+            if ($highestRevenueMonth === null || (float) $entry['income'] > (float) $highestRevenueMonth['amount']) {
+                $highestRevenueMonth = [
+                    'label' => (string) ($entry['label'] ?? ''),
+                    'amount' => (float) ($entry['income'] ?? 0),
+                ];
+            }
+
+            if ($lowestExpenseMonth === null || (float) $entry['expense'] < (float) $lowestExpenseMonth['amount']) {
+                $lowestExpenseMonth = [
+                    'label' => (string) ($entry['label'] ?? ''),
+                    'amount' => (float) ($entry['expense'] ?? 0),
+                ];
+            }
+        }
+
+        return [
+            'chartData' => $chartData,
+            'totalIncome' => $totalIncome,
+            'totalExpense' => $totalExpense,
+            'averageProfit' => count($chartData) > 0 ? ($totalIncome - $totalExpense) / count($chartData) : 0,
+            'highestRevenueMonth' => $highestRevenueMonth,
+            'lowestExpenseMonth' => $lowestExpenseMonth,
+        ];
+    }
+
+    public function fetchProfitLossReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($this->normalizeProfitLossFilterParams($params));
+
+        $transactionConditions = ['deleted_at IS NULL'];
+        $transactionBindings = [];
+        $this->applyDashboardDateTimeBounds('date', $filters, $transactionConditions, $transactionBindings, 'profit_loss_txn');
+
+        $transactionSummary = $this->database->fetchOne(
+            'SELECT
+                COALESCE(SUM(CASE WHEN type = \'Income\' AND reference_id IS NOT NULL THEN amount ELSE 0 END), 0) AS salesFromTransactions,
+                COALESCE(SUM(CASE WHEN type = \'Expense\' AND category = \'expense_purchases\' THEN amount ELSE 0 END), 0) AS purchasesFromTransactions,
+                COALESCE(SUM(CASE WHEN type = \'Expense\' AND COALESCE(category, \'\') <> \'expense_purchases\' THEN amount ELSE 0 END), 0) AS otherExpenses
+             FROM transactions
+             WHERE ' . implode(' AND ', $transactionConditions),
+            $transactionBindings
+        ) ?? [];
+
+        $orderConditions = [
+            'deleted_at IS NULL',
+            'status = :profit_loss_completed_status',
+        ];
+        $orderBindings = [':profit_loss_completed_status' => 'Completed'];
+        $this->applyDashboardDateBounds('order_date', $filters, $orderConditions, $orderBindings, 'profit_loss_order');
+
+        $orderSummary = $this->database->fetchOne(
+            'SELECT COALESCE(SUM(total), 0) AS grossSales
+             FROM orders
+             WHERE ' . implode(' AND ', $orderConditions),
+            $orderBindings
+        ) ?? [];
+
+        $billConditions = ['deleted_at IS NULL'];
+        $billBindings = [];
+        $this->applyDashboardDateBounds('bill_date', $filters, $billConditions, $billBindings, 'profit_loss_bill');
+
+        $billSummary = $this->database->fetchOne(
+            'SELECT COALESCE(SUM(total), 0) AS totalPurchases
+             FROM bills
+             WHERE ' . implode(' AND ', $billConditions),
+            $billBindings
+        ) ?? [];
+
+        $expenseConditions = [
+            't.deleted_at IS NULL',
+            "t.type = 'Expense'",
+            "COALESCE(t.category, '') <> 'expense_purchases'",
+        ];
+        $expenseBindings = [];
+        $this->applyDashboardDateTimeBounds('t.date', $filters, $expenseConditions, $expenseBindings, 'profit_loss_expense');
+
+        $expenseRows = $this->database->fetchAll(
+            'SELECT
+                COALESCE(NULLIF(c.name, \'\'), NULLIF(t.category, \'\'), \'Uncategorized\') AS categoryName,
+                COALESCE(SUM(t.amount), 0) AS amount
+             FROM transactions t
+             LEFT JOIN categories c ON c.id = t.category
+             WHERE ' . implode(' AND ', $expenseConditions) . '
+             GROUP BY categoryName
+             ORDER BY amount DESC',
+            $expenseBindings
+        );
+
+        $salesFromTransactions = (float) ($transactionSummary['salesFromTransactions'] ?? 0);
+        $purchasesFromTransactions = (float) ($transactionSummary['purchasesFromTransactions'] ?? 0);
+        $grossSales = $salesFromTransactions > 0
+            ? $salesFromTransactions
+            : (float) ($orderSummary['grossSales'] ?? 0);
+        $costOfPurchases = $purchasesFromTransactions > 0
+            ? $purchasesFromTransactions
+            : (float) ($billSummary['totalPurchases'] ?? 0);
+        $grossProfit = $grossSales - $costOfPurchases;
+        $expenses = array_map(
+            static fn (array $row): array => [
+                'categoryName' => (string) ($row['categoryName'] ?? 'Uncategorized'),
+                'amount' => (float) ($row['amount'] ?? 0),
+            ],
+            $expenseRows
+        );
+        $totalOperatingExpenses = array_reduce(
+            $expenses,
+            static fn (float $carry, array $row): float => $carry + (float) ($row['amount'] ?? 0),
+            0.0
+        );
+
+        return [
+            'grossSales' => $grossSales,
+            'costOfPurchases' => $costOfPurchases,
+            'grossProfit' => $grossProfit,
+            'expenses' => $expenses,
+            'totalOperatingExpenses' => $totalOperatingExpenses,
+            'netProfit' => $grossProfit - $totalOperatingExpenses,
+        ];
+    }
+
+    public function fetchProductQuantitySoldReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $search = $this->normalizeReportSearchTerm((string) ($params['search'] ?? ''));
+        $conditions = [
+            'deleted_at IS NULL',
+            'status = :product_quantity_completed_status',
+        ];
+        $bindings = [':product_quantity_completed_status' => 'Completed'];
+        $this->applyDashboardDateBounds('order_date', $filters, $conditions, $bindings, 'product_quantity');
+
+        $rows = $this->database->fetchAll(
+            'SELECT items
+             FROM orders
+             WHERE ' . implode(' AND ', $conditions),
+            $bindings
+        );
+
+        $productMap = [];
+        foreach ($rows as $row) {
+            foreach ($this->jsonDecodeList($row['items'] ?? null) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $productName = trim((string) ($item['productName'] ?? '')) ?: 'Unnamed Product';
+                $key = trim((string) ($item['productId'] ?? '')) ?: $productName;
+                $quantity = (float) ($item['quantity'] ?? 0);
+                $revenue = (float) ($item['amount'] ?? 0);
+
+                if (!isset($productMap[$key])) {
+                    $productMap[$key] = [
+                        'productName' => $productName,
+                        'quantity' => 0.0,
+                        'revenue' => 0.0,
+                    ];
+                }
+
+                $productMap[$key]['quantity'] += $quantity;
+                $productMap[$key]['revenue'] += $revenue;
+            }
+        }
+
+        $reportRows = array_values($productMap);
+        usort($reportRows, static function (array $left, array $right): int {
+            if ((float) $right['quantity'] !== (float) $left['quantity']) {
+                return (float) $right['quantity'] <=> (float) $left['quantity'];
+            }
+
+            if ((float) $right['revenue'] !== (float) $left['revenue']) {
+                return (float) $right['revenue'] <=> (float) $left['revenue'];
+            }
+
+            return strcmp((string) ($left['productName'] ?? ''), (string) ($right['productName'] ?? ''));
+        });
+
+        if ($search !== '') {
+            $reportRows = array_values(array_filter(
+                $reportRows,
+                fn (array $row): bool => str_contains(
+                    $this->normalizeReportSearchTerm((string) ($row['productName'] ?? '')),
+                    $search
+                )
+            ));
+        }
+
+        $mappedRows = array_map(
+            static fn (array $row): array => [
+                'productName' => (string) ($row['productName'] ?? 'Unnamed Product'),
+                'quantity' => (float) ($row['quantity'] ?? 0),
+                'revenue' => (float) ($row['revenue'] ?? 0),
+            ],
+            $reportRows
+        );
+
+        return [
+            'rows' => $mappedRows,
+            'totalQty' => array_reduce(
+                $mappedRows,
+                static fn (float $carry, array $row): float => $carry + (float) ($row['quantity'] ?? 0),
+                0.0
+            ),
+        ];
+    }
+
+    public function fetchCustomerSalesReport(array $params = []): array
+    {
+        $this->ensureReportsViewPermission();
+
+        $filters = $this->buildDashboardDateFilters($params);
+        $search = $this->normalizeReportSearchTerm((string) ($params['search'] ?? ''));
+        $conditions = [
+            'o.deleted_at IS NULL',
+            'o.status = :customer_sales_completed_status',
+        ];
+        $bindings = [':customer_sales_completed_status' => 'Completed'];
+        $this->applyDashboardDateBounds('o.order_date', $filters, $conditions, $bindings, 'customer_sales');
+
+        $rows = $this->database->fetchAll(
+            'SELECT
+                o.customer_id AS customerId,
+                COALESCE(NULLIF(c.name, \'\'), \'Unknown Customer\') AS customerName,
+                o.total,
+                o.items
+             FROM orders o
+             LEFT JOIN customers c ON c.id = o.customer_id
+             WHERE ' . implode(' AND ', $conditions),
+            $bindings
+        );
+
+        $customerMap = [];
+        foreach ($rows as $row) {
+            $customerId = trim((string) ($row['customerId'] ?? ''));
+            $customerName = trim((string) ($row['customerName'] ?? '')) ?: 'Unknown Customer';
+            $key = $customerId !== '' ? $customerId : $customerName;
+
+            if (!isset($customerMap[$key])) {
+                $customerMap[$key] = [
+                    'name' => $customerName,
+                    'orders' => 0,
+                    'quantity' => 0.0,
+                    'amount' => 0.0,
+                ];
+            }
+
+            $customerMap[$key]['orders'] += 1;
+            $customerMap[$key]['amount'] += (float) ($row['total'] ?? 0);
+
+            foreach ($this->jsonDecodeList($row['items'] ?? null) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $customerMap[$key]['quantity'] += (float) ($item['quantity'] ?? 0);
+            }
+        }
+
+        $reportRows = array_values($customerMap);
+        usort($reportRows, static function (array $left, array $right): int {
+            if ((float) $right['amount'] !== (float) $left['amount']) {
+                return (float) $right['amount'] <=> (float) $left['amount'];
+            }
+
+            if ((int) $right['orders'] !== (int) $left['orders']) {
+                return (int) $right['orders'] <=> (int) $left['orders'];
+            }
+
+            return strcmp((string) ($left['name'] ?? ''), (string) ($right['name'] ?? ''));
+        });
+
+        if ($search !== '') {
+            $reportRows = array_values(array_filter(
+                $reportRows,
+                fn (array $row): bool => str_contains(
+                    $this->normalizeReportSearchTerm((string) ($row['name'] ?? '')),
+                    $search
+                )
+            ));
+        }
+
+        $mappedRows = array_map(
+            static fn (array $row): array => [
+                'name' => (string) ($row['name'] ?? 'Unknown Customer'),
+                'orders' => (int) ($row['orders'] ?? 0),
+                'quantity' => (float) ($row['quantity'] ?? 0),
+                'amount' => (float) ($row['amount'] ?? 0),
+            ],
+            $reportRows
+        );
+
+        return [
+            'rows' => $mappedRows,
+            'totalAmount' => array_reduce(
+                $mappedRows,
+                static fn (float $carry, array $row): float => $carry + (float) ($row['amount'] ?? 0),
+                0.0
+            ),
+            'totalOrders' => array_reduce(
+                $mappedRows,
+                static fn (int $carry, array $row): int => $carry + (int) ($row['orders'] ?? 0),
+                0
+            ),
+            'totalQuantity' => array_reduce(
+                $mappedRows,
+                static fn (float $carry, array $row): float => $carry + (float) ($row['quantity'] ?? 0),
+                0.0
+            ),
         ];
     }
 
@@ -2897,6 +3529,10 @@ final class OperationsApi extends BaseService
         if (!empty($filters['type'])) {
             $where .= ' AND type = :type';
             $bindings[':type'] = trim((string) $filters['type']);
+        }
+        if (!empty($filters['category'])) {
+            $where .= ' AND category = :category';
+            $bindings[':category'] = trim((string) $filters['category']);
         }
         if (!empty($filters['from'])) {
             $where .= ' AND date >= :from';

@@ -6,6 +6,13 @@ import {
   fetchOrders,
   fetchOrderSearchPreview,
   fetchDashboardSnapshot,
+  fetchIncomeSummaryReport,
+  fetchExpenseSummaryReport,
+  fetchExpenseSummaryCsv,
+  fetchIncomeVsExpenseReport,
+  fetchProfitLossReport,
+  fetchProductQuantitySoldReport,
+  fetchCustomerSalesReport,
   fetchOrdersPage,
   fetchOrderById,
   fetchOrdersByCustomerId,
@@ -66,11 +73,18 @@ import type {
   Vendor,
   Product,
   CompanySettings,
+  CustomerSalesReportData,
   DashboardSnapshot,
+  ExpenseSummaryCsvRow,
+  ExpenseSummaryReport,
+  IncomeSummaryReport,
+  IncomeVsExpenseReport,
   PermissionsSettings,
   PayrollPayment,
   PayrollSettings,
   PayrollSummaryRow,
+  ProductQuantitySoldReport,
+  ProfitLossReport,
   WalletActivityEntry,
   UserActivityPerformanceLogEntry,
   UserActivityPerformanceReportPage,
@@ -147,6 +161,129 @@ export function useDashboardSnapshot(
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
     retry: 1,
+  });
+}
+
+export function useIncomeSummaryReport(
+  options?: { enabled?: boolean }
+): UseQueryResult<IncomeSummaryReport, Error> {
+  return useQuery({
+    queryKey: ['reports', 'income-summary'],
+    queryFn: fetchIncomeSummaryReport,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useExpenseSummaryReport(
+  options?: { enabled?: boolean }
+): UseQueryResult<ExpenseSummaryReport, Error> {
+  return useQuery({
+    queryKey: ['reports', 'expense-summary'],
+    queryFn: fetchExpenseSummaryReport,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useExpenseSummaryCsv(
+  options?: { enabled?: boolean }
+): UseQueryResult<ExpenseSummaryCsvRow[], Error> {
+  return useQuery({
+    queryKey: ['reports', 'expense-summary', 'csv'],
+    queryFn: fetchExpenseSummaryCsv,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useIncomeVsExpenseReport(
+  options?: { enabled?: boolean }
+): UseQueryResult<IncomeVsExpenseReport, Error> {
+  return useQuery({
+    queryKey: ['reports', 'income-vs-expense'],
+    queryFn: fetchIncomeVsExpenseReport,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useProfitLossReport(
+  filterRange: string = 'This Year',
+  customDates: { from: string; to: string } = { from: '', to: '' },
+  options?: { enabled?: boolean }
+): UseQueryResult<ProfitLossReport, Error> {
+  const normalizedCustomDates = {
+    from: String(customDates?.from || ''),
+    to: String(customDates?.to || ''),
+  };
+
+  return useQuery({
+    queryKey: ['reports', 'profit-loss', filterRange, normalizedCustomDates.from, normalizedCustomDates.to],
+    queryFn: () =>
+      fetchProfitLossReport({
+        filterRange,
+        customDates: normalizedCustomDates,
+      }),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useProductQuantitySoldReport(
+  filterRange: string = 'All Time',
+  customDates: { from: string; to: string } = { from: '', to: '' },
+  search: string = '',
+  options?: { enabled?: boolean }
+): UseQueryResult<ProductQuantitySoldReport, Error> {
+  const normalizedCustomDates = {
+    from: String(customDates?.from || ''),
+    to: String(customDates?.to || ''),
+  };
+  const normalizedSearch = String(search || '').trim();
+
+  return useQuery({
+    queryKey: ['reports', 'product-quantity-sold', filterRange, normalizedCustomDates.from, normalizedCustomDates.to, normalizedSearch],
+    queryFn: () =>
+      fetchProductQuantitySoldReport({
+        filterRange,
+        customDates: normalizedCustomDates,
+        search: normalizedSearch,
+      }),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useCustomerSalesReportData(
+  filterRange: string = 'All Time',
+  customDates: { from: string; to: string } = { from: '', to: '' },
+  search: string = '',
+  options?: { enabled?: boolean }
+): UseQueryResult<CustomerSalesReportData, Error> {
+  const normalizedCustomDates = {
+    from: String(customDates?.from || ''),
+    to: String(customDates?.to || ''),
+  };
+  const normalizedSearch = String(search || '').trim();
+
+  return useQuery({
+    queryKey: ['reports', 'customer-sales', filterRange, normalizedCustomDates.from, normalizedCustomDates.to, normalizedSearch],
+    queryFn: () =>
+      fetchCustomerSalesReport({
+        filterRange,
+        customDates: normalizedCustomDates,
+        search: normalizedSearch,
+      }),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -292,7 +429,7 @@ export function useTransactions(): UseQueryResult<Transaction[], Error> {
 export function useTransactionsPage(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE,
-  filters?: { type?: string; from?: string; to?: string; search?: string; createdByIds?: string[] },
+  filters?: { type?: string; category?: string; from?: string; to?: string; search?: string; createdByIds?: string[] },
   options?: { enabled?: boolean }
 ): UseQueryResult<{ data: Transaction[]; count: number }, Error> {
   return useQuery({

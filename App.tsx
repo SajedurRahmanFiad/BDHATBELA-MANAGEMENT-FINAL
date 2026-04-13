@@ -11,6 +11,37 @@ import ToastContainer from './components/ToastContainer';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
 import { WRITE_FREEZE_ENABLED } from './src/config/incidentMode';
 
+type PreloadableComponent<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
+  preload: () => Promise<unknown>;
+};
+
+function lazyPage<T extends React.ComponentType<any>>(
+  importer: () => Promise<{ default: T }>
+): PreloadableComponent<T> {
+  const Component = lazy(importer) as PreloadableComponent<T>;
+  Component.preload = importer;
+  return Component;
+}
+
+function scheduleIdlePreload(task: () => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const idleApi = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (typeof idleApi.requestIdleCallback === 'function') {
+    const handle = idleApi.requestIdleCallback(task, { timeout: 2000 });
+    return () => idleApi.cancelIdleCallback?.(handle);
+  }
+
+  const timer = window.setTimeout(task, 600);
+  return () => window.clearTimeout(timer);
+}
+
 // Create a client for React Query
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,43 +64,43 @@ import { hasAdminAccess } from './types';
 import { useRolePermissions } from './src/hooks/useRolePermissions';
 import StartupScreen from './components/StartupScreen';
 
-const Login = lazy(() => import('./pages/Login'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Orders = lazy(() => import('./pages/Orders'));
-const OrderForm = lazy(() => import('./pages/OrderForm'));
-const OrderDetails = lazy(() => import('./pages/OrderDetails'));
-const Bills = lazy(() => import('./pages/Bills'));
-const BillForm = lazy(() => import('./pages/BillForm'));
-const BillDetails = lazy(() => import('./pages/BillDetails'));
-const Banking = lazy(() => import('./pages/Banking'));
-const Transactions = lazy(() => import('./pages/Transactions'));
-const TransactionForm = lazy(() => import('./pages/TransactionForm'));
-const Transfer = lazy(() => import('./pages/Transfer'));
-const Products = lazy(() => import('./pages/Products'));
-const ProductForm = lazy(() => import('./pages/ProductForm'));
-const Users = lazy(() => import('./pages/Users'));
-const UserForm = lazy(() => import('./pages/UserForm'));
-const UserDetails = lazy(() => import('./pages/UserDetails'));
-const SettingsPage = lazy(() => import('./pages/Settings'));
-const Customers = lazy(() => import('./pages/Customers'));
-const CustomerForm = lazy(() => import('./pages/CustomerForm'));
-const CustomerDetails = lazy(() => import('./pages/CustomerDetails'));
-const Vendors = lazy(() => import('./pages/Vendors'));
-const VendorForm = lazy(() => import('./pages/VendorForm'));
-const VendorDetails = lazy(() => import('./pages/VendorDetails'));
-const Reports = lazy(() => import('./pages/Reports'));
-const Payroll = lazy(() => import('./pages/Payroll'));
-const RecycleBin = lazy(() => import('./pages/RecycleBin'));
-const ExpenseSummary = lazy(() => import('./pages/reports/ExpenseSummary'));
-const IncomeSummary = lazy(() => import('./pages/reports/IncomeSummary'));
-const IncomeVsExpense = lazy(() => import('./pages/reports/IncomeVsExpense'));
-const ProfitLoss = lazy(() => import('./pages/reports/ProfitLoss'));
-const ProductQuantitySold = lazy(() => import('./pages/reports/ProductQuantitySold'));
-const CustomerSalesReport = lazy(() => import('./pages/reports/CustomerSalesReport'));
-const UserActivityPerformanceReport = lazy(() => import('./pages/reports/UserActivityPerformanceReport'));
-const PrintOrder = lazy(() => import('./pages/PrintOrder'));
-const PrintBill = lazy(() => import('./pages/PrintBill'));
-const WalletPage = lazy(() => import('./pages/Wallet'));
+const Login = lazyPage(() => import('./pages/Login'));
+const Dashboard = lazyPage(() => import('./pages/Dashboard'));
+const Orders = lazyPage(() => import('./pages/Orders'));
+const OrderForm = lazyPage(() => import('./pages/OrderForm'));
+const OrderDetails = lazyPage(() => import('./pages/OrderDetails'));
+const Bills = lazyPage(() => import('./pages/Bills'));
+const BillForm = lazyPage(() => import('./pages/BillForm'));
+const BillDetails = lazyPage(() => import('./pages/BillDetails'));
+const Banking = lazyPage(() => import('./pages/Banking'));
+const Transactions = lazyPage(() => import('./pages/Transactions'));
+const TransactionForm = lazyPage(() => import('./pages/TransactionForm'));
+const Transfer = lazyPage(() => import('./pages/Transfer'));
+const Products = lazyPage(() => import('./pages/Products'));
+const ProductForm = lazyPage(() => import('./pages/ProductForm'));
+const Users = lazyPage(() => import('./pages/Users'));
+const UserForm = lazyPage(() => import('./pages/UserForm'));
+const UserDetails = lazyPage(() => import('./pages/UserDetails'));
+const SettingsPage = lazyPage(() => import('./pages/Settings'));
+const Customers = lazyPage(() => import('./pages/Customers'));
+const CustomerForm = lazyPage(() => import('./pages/CustomerForm'));
+const CustomerDetails = lazyPage(() => import('./pages/CustomerDetails'));
+const Vendors = lazyPage(() => import('./pages/Vendors'));
+const VendorForm = lazyPage(() => import('./pages/VendorForm'));
+const VendorDetails = lazyPage(() => import('./pages/VendorDetails'));
+const Reports = lazyPage(() => import('./pages/Reports'));
+const Payroll = lazyPage(() => import('./pages/Payroll'));
+const RecycleBin = lazyPage(() => import('./pages/RecycleBin'));
+const ExpenseSummary = lazyPage(() => import('./pages/reports/ExpenseSummary'));
+const IncomeSummary = lazyPage(() => import('./pages/reports/IncomeSummary'));
+const IncomeVsExpense = lazyPage(() => import('./pages/reports/IncomeVsExpense'));
+const ProfitLoss = lazyPage(() => import('./pages/reports/ProfitLoss'));
+const ProductQuantitySold = lazyPage(() => import('./pages/reports/ProductQuantitySold'));
+const CustomerSalesReport = lazyPage(() => import('./pages/reports/CustomerSalesReport'));
+const UserActivityPerformanceReport = lazyPage(() => import('./pages/reports/UserActivityPerformanceReport'));
+const PrintOrder = lazyPage(() => import('./pages/PrintOrder'));
+const PrintBill = lazyPage(() => import('./pages/PrintBill'));
+const WalletPage = lazyPage(() => import('./pages/Wallet'));
 
 const RouteFallback: React.FC = () => (
   <div className="min-h-[40vh] flex items-center justify-center px-6 py-12 text-center text-sm font-medium text-gray-500">
@@ -115,7 +146,77 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
             ? '/users'
             : isAdmin
               ? '/settings'
-              : '/dashboard';
+            : '/dashboard';
+
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const preloaders = new Set<() => Promise<unknown>>();
+    if (canViewDashboard) preloaders.add(Dashboard.preload);
+    if (can('orders.view')) {
+      preloaders.add(Orders.preload);
+      preloaders.add(OrderDetails.preload);
+    }
+    if (can('orders.create') || canAny(['orders.editOwn', 'orders.editAny'])) {
+      preloaders.add(OrderForm.preload);
+    }
+    if (can('bills.view')) {
+      preloaders.add(Bills.preload);
+      preloaders.add(BillDetails.preload);
+    }
+    if (can('bills.create') || canAny(['bills.editOwn', 'bills.editAny'])) {
+      preloaders.add(BillForm.preload);
+    }
+    if (can('customers.view')) {
+      preloaders.add(Customers.preload);
+      preloaders.add(CustomerDetails.preload);
+    }
+    if (can('customers.create') || can('customers.edit')) {
+      preloaders.add(CustomerForm.preload);
+    }
+    if (can('vendors.view')) {
+      preloaders.add(Vendors.preload);
+      preloaders.add(VendorDetails.preload);
+    }
+    if (can('vendors.create') || can('vendors.edit')) {
+      preloaders.add(VendorForm.preload);
+    }
+    if (can('products.view')) preloaders.add(Products.preload);
+    if (can('products.create') || can('products.edit')) preloaders.add(ProductForm.preload);
+    if (can('transactions.view')) preloaders.add(Transactions.preload);
+    if (can('transactions.create') || can('transactions.edit')) preloaders.add(TransactionForm.preload);
+    if (can('accounts.view')) preloaders.add(Banking.preload);
+    if (can('transfers.create')) preloaders.add(Transfer.preload);
+    if (can('users.view')) {
+      preloaders.add(Users.preload);
+      preloaders.add(UserDetails.preload);
+      preloaders.add(UserForm.preload);
+    }
+    if (can('wallet.view')) preloaders.add(WalletPage.preload);
+    if (can('payroll.view')) preloaders.add(Payroll.preload);
+    if (can('reports.view')) {
+      preloaders.add(Reports.preload);
+      preloaders.add(ExpenseSummary.preload);
+      preloaders.add(IncomeSummary.preload);
+      preloaders.add(IncomeVsExpense.preload);
+      preloaders.add(ProfitLoss.preload);
+      preloaders.add(ProductQuantitySold.preload);
+      preloaders.add(CustomerSalesReport.preload);
+      if (isAdmin) {
+        preloaders.add(UserActivityPerformanceReport.preload);
+      }
+    }
+    if (can('recycleBin.view')) preloaders.add(RecycleBin.preload);
+    if (isAdmin) preloaders.add(SettingsPage.preload);
+
+    return scheduleIdlePreload(() => {
+      Array.from(preloaders).forEach((preload, index) => {
+        window.setTimeout(() => {
+          preload().catch(() => {});
+        }, index * 180);
+      });
+    });
+  }, [isAuthenticated, can, canAny, canViewDashboard, isAdmin]);
   
   return (
     <Suspense fallback={<RouteFallback />}>

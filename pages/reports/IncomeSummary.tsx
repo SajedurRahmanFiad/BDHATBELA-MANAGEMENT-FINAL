@@ -1,72 +1,19 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
 import { Button, ReportPageSkeleton } from '../../components';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { theme } from '../../theme';
-import { useTransactions, useCategories, useOrders } from '../../src/hooks/useQueries';
-import { fetchCustomerById } from '../../src/services/supabaseQueries';
-import { useQueryClient } from '@tanstack/react-query';
-import { OrderStatus } from '../../types';
+import { useIncomeSummaryReport } from '../../src/hooks/useQueries';
 
 const IncomeSummary: React.FC = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
-  const { data: orders = [], isPending: ordersLoading } = useOrders();
-  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
-  const [topCustomers, setTopCustomers] = React.useState<any[]>([]);
-  const isLoading = transactionsLoading || ordersLoading || categoriesLoading;
-  
-  // Create category map for ID -> name lookup
-  const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
-  
-  const income = transactions.filter(t => t.type === 'Income');
-  
-  const categoryDataMap: Record<string, number> = {};
-  income.forEach(e => {
-    categoryDataMap[e.category] = (categoryDataMap[e.category] || 0) + e.amount;
-  });
-
-  // Map category IDs to names in chart data
-  const chartData = Object.entries(categoryDataMap).map(([categoryId, value]) => ({
-    name: categoryMap.get(categoryId) || categoryId || 'Uncategorized',
-    value
-  }));
+  const { data, isPending } = useIncomeSummaryReport();
+  const isLoading = isPending;
+  const chartData = data?.revenueMix || [];
+  const topCustomers = data?.topCustomers || [];
   const COLORS = ['#10B981', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5'];
-
-  // Calculate top customers by completed order revenue
-  const completedOrders = React.useMemo(
-    () => orders.filter(o => o.status === OrderStatus.COMPLETED),
-    [orders]
-  );
-  const customerRevenue = React.useMemo(() => {
-    const revenue: Record<string, number> = {};
-    completedOrders.forEach(order => {
-      revenue[order.customerId] = (revenue[order.customerId] || 0) + order.total;
-    });
-    return revenue;
-  }, [completedOrders]);
-
-  React.useEffect(() => {
-    // Find top customer IDs by revenue
-    const entries = Object.entries(customerRevenue).sort((a, b) => b[1] - a[1]).slice(0, 3);
-    const ids = entries.map(e => e[0]);
-    if (ids.length === 0) {
-      setTopCustomers([]);
-      return;
-    }
-
-    // Fetch only the top customer rows
-    Promise.all(ids.map(id => queryClient.fetchQuery({ queryKey: ['customer', id], queryFn: () => fetchCustomerById(id) }))).then(results => {
-      const mapped = results.map((r, i) => ({ ...(r || {}), revenue: customerRevenue[ids[i]] || 0 }));
-      setTopCustomers(mapped.filter(c => c && c.revenue > 0));
-    }).catch(() => {
-      setTopCustomers([]);
-    });
-  }, [orders, transactions, customerRevenue, queryClient]);
 
   if (isLoading) {
     return <ReportPageSkeleton cards={3} showChart tableColumns={0} />;
@@ -120,10 +67,10 @@ const IncomeSummary: React.FC = () => {
         <div className="space-y-6">
           <div className={`${theme.colors.primary[600]} p-8 rounded-lg text-white shadow-lg shadow-[#0f2f57]/20`}>
             <p className="text-[#c7dff5] text-xs font-bold uppercase tracking-widest mb-1">Total Revenue Collected</p>
-            <h4 className="text-lg font-black">{formatCurrency(income.reduce((s, e) => s + e.amount, 0))}</h4>
+            <h4 className="text-lg font-black">{formatCurrency(data?.totalRevenue || 0)}</h4>
             <div className="mt-6 p-4 bg-white/10 rounded-xl flex items-center justify-between">
               <span className="text-sm font-medium">Avg Transaction Size</span>
-              <span className="font-bold">{formatCurrency(income.length ? income.reduce((s,e) => s+e.amount, 0) / income.length : 0)}</span>
+              <span className="font-bold">{formatCurrency(data?.averageTransactionSize || 0)}</span>
             </div>
           </div>
 
@@ -133,7 +80,7 @@ const IncomeSummary: React.FC = () => {
               {topCustomers.map((c, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
+                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center font-bold text-xs">{(c.name || '?').charAt(0)}</div>
                     <span className="text-sm font-semibold text-gray-700">{c.name}</span>
                   </div>
                   <span className={`text-sm font-black`}>{formatCurrency(c.revenue)}</span>

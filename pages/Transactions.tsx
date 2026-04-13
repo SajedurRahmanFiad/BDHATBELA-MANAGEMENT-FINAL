@@ -42,6 +42,7 @@ const Transactions: React.FC = () => {
   };
   const urlTypeTab = (searchParams.get('type') as 'All' | 'Income' | 'Expense' | 'Transfer' | null) || 'All';
   const urlCreatedByFilter = searchParams.get('createdBy') || 'all';
+  const urlCategoryFilter = searchParams.get('category') || 'all';
   const { searchQuery } = useUrlSyncedSearchQuery(searchParams.get('search') || '');
   const [syncedSearchParams, setSyncedSearchParams] = useState<string | null>(null);
   const shouldHydrateFromUrl = syncedSearchParams !== currentSearchParams;
@@ -49,6 +50,7 @@ const Transactions: React.FC = () => {
   const [customDates, setCustomDates] = useState(urlCustomDates);
   const [typeTab, setTypeTab] = useState<'All' | 'Income' | 'Expense' | 'Transfer'>(urlTypeTab);
   const [createdByFilter, setCreatedByFilter] = useState<string>(urlCreatedByFilter);
+  const [categoryFilter, setCategoryFilter] = useState<string>(urlCategoryFilter);
   const [page, setPage] = useState<number>(urlPage);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
@@ -56,6 +58,7 @@ const Transactions: React.FC = () => {
   const previousSearchQueryRef = React.useRef(searchQuery);
 
   const { data: users = [] } = useUsers();
+  const { data: allCategories = [] } = useCategories();
 
   useEffect(() => {
     if (!shouldHydrateFromUrl) return;
@@ -65,6 +68,7 @@ const Transactions: React.FC = () => {
     setCustomDates(urlCustomDates);
     setTypeTab(urlTypeTab);
     setCreatedByFilter(urlCreatedByFilter);
+    setCategoryFilter(urlCategoryFilter);
     setSyncedSearchParams(currentSearchParams);
   }, [
     shouldHydrateFromUrl,
@@ -73,6 +77,7 @@ const Transactions: React.FC = () => {
     urlCustomDates,
     urlTypeTab,
     urlCreatedByFilter,
+    urlCategoryFilter,
     currentSearchParams,
   ]);
 
@@ -93,9 +98,14 @@ const Transactions: React.FC = () => {
   const effectiveCustomDates = shouldHydrateFromUrl ? urlCustomDates : customDates;
   const effectiveTypeTab = shouldHydrateFromUrl ? urlTypeTab : typeTab;
   const effectiveCreatedByFilter = shouldHydrateFromUrl ? urlCreatedByFilter : createdByFilter;
+  const effectiveCategoryFilter = shouldHydrateFromUrl ? urlCategoryFilter : categoryFilter;
   const timeFilters = useMemo(
     () => getDateTimeFilters(effectiveFilterRange, effectiveCustomDates),
     [effectiveFilterRange, effectiveCustomDates]
+  );
+  const categoryNameMap = useMemo(
+    () => new Map(allCategories.map((category) => [category.id, category.name || category.id])),
+    [allCategories]
   );
 
   const createdByIds = useMemo(() => {
@@ -108,9 +118,36 @@ const Transactions: React.FC = () => {
     }
     return [effectiveCreatedByFilter];
   }, [effectiveCreatedByFilter, users]);
+  const categoryOptions = useMemo(() => {
+    const optionMap = new Map<string, string>();
+    const categoryTypes = effectiveTypeTab === 'All'
+      ? ['Income', 'Expense']
+      : effectiveTypeTab === 'Transfer'
+        ? []
+        : [effectiveTypeTab];
+
+    allCategories
+      .filter((category) => categoryTypes.includes(category.type))
+      .forEach((category) => {
+        optionMap.set(category.id, category.name || category.id);
+      });
+
+    if (effectiveTypeTab === 'All' || effectiveTypeTab === 'Transfer') {
+      optionMap.set('Transfer', 'Transfer');
+    }
+
+    if (effectiveTypeTab === 'All' || effectiveTypeTab === 'Expense') {
+      optionMap.set('expense_purchases', optionMap.get('expense_purchases') || 'Purchases');
+    }
+
+    return Array.from(optionMap.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [allCategories, effectiveTypeTab]);
 
   const { data: transactionsPage, isFetching: transactionsLoading } = useTransactionsPage(effectivePage, pageSize, {
     type: effectiveTypeTab === 'All' ? undefined : effectiveTypeTab,
+    category: effectiveCategoryFilter === 'all' ? undefined : effectiveCategoryFilter,
     from: timeFilters.from,
     to: timeFilters.to,
     search: searchQuery,
@@ -119,11 +156,18 @@ const Transactions: React.FC = () => {
     enabled: canLoadTransactions,
   });
   const transactions = transactionsPage?.data ?? [];
-  const showInitialTransactionsLoading = !canLoadTransactions || (transactionsLoading && transactions.length === 0);
+  const showTransactionsTableLoading = !canLoadTransactions || transactionsLoading;
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
-  const { data: allCategories = [] } = useCategories();
   const deleteTransactionMutation = useDeleteTransaction();
+
+  useEffect(() => {
+    if (shouldHydrateFromUrl || categoryFilter === 'all') return;
+    if (categoryOptions.some((option) => option.value === categoryFilter)) return;
+
+    setPage(1);
+    setCategoryFilter('all');
+  }, [categoryFilter, categoryOptions, shouldHydrateFromUrl]);
 
   useEffect(() => {
     if (shouldHydrateFromUrl) return;
@@ -135,6 +179,7 @@ const Transactions: React.FC = () => {
     if (effectiveCustomDates.from) params.from = effectiveCustomDates.from;
     if (effectiveCustomDates.to) params.to = effectiveCustomDates.to;
     if (effectiveCreatedByFilter !== 'all') params.createdBy = effectiveCreatedByFilter;
+    if (effectiveCategoryFilter !== 'all') params.category = effectiveCategoryFilter;
     if (searchQuery) params.search = searchQuery;
 
     if (new URLSearchParams(params).toString() !== currentSearchParams) {
@@ -148,6 +193,7 @@ const Transactions: React.FC = () => {
     effectiveCustomDates.from,
     effectiveCustomDates.to,
     effectiveCreatedByFilter,
+    effectiveCategoryFilter,
     searchQuery,
     currentSearchParams,
     setSearchParams,
@@ -174,6 +220,10 @@ const Transactions: React.FC = () => {
   const handleCreatedByFilterChange = (filter: string) => {
     setPage(1);
     setCreatedByFilter(filter);
+  };
+  const handleCategoryFilterChange = (filter: string) => {
+    setPage(1);
+    setCategoryFilter(filter);
   };
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
@@ -214,12 +264,16 @@ const Transactions: React.FC = () => {
       effectiveTypeTab === 'All' || transaction.type === effectiveTypeTab
     ));
 
+    if (effectiveCategoryFilter !== 'all') {
+      results = results.filter((transaction) => transaction.category === effectiveCategoryFilter);
+    }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       results = results.filter((transaction) => {
         const contact = transaction.contactId ? getContactName(transaction.contactId, transaction) : null;
         const creator = getCreatorName(transaction);
-        const category = allCategories.find((entry) => entry.id === transaction.category)?.name || transaction.category || '';
+        const category = categoryNameMap.get(transaction.category) || transaction.category || '';
 
         return (
           transaction.description.toLowerCase().includes(query) ||
@@ -233,7 +287,27 @@ const Transactions: React.FC = () => {
     }
 
     return results;
-  }, [transactions, effectiveTypeTab, searchQuery, allCategories, users]);
+  }, [transactions, effectiveTypeTab, effectiveCategoryFilter, searchQuery, categoryNameMap, users]);
+
+  const transactionSummary = useMemo(() => {
+    const summary = filteredTransactions.reduce(
+      (acc, transaction) => {
+        if (transaction.type === 'Income') acc.income += transaction.amount;
+        if (transaction.type === 'Expense') acc.expense += transaction.amount;
+        if (transaction.type === 'Transfer') acc.transfer += transaction.amount;
+        return acc;
+      },
+      { income: 0, expense: 0, transfer: 0 }
+    );
+
+    return {
+      count: filteredTransactions.length,
+      income: summary.income,
+      expense: summary.expense,
+      transfer: summary.transfer,
+      net: summary.income - summary.expense,
+    };
+  }, [filteredTransactions]);
 
   const formatDateAndTime = (dateString?: string, createdAt?: string) => {
     const candidate = (dateString && dateString.toString().length > 10) ? dateString : (createdAt || dateString || '');
@@ -317,30 +391,41 @@ const Transactions: React.FC = () => {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="text-sm font-bold text-gray-700">Created By:</label>
-          <select
-            value={effectiveCreatedByFilter}
-            onChange={(event) => handleCreatedByFilterChange(event.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Users</option>
-            {users.some((user) => hasAdminAccess(user.role)) && <option value="admins">Admin Access</option>}
-            {users.some((user) => isEmployeeRole(user.role)) && <option value="employees">All Employees</option>}
-            <optgroup label="Specific Users">
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>{user.name} ({user.role})</option>
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-sm font-bold text-gray-700">Created By:</label>
+            <select
+              value={effectiveCreatedByFilter}
+              onChange={(event) => handleCreatedByFilterChange(event.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Users</option>
+              {users.some((user) => hasAdminAccess(user.role)) && <option value="admins">Admin Access</option>}
+              {users.some((user) => isEmployeeRole(user.role)) && <option value="employees">All Employees</option>}
+              <optgroup label="Specific Users">
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.name} ({user.role})</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-sm font-bold text-gray-700">Category:</label>
+            <select
+              value={effectiveCategoryFilter}
+              onChange={(event) => handleCategoryFilterChange(event.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Categories</option>
+              {categoryOptions.map((category) => (
+                <option key={category.value} value={category.value}>{category.label}</option>
               ))}
-            </optgroup>
-          </select>
+            </select>
+          </div>
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
-        {transactionsLoading && transactions.length > 0 && (
-          <div className="border-b border-gray-100 px-6 py-2 text-xs font-semibold text-gray-500">
-            Updating transactions...
-          </div>
-        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -354,7 +439,7 @@ const Transactions: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {showInitialTransactionsLoading ? (
+              {showTransactionsTableLoading ? (
                 <TableLoadingSkeleton columns={5} rows={8} />
               ) : filteredTransactions.length === 0 ? (
                 <tr>
@@ -415,7 +500,7 @@ const Transactions: React.FC = () => {
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
-                          <p className="text-sm font-bold text-gray-800">{allCategories.find((entry) => entry.id === transaction.category)?.name || transaction.category}</p>
+                          <p className="text-sm font-bold text-gray-800">{categoryNameMap.get(transaction.category) || transaction.category || 'Uncategorized'}</p>
                           <p className="text-xs text-gray-400 italic max-w-xs truncate">{transaction.description}</p>
                         </div>
                       </td>
@@ -527,6 +612,31 @@ const Transactions: React.FC = () => {
           </table>
         </div>
       </div>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Filtered Transactions</p>
+          <p className="mt-3 text-lg font-black text-gray-900">{transactionSummary.count}</p>
+          <p className="mt-2 text-sm font-medium text-gray-500">Rows matching active filters.</p>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Total Income</p>
+          <p className="mt-3 text-lg font-black text-emerald-600">{formatCurrency(transactionSummary.income)}</p>
+          <p className="mt-2 text-sm font-medium text-gray-500">Sum of all income transactions in view.</p>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Total Expense</p>
+          <p className="mt-3 text-lg font-black text-red-600">{formatCurrency(transactionSummary.expense)}</p>
+          <p className="mt-2 text-sm font-medium text-gray-500">Sum of all expense transactions in view.</p>
+        </div>
+        <div className={`rounded-2xl border p-5 shadow-sm ${transactionSummary.net >= 0 ? 'border-emerald-100 bg-emerald-50' : 'border-red-100 bg-red-50'}`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Net Total</p>
+          <p className={`mt-3 text-lg font-black ${transactionSummary.net >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+            {transactionSummary.net >= 0 ? '' : '-'}{formatCurrency(Math.abs(transactionSummary.net))}
+          </p>
+          <p className="mt-2 text-sm font-medium text-gray-500">Income minus expenses for filtered transactions.</p>
+        </div>
+      </section>
 
       <Pagination page={effectivePage} totalPages={totalPages} onPageChange={(nextPage) => setPage(nextPage)} disabled={transactionsLoading} />
     </div>

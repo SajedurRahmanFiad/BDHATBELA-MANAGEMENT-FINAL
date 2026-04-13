@@ -1,42 +1,30 @@
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../../db';
 import { formatCurrency, ICONS } from '../../constants';
 import { Button, ReportPageSkeleton } from '../../components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { theme } from '../../theme';
-import { useTransactions, useVendors, useAccounts, useCategories } from '../../src/hooks/useQueries';
+import { useExpenseSummaryCsv, useExpenseSummaryReport } from '../../src/hooks/useQueries';
 
 const ExpenseSummary: React.FC = () => {
   const navigate = useNavigate();
-  const { data: transactions = [], isPending: transactionsLoading } = useTransactions();
-  const { data: vendors = [], isPending: vendorsLoading } = useVendors();
-  const { data: accounts = [], isPending: accountsLoading } = useAccounts();
-  const { data: allCategories = [], isPending: categoriesLoading } = useCategories();
-  const isLoading = transactionsLoading || vendorsLoading || accountsLoading || categoriesLoading;
-  
-  // Create category map for ID -> name lookup
-  const categoryMap = new Map(allCategories.map(c => [c.id, c.name]));
-  
-  const expenses = transactions.filter(t => t.type === 'Expense');
-  
-  const categoryDataMap: Record<string, number> = {};
-  expenses.forEach(e => {
-    const categoryName = categoryMap.get(e.category) || e.category || 'Uncategorized';
-    categoryDataMap[categoryName] = (categoryDataMap[categoryName] || 0) + e.amount;
-  });
-
-  const chartData = Object.entries(categoryDataMap).map(([name, value]) => ({ name, value }));
+  const { data, isPending } = useExpenseSummaryReport();
+  const { refetch: loadCsv, isFetching: isCsvLoading } = useExpenseSummaryCsv({ enabled: false });
+  const isLoading = isPending;
+  const chartData = data?.byCategory || [];
+  const recentExpenses = data?.recentExpenses || [];
   const COLORS = ['#EF4444', '#F97316', '#F59E0B', '#8B5CF6', '#EC4899', '#3B82F6'];
+  const topCategories = React.useMemo(
+    () => [...chartData].sort((a, b) => b.value - a.value).slice(0, 5),
+    [chartData]
+  );
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
+    const response = await loadCsv();
+    const rows = response.data || [];
     const headers = 'Date,Category,Contact,Account,Amount,Description\n';
-    const csvContent = expenses.map(e => {
-      const contact = vendors.find(v => v.id === e.contactId)?.name || 'N/A';
-      const account = accounts.find(a => a.id === e.accountId)?.name || 'N/A';
-      const categoryName = categoryMap.get(e.category) || e.category || 'Uncategorized';
-      return `${e.date},"${categoryName}","${contact}","${account}",${e.amount},"${e.description}"`;
+    const csvContent = rows.map((row) => {
+      return `${row.date},"${row.categoryName}","${row.contactName}","${row.accountName}",${row.amount},"${row.description}"`;
     }).join('\n');
     const blob = new Blob([headers + csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -63,8 +51,12 @@ const ExpenseSummary: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Expense Summary</h2>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-white border rounded-xl font-bold text-sm text-gray-700 hover:bg-gray-50">
-            {ICONS.Download} Export CSV
+          <button
+            onClick={handleExportCSV}
+            disabled={isCsvLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-white border rounded-xl font-bold text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {ICONS.Download} {isCsvLoading ? 'Preparing CSV...' : 'Export CSV'}
           </button>
           <Button variant="primary" size="sm" icon={ICONS.Print}>
             Export Image
@@ -100,10 +92,10 @@ const ExpenseSummary: React.FC = () => {
           <div className="space-y-4">
             <div className="p-4 bg-red-50 rounded-lg">
               <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Total Outflow</p>
-              <h4 className="text-lg font-black text-red-600">{formatCurrency(expenses.reduce((s, e) => s + e.amount, 0))}</h4>
+              <h4 className="text-lg font-black text-red-600">{formatCurrency(data?.totalOutflow || 0)}</h4>
             </div>
             <div className="divide-y divide-gray-50">
-              {chartData.sort((a,b) => b.value - a.value).slice(0, 5).map((item, i) => (
+              {topCategories.map((item, i) => (
                 <div key={i} className="py-3 flex justify-between items-center">
                   <span className="text-sm font-medium text-gray-500">{item.name}</span>
                   <span className="text-sm font-bold text-gray-900">{formatCurrency(item.value)}</span>
@@ -128,10 +120,10 @@ const ExpenseSummary: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {expenses.slice(0, 10).map((e) => (
+              {recentExpenses.map((e) => (
                 <tr key={e.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm text-gray-600">{e.date}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-gray-800">{categoryMap.get(e.category) || e.category || 'Uncategorized'}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-gray-800">{e.categoryName}</td>
                   <td className="px-6 py-4 text-right font-black text-red-600">{formatCurrency(e.amount)}</td>
                 </tr>
               ))}

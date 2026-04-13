@@ -446,6 +446,107 @@ export interface DashboardSnapshot {
   refreshedAt: string;
 }
 
+export interface NamedValuePoint {
+  name: string;
+  value: number;
+}
+
+export interface IncomeSummaryTopCustomer {
+  id: string;
+  name: string;
+  revenue: number;
+}
+
+export interface IncomeSummaryReport {
+  totalRevenue: number;
+  averageTransactionSize: number;
+  revenueMix: NamedValuePoint[];
+  topCustomers: IncomeSummaryTopCustomer[];
+}
+
+export interface ExpenseSummaryRecentExpense {
+  id: string;
+  date: string;
+  categoryName: string;
+  amount: number;
+}
+
+export interface ExpenseSummaryCsvRow {
+  date: string;
+  categoryName: string;
+  contactName: string;
+  accountName: string;
+  amount: number;
+  description: string;
+}
+
+export interface ExpenseSummaryReport {
+  totalOutflow: number;
+  byCategory: NamedValuePoint[];
+  recentExpenses: ExpenseSummaryRecentExpense[];
+}
+
+export interface IncomeVsExpensePoint {
+  name: string;
+  label: string;
+  income: number;
+  expense: number;
+  profit: number;
+}
+
+export interface IncomeVsExpenseMonthHighlight {
+  label: string;
+  amount: number;
+}
+
+export interface IncomeVsExpenseReport {
+  chartData: IncomeVsExpensePoint[];
+  totalIncome: number;
+  totalExpense: number;
+  averageProfit: number;
+  highestRevenueMonth: IncomeVsExpenseMonthHighlight | null;
+  lowestExpenseMonth: IncomeVsExpenseMonthHighlight | null;
+}
+
+export interface ProfitLossExpenseLine {
+  categoryName: string;
+  amount: number;
+}
+
+export interface ProfitLossReport {
+  grossSales: number;
+  costOfPurchases: number;
+  grossProfit: number;
+  expenses: ProfitLossExpenseLine[];
+  totalOperatingExpenses: number;
+  netProfit: number;
+}
+
+export interface ProductQuantitySoldRow {
+  productName: string;
+  quantity: number;
+  revenue: number;
+}
+
+export interface ProductQuantitySoldReport {
+  rows: ProductQuantitySoldRow[];
+  totalQty: number;
+}
+
+export interface CustomerSalesReportRow {
+  name: string;
+  orders: number;
+  quantity: number;
+  amount: number;
+}
+
+export interface CustomerSalesReportData {
+  rows: CustomerSalesReportRow[];
+  totalAmount: number;
+  totalOrders: number;
+  totalQuantity: number;
+}
+
 export interface Settings {
   company: CompanySettings;
   order: {

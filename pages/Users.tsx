@@ -1,6 +1,7 @@
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { hasAdminAccess } from '../types';
 import { ICONS } from '../constants';
 import { Button, Table, IconButton } from '../components';
@@ -9,7 +10,7 @@ import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
 import { useSystemDefaults, useUsersPage } from '../src/hooks/useQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
-import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, fetchUserById } from '../src/services/supabaseQueries';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 
 type RoleFilter = 'All' | string;
@@ -17,6 +18,7 @@ type RoleFilter = 'All' | string;
 const Users: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     data: systemDefaults,
@@ -214,6 +216,13 @@ const Users: React.FC = () => {
           },
         ]}
         data={users}
+        onRowHover={(candidate) => {
+          queryClient.prefetchQuery({
+            queryKey: ['user', candidate.id],
+            queryFn: () => fetchUserById(candidate.id),
+            staleTime: 5 * 60 * 1000,
+          }).catch(() => {});
+        }}
         onRowClick={(user) => navigate(`/users/${user.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No users found"
         loading={!canLoadUsers || loading}

@@ -12,7 +12,7 @@ import { useVendorsPage, useSystemDefaults } from '../src/hooks/useQueries';
 import { useDeleteVendor } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
-import { DEFAULT_PAGE_SIZE, getErrorMessage } from '../src/services/supabaseQueries';
+import { DEFAULT_PAGE_SIZE, fetchVendorById, getErrorMessage } from '../src/services/supabaseQueries';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 
 const Vendors: React.FC = () => {
@@ -182,6 +182,13 @@ const Vendors: React.FC = () => {
         ]}
         data={filteredVendors}
         loading={!canLoadVendors || isFetching}
+        onRowHover={(vendor) => {
+          queryClient.prefetchQuery({
+            queryKey: ['vendor', vendor.id],
+            queryFn: () => fetchVendorById(vendor.id),
+            staleTime: 5 * 60 * 1000,
+          }).catch(() => {});
+        }}
         onRowClick={(vendor) => navigate(`/vendors/${vendor.id}`, { state: buildHistoryBackState(location) })}
         emptyMessage="No vendors found"
       />

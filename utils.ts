@@ -362,6 +362,42 @@ export const openAttachmentPreview = (attachmentUrl?: string | null): boolean =>
   }
 };
 
+export const getPreferredCourierFromHistory = (
+  historyText?: string | null
+): 'paperfly' | 'carrybee' | 'steadfast' | null => {
+  const normalized = String(historyText || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes('paperfly')) return 'paperfly';
+  if (normalized.includes('carrybee')) return 'carrybee';
+  if (normalized.includes('steadfast')) return 'steadfast';
+  return null;
+};
+
+export const extractSteadfastTrackingFromHistory = (historyText?: string | null): string => {
+  const text = String(historyText || '').trim();
+  if (!text || !text.toLowerCase().includes('steadfast')) return '';
+
+  const patterns = [
+    /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+    /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return String(match[1]).trim();
+  }
+
+  return '';
+};
+
+export const getPaperflyReferenceNumber = (
+  order: Pick<Order, 'orderNumber' | 'paperflyTrackingNumber'>
+): string => {
+  const orderReference = String(order.orderNumber || '').trim();
+  if (orderReference) return orderReference;
+  return String(order.paperflyTrackingNumber || '').trim();
+};
+
 /**
  * Get today's date in YYYY-MM-DD format
  */

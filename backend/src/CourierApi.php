@@ -772,7 +772,7 @@ final class CourierApi extends BaseService
         }
 
         $rows = $this->database->fetchAll(
-            "SELECT id, status, history, paperfly_tracking_number
+            "SELECT id, order_number, status, history, paperfly_tracking_number
              FROM orders
              WHERE deleted_at IS NULL
                AND paperfly_tracking_number IS NOT NULL
@@ -783,8 +783,12 @@ final class CourierApi extends BaseService
         $checked = 0;
         $updated = 0;
         foreach ($rows as $row) {
-            $trackingNumber = trim((string) ($row['paperfly_tracking_number'] ?? ''));
-            if ($trackingNumber === '') {
+            $referenceNumber = trim((string) ($row['order_number'] ?? ''));
+            if ($referenceNumber === '') {
+                $referenceNumber = trim((string) ($row['paperfly_tracking_number'] ?? ''));
+            }
+
+            if ($referenceNumber === '') {
                 continue;
             }
             $checked += 1;
@@ -793,7 +797,7 @@ final class CourierApi extends BaseService
                 'baseUrl' => $baseUrl,
                 'username' => $username,
                 'password' => $password,
-                'referenceNumber' => $trackingNumber,
+                'referenceNumber' => $referenceNumber,
             ]);
 
             if (!empty($details['error']) || !is_array($details['data'] ?? null)) {
@@ -806,7 +810,7 @@ final class CourierApi extends BaseService
             }
 
             $history = is_array(json_decode((string) ($row['history'] ?? ''), true)) ? json_decode((string) $row['history'], true) : [];
-            $history['picked'] = 'Marked picked automatically from Paperfly tracking status on ' . gmdate('c');
+            $history['picked'] = 'Marked picked automatically from Paperfly tracking status using reference "' . $referenceNumber . '" on ' . gmdate('c');
             $this->updateOrderAsCourierSystem([
                 'id' => (string) $row['id'],
                 'updates' => [

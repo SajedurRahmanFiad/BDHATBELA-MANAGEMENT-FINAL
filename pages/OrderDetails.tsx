@@ -14,7 +14,14 @@ import { LoadingOverlay } from '../components';
 import { handlePrintOrder } from '../src/utils/printUtils';
 import { getPreservedRouteState } from '../src/utils/navigation';
 import { useRolePermissions } from '../src/hooks/useRolePermissions';
-import { buildLocalDateTime, getTodayDate, normalizePhoneSearchValue } from '../utils';
+import {
+  buildLocalDateTime,
+  extractSteadfastTrackingFromHistory,
+  getPaperflyReferenceNumber,
+  getPreferredCourierFromHistory,
+  getTodayDate,
+  normalizePhoneSearchValue,
+} from '../utils';
 import { getOrderCompanyPage } from '../src/utils/companyPages';
 
 const OrderDetails: React.FC = () => {
@@ -220,58 +227,76 @@ const OrderDetails: React.FC = () => {
     setShowCompletionModal(true);
   };
 
-  const extractSteadfastTrackingFromHistory = (historyText?: string) => {
-    const text = String(historyText || '').trim();
-    if (!text) return '';
-    const patterns = [
-      /tracking(?:\s*code)?\s*[:#-]?\s*([a-z0-9-]+)/i,
-      /consignment(?:\s*id)?\s*[:#-]?\s*([a-z0-9-]+)/i,
-    ];
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match?.[1]) return String(match[1]).trim();
-    }
-    return '';
-  };
-
   const handleOpenTracking = () => {
+    const preferredCourier = getPreferredCourierFromHistory(order.history?.courier);
+    const courierHistory = String(order.history?.courier || '').toLowerCase();
+    const sentToSteadfast = courierHistory.includes('steadfast') || !!order.steadfastConsignmentId;
+    const sentToCarryBee = courierHistory.includes('carrybee') || !!order.carrybeeConsignmentId;
+    const sentToPaperfly = courierHistory.includes('paperfly') || !!order.paperflyTrackingNumber;
     const steadfastTracking = String(
       order.steadfastConsignmentId || extractSteadfastTrackingFromHistory(order.history?.courier) || ''
     ).trim();
     const carryBeeConsignment = String(order.carrybeeConsignmentId || '').trim();
-    const paperflyTracking = String(order.paperflyTrackingNumber || '').trim();
-    const courierHistory = String(order.history?.courier || '').toLowerCase();
+    const paperflyReference = getPaperflyReferenceNumber(order);
 
-    if (steadfastTracking) {
+    const closeTrackingMenu = () => setIsActionOpen(false);
+
+    const openSteadfastTracking = (): boolean => {
+      if (!sentToSteadfast || !steadfastTracking) return false;
+
       if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(steadfastTracking).catch(() => undefined);
       }
       toast.success(`Steadfast tracking code copied: ${steadfastTracking}`);
       window.open('https://steadfast.com.bd/tracking', '_blank', 'noopener,noreferrer');
-      setIsActionOpen(false);
-      return;
-    }
+      closeTrackingMenu();
+      return true;
+    };
 
-    if (carryBeeConsignment) {
+    const openCarryBeeTracking = (): boolean => {
+      if (!sentToCarryBee || !carryBeeConsignment) return false;
+
       window.open(`https://merchant.carrybee.com/order-track/${encodeURIComponent(carryBeeConsignment)}`, '_blank', 'noopener,noreferrer');
-      setIsActionOpen(false);
-      return;
-    }
+      closeTrackingMenu();
+      return true;
+    };
 
-    if (paperflyTracking) {
-      window.open(`https://go.paperfly.com.bd/track/order/${encodeURIComponent(paperflyTracking)}`, '_blank', 'noopener,noreferrer');
-      setIsActionOpen(false);
-      return;
-    }
+    const openPaperflyTracking = (): boolean => {
+      if (!sentToPaperfly || !paperflyReference) return false;
+
+      window.open(`https://go.paperfly.com.bd/track/order/${encodeURIComponent(paperflyReference)}`, '_blank', 'noopener,noreferrer');
+      closeTrackingMenu();
+      return true;
+    };
+
+    if (preferredCourier === 'paperfly' && openPaperflyTracking()) return;
+    if (preferredCourier === 'carrybee' && openCarryBeeTracking()) return;
+    if (preferredCourier === 'steadfast' && openSteadfastTracking()) return;
+
+    if (openPaperflyTracking()) return;
+    if (openCarryBeeTracking()) return;
+    if (openSteadfastTracking()) return;
 
     if (courierHistory.includes('steadfast')) {
       toast.warning('Steadfast tracking code is missing for this order');
-      setIsActionOpen(false);
+      closeTrackingMenu();
+      return;
+    }
+
+    if (courierHistory.includes('carrybee')) {
+      toast.warning('CarryBee tracking code is missing for this order');
+      closeTrackingMenu();
+      return;
+    }
+
+    if (courierHistory.includes('paperfly')) {
+      toast.warning('Paperfly reference number is missing for this order');
+      closeTrackingMenu();
       return;
     }
 
     toast.warning('Tracking unavailable');
-    setIsActionOpen(false);
+    closeTrackingMenu();
   };
 
   const handleDuplicate = async () => {

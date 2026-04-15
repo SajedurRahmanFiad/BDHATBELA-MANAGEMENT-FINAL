@@ -132,8 +132,16 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
         result?.data?.success?.tracking_number ||
         result?.data?.tracking_number ||
         null;
+      const paperflyReferenceNumber = String(order.orderNumber || '').trim();
 
-      const historyText = `Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${formatHistoryMoment()}${trackingNumber ? ` (Tracking: ${trackingNumber})` : ''}`;
+      const historyParts = [`Sent to Paperfly by ${db.currentUser?.name || 'System'} on ${formatHistoryMoment()}`];
+      if (paperflyReferenceNumber) {
+        historyParts.push(`Reference: ${paperflyReferenceNumber}`);
+      }
+      if (trackingNumber) {
+        historyParts.push(`Courier ID: ${trackingNumber}`);
+      }
+      const historyText = historyParts.map((part, index) => (index === 0 ? part : `(${part})`)).join(' ');
 
       const updates: any = {
         history: {
@@ -141,17 +149,18 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
           courier: historyText,
         },
       };
-      if (trackingNumber) {
-        updates.paperflyTrackingNumber = String(trackingNumber);
+
+      if (paperflyReferenceNumber) {
+        updates.paperflyTrackingNumber = paperflyReferenceNumber;
       }
 
-      if (trackingNumber) {
+      if (paperflyReferenceNumber) {
         try {
           const pickupCheck = await fetchPaperflyOrderTracking({
             baseUrl,
             username,
             password,
-            referenceNumber: String(trackingNumber),
+            referenceNumber: paperflyReferenceNumber,
           });
 
           if (!pickupCheck.error && pickupCheck.data) {

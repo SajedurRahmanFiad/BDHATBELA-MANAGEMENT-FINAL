@@ -216,7 +216,7 @@ const Dashboard: React.FC = () => {
         />
 
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-6 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
             <StatCard title="Total Sales" value={adminSnapshot ? formatCurrency(adminSnapshot.totalSales) : inlinePlaceholder} icon={ICONS.Sales} bgColor="bg-blue-600" textColor="text-white" iconBgColor="bg-blue-700" />
             <StatCard title="Total Purchases" value={adminSnapshot ? formatCurrency(adminSnapshot.totalPurchases) : inlinePlaceholder} icon={ICONS.Briefcase} bgColor="bg-purple-600" textColor="text-white" iconBgColor="bg-purple-700" />
             <StatCard title="Other Expenses" value={adminSnapshot ? formatCurrency(adminSnapshot.otherExpenses) : inlinePlaceholder} icon={ICONS.Delete} bgColor="bg-amber-500" textColor="text-white" iconBgColor="bg-amber-600" />

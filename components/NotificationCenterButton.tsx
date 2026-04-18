@@ -417,8 +417,8 @@ const NotificationCenterButton: React.FC = () => {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 z-50 mt-3 w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.5rem] border border-[#e4eef8] bg-white shadow-[0_30px_80px_rgba(15,47,87,0.18)]">
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] flex-col overflow-hidden bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[0_30px_80px_rgba(15,47,87,0.18)] sm:absolute sm:right-0 sm:left-auto sm:top-full sm:mt-3 sm:h-auto sm:max-h-[70vh] sm:w-[380px] sm:max-w-[calc(100vw-2rem)] sm:overflow-hidden sm:rounded-[1.5rem] sm:border sm:border-[#e4eef8] sm:pt-0 sm:pb-0">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-4 sm:px-5">
               <div>
                 <h3 className="mt-1 text-lg font-black text-gray-900">All Notifications</h3>
               </div>
@@ -431,7 +431,7 @@ const NotificationCenterButton: React.FC = () => {
               </button>
             </div>
 
-            <div className="max-h-[70vh] overflow-y-auto px-3 py-3" ref={scrollContainerRef} onScroll={handleScroll}>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3 sm:py-3" ref={scrollContainerRef} onScroll={handleScroll}>
               {page === 1 && isPaginatedFetching && allNotifications.length === 0 ? (
                 <div className="px-3 py-10 text-center text-sm font-medium text-gray-400">Loading notifications...</div>
               ) : isPaginatedError ? (
@@ -452,7 +452,7 @@ const NotificationCenterButton: React.FC = () => {
                       return (
                         <div
                           key={notification.id}
-                          className={`rounded-[1.25rem] border px-4 py-4 transition-all ${
+                          className={`rounded-[1.25rem] border px-3 py-3 transition-all sm:px-4 sm:py-4 ${
                             notification.isRead
                               ? 'border-gray-100 bg-gray-50/60'
                               : 'border-[#c7dff5] bg-[#f8fbff] shadow-sm'
@@ -462,7 +462,7 @@ const NotificationCenterButton: React.FC = () => {
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 {!notification.isRead && <span className="h-2.5 w-2.5 rounded-full bg-[#0f2f57]" />}
-                                <p className="truncate text-sm font-black text-gray-900">{notification.subject}</p>
+                                <p className="break-words text-sm font-black text-gray-900 sm:truncate">{notification.subject}</p>
                               </div>
                               <p className="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
                                 {formatNotificationTime(notification.updatedAt || notification.createdAt)}
@@ -470,7 +470,7 @@ const NotificationCenterButton: React.FC = () => {
                             </div>
                             {notification.actionResult && (
                             <span
-                              className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${
+                              className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${
                                 notification.actionResult === 'accepted'
                                   ? 'bg-emerald-50 text-emerald-700'
                                   : 'bg-red-50 text-red-700'
@@ -482,17 +482,17 @@ const NotificationCenterButton: React.FC = () => {
                         </div>
 
                         <div
-                          className="prose prose-sm mt-3 max-w-none text-sm text-gray-600 [&_a]:font-bold [&_a]:text-[#0f2f57] [&_a]:underline [&_p]:my-1"
+                          className="prose prose-sm mt-3 max-w-none break-words text-sm text-gray-600 [&_a]:break-all [&_a]:font-bold [&_a]:text-[#0f2f57] [&_a]:underline [&_p]:my-1"
                           dangerouslySetInnerHTML={{ __html: notification.contentHtml }}
                           onClick={handleContentClick(notification)}
                         />
 
                         {(canLink || canDecide) && (
-                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                             {canLink && (
                               <button
                                 onClick={() => openNotificationLink(notification, actionConfig.linkUrl)}
-                                className="rounded-xl bg-[#0f2f57] px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-[#143b6d]"
+                                className="w-full rounded-xl bg-[#0f2f57] px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-[#143b6d] sm:w-auto"
                               >
                                 {actionConfig.linkLabel || 'Open'}
                               </button>
@@ -503,14 +503,14 @@ const NotificationCenterButton: React.FC = () => {
                                 <button
                                   onClick={() => handleDecision(notification, 'accepted')}
                                   disabled={isPendingDecision}
-                                  className="rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="w-full rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                                 >
                                   {actionConfig.acceptLabel || 'Accept'}
                                 </button>
                                 <button
                                   onClick={() => handleDecision(notification, 'declined')}
                                   disabled={isPendingDecision}
-                                  className="rounded-xl bg-red-500 px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="w-full rounded-xl bg-red-500 px-3.5 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                                 >
                                   {actionConfig.declineLabel || 'Decline'}
                                 </button>

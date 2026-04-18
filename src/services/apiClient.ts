@@ -32,6 +32,7 @@ function normalizeApiBaseUrl(value: string): string {
 }
 
 const API_BASE_URL = normalizeApiBaseUrl(RAW_API_BASE_URL);
+const SERVICE_ERROR_CODES = new Set(['SERVICE_EXPIRED', 'SERVICE_RENEWAL_PENDING']);
 
 function buildActionUrl(action: string): string {
   const separator = API_BASE_URL.includes('?') ? '&' : '?';
@@ -67,6 +68,7 @@ export async function apiAction<T>(action: string, payload?: unknown, options?: 
   try {
     response = await fetch(buildActionUrl(action), {
       method: 'POST',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -105,6 +107,19 @@ export async function apiAction<T>(action: string, payload?: unknown, options?: 
   }
 
   if (!response.ok) {
+    if (
+      typeof window !== 'undefined'
+      && parsed?.code
+      && SERVICE_ERROR_CODES.has(String(parsed.code))
+    ) {
+      window.dispatchEvent(new CustomEvent('api:service-blocked', {
+        detail: {
+          code: String(parsed.code),
+          message: parsed?.error || `Request failed with status ${response.status}`,
+        },
+      }));
+    }
+
     throw new ApiError(parsed?.error || `Request failed with status ${response.status}`, {
       status: response.status,
       code: parsed?.code || 'HTTP_ERROR',

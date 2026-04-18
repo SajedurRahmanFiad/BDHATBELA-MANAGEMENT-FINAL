@@ -3,6 +3,7 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  createNotification,
   createOrder,
   completePickedOrder,
   updateOrder,
@@ -16,6 +17,11 @@ import {
   createTransaction,
   updateTransaction,
   deleteTransaction,
+  markNotificationRead,
+  respondToNotification,
+  reviewTransactionApproval,
+  saveServiceSubscriptionSettings,
+  submitServiceSubscriptionPayment,
   createUser,
   updateUser,
   deleteUser,
@@ -64,12 +70,43 @@ import type {
   PermissionsSettings,
   PayrollPayment,
   PayrollSettings,
+  ServiceSubscriptionOverview,
+  TransactionApprovalDecision,
+  TransactionApprovalReviewResult,
   WalletPayout,
   WalletSettings,
   RecycleBinEntityType,
   CompletePickedOrderPayload,
   FraudCheckResult,
 } from '../../types';
+
+const NOTIFICATIONS_UPDATED_STORAGE_KEY = 'app:notifications-updated-at';
+let notificationsBroadcastChannel: BroadcastChannel | null = null;
+
+function broadcastNotificationsUpdated(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const timestamp = String(Date.now());
+  window.dispatchEvent(new CustomEvent('app:notifications-updated', { detail: { timestamp } }));
+
+  try {
+    window.localStorage.setItem(NOTIFICATIONS_UPDATED_STORAGE_KEY, timestamp);
+  } catch (error) {
+    console.warn('[notifications] Failed to persist update timestamp:', error);
+  }
+
+  if (typeof BroadcastChannel === 'undefined') {
+    return;
+  }
+
+  if (notificationsBroadcastChannel === null) {
+    notificationsBroadcastChannel = new BroadcastChannel('app-notifications');
+  }
+
+  notificationsBroadcastChannel.postMessage({ type: 'updated', timestamp });
+}
 import { generateTempId, registerRealId, isTempId } from '../utils/optimisticIdMap';
 
 // Helper: parse react-query page keys which follow the pattern ['resource', page, pageSize, filters?]
@@ -2400,6 +2437,99 @@ export function usePayEmployeeWallet(): UseMutationResult<
 export function useCheckFraudCourierHistory(): UseMutationResult<FraudCheckResult, Error, { phone: string }, unknown> {
   return useMutation({
     mutationFn: ({ phone }) => checkFraudCourierHistory(phone),
+  });
+}
+
+export function useCreateNotification() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: createNotification,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      broadcastNotificationsUpdated();
+    },
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      broadcastNotificationsUpdated();
+    },
+  });
+}
+
+export function useRespondToNotification() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: respondToNotification,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      broadcastNotificationsUpdated();
+    },
+  });
+}
+
+export function useReviewTransactionApproval(): UseMutationResult<
+  TransactionApprovalReviewResult,
+  Error,
+  { transactionId: string; decision: TransactionApprovalDecision; notificationId?: string },
+  unknown
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: reviewTransactionApproval,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['transaction'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['accounts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      invalidateDashboardQueries(queryClient);
+      broadcastNotificationsUpdated();
+    },
+  });
+}
+
+export function useSaveServiceSubscriptionSettings(): UseMutationResult<
+  ServiceSubscriptionOverview,
+  Error,
+  Parameters<typeof saveServiceSubscriptionSettings>[0],
+  unknown
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: saveServiceSubscriptionSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-subscription'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      broadcastNotificationsUpdated();
+    },
+  });
+}
+
+export function useSubmitServiceSubscriptionPayment(): UseMutationResult<
+  ServiceSubscriptionOverview,
+  Error,
+  Parameters<typeof submitServiceSubscriptionPayment>[0],
+  unknown
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: submitServiceSubscriptionPayment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-subscription'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['notifications'], exact: false });
+      broadcastNotificationsUpdated();
+    },
   });
 }
 

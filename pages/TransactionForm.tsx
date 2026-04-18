@@ -244,11 +244,15 @@ const TransactionForm: React.FC = () => {
       };
 
       if (isEdit && existingTransaction) {
-        await updateTransactionMutation.mutateAsync({
+        const updatedTransaction = await updateTransactionMutation.mutateAsync({
           id: existingTransaction.id,
           updates: transactionPayload,
         });
-        toast.success(`${isIncome ? 'Income' : 'Expense'} updated successfully`);
+        if (updatedTransaction.approvalStatus === 'pending') {
+          toast.info(`${isIncome ? 'Income' : 'Expense'} updated and sent for admin approval.`);
+        } else {
+          toast.success(`${isIncome ? 'Income' : 'Expense'} updated successfully`);
+        }
       } else {
         const transaction: Omit<Transaction, 'id'> = {
           ...transactionPayload,
@@ -258,8 +262,12 @@ const TransactionForm: React.FC = () => {
           },
         } as Omit<Transaction, 'id'>;
 
-        await createTransactionMutation.mutateAsync(transaction);
-        toast.success(`${isIncome ? 'Income' : 'Expense'} recorded successfully`);
+        const createdTransaction = await createTransactionMutation.mutateAsync(transaction);
+        if (createdTransaction.approvalStatus === 'pending') {
+          toast.info(`${isIncome ? 'Income' : 'Expense'} recorded and sent for admin approval.`);
+        } else {
+          toast.success(`${isIncome ? 'Income' : 'Expense'} recorded successfully`);
+        }
       }
 
       handleClose();

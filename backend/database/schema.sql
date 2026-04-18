@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS system_defaults (
   income_category_id VARCHAR(64) NULL,
   expense_category_id VARCHAR(64) NULL,
   records_per_page INT NOT NULL DEFAULT 10,
+  max_transaction_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -222,6 +223,117 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (role_name),
   KEY idx_role_permissions_is_custom (is_custom)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id VARCHAR(64) NOT NULL,
+  system_key VARCHAR(191) NULL,
+  subject VARCHAR(255) NOT NULL,
+  content_html LONGTEXT NOT NULL,
+  target_roles LONGTEXT NOT NULL,
+  starts_at DATETIME NULL,
+  ends_at DATETIME NULL,
+  action_config LONGTEXT NULL,
+  metadata LONGTEXT NULL,
+  created_by VARCHAR(64) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  is_system_generated TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_notifications_system_key (system_key),
+  KEY idx_notifications_active_window (is_active, starts_at, ends_at),
+  KEY idx_notifications_created_by (created_by),
+  KEY idx_notifications_created_at (created_at),
+  CONSTRAINT fk_notifications_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS notification_receipts (
+  notification_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  read_at DATETIME NULL,
+  action_result VARCHAR(32) NULL,
+  acted_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (notification_id, user_id),
+  KEY idx_notification_receipts_user_read (user_id, is_read, read_at),
+  KEY idx_notification_receipts_action_result (action_result),
+  CONSTRAINT fk_notification_receipts_notification FOREIGN KEY (notification_id) REFERENCES notifications (id) ON DELETE CASCADE,
+  CONSTRAINT fk_notification_receipts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_subscription_settings (
+  id VARCHAR(64) NOT NULL,
+  due_at DATETIME NULL,
+  reset_day_of_month TINYINT UNSIGNED NULL,
+  reset_time_of_day TIME NULL,
+  warning_days INT NOT NULL DEFAULT 7,
+  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  nagad_number VARCHAR(64) NULL,
+  billing_version INT NOT NULL DEFAULT 1,
+  created_by VARCHAR(64) NULL,
+  updated_by VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_service_subscription_settings_due_at (due_at),
+  CONSTRAINT fk_service_subscription_settings_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT fk_service_subscription_settings_updated_by FOREIGN KEY (updated_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_subscription_items (
+  id VARCHAR(64) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  amount DECIMAL(12,2) NULL,
+  is_optional TINYINT(1) NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  display_order INT NOT NULL DEFAULT 0,
+  system_key VARCHAR(191) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_subscription_items_system_key (system_key),
+  KEY idx_service_subscription_items_active_order (is_active, display_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_subscription_methods (
+  id VARCHAR(64) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  display_order INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_service_subscription_methods_active_order (is_active, display_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS service_subscription_payments (
+  id VARCHAR(64) NOT NULL,
+  billing_version INT NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  base_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  tip_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  payment_method_id VARCHAR(64) NULL,
+  payment_method_name VARCHAR(255) NOT NULL,
+  transaction_id VARCHAR(255) NOT NULL,
+  submitted_by VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'processing',
+  submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reactivate_at DATETIME NULL,
+  processed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_subscription_payments_version_tx (billing_version, transaction_id),
+  KEY idx_service_subscription_payments_status_ready (status, reactivate_at),
+  KEY idx_service_subscription_payments_billing_version (billing_version, submitted_at),
+  KEY idx_service_subscription_payments_submitted_by (submitted_by),
+  CONSTRAINT fk_service_subscription_payments_method FOREIGN KEY (payment_method_id) REFERENCES service_subscription_methods (id) ON DELETE SET NULL,
+  CONSTRAINT fk_service_subscription_payments_submitted_by FOREIGN KEY (submitted_by) REFERENCES users (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS payroll_settings (
@@ -331,6 +443,15 @@ CREATE TABLE IF NOT EXISTS transactions (
   attachment_url LONGTEXT NULL,
   created_by VARCHAR(64) NOT NULL,
   history LONGTEXT NULL,
+  approval_status VARCHAR(32) NOT NULL DEFAULT 'approved',
+  account_effect_applied TINYINT(1) NOT NULL DEFAULT 1,
+  approval_requested_by VARCHAR(64) NULL,
+  approval_requested_at DATETIME NULL,
+  approved_by VARCHAR(64) NULL,
+  approved_at DATETIME NULL,
+  declined_by VARCHAR(64) NULL,
+  declined_at DATETIME NULL,
+  approval_note TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
@@ -344,6 +465,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   KEY idx_transactions_deleted_created_at (deleted_at, created_at),
   KEY idx_transactions_deleted_created_by_created_at (deleted_at, created_by, created_at),
   KEY idx_transactions_deleted_type_created_at (deleted_at, type, created_at),
+  KEY idx_transactions_deleted_approval_status_created_at (deleted_at, approval_status, created_at),
   KEY idx_transactions_reference_id (reference_id),
   KEY idx_transactions_contact_id (contact_id),
   KEY idx_transactions_deleted_at (deleted_at),
@@ -522,6 +644,32 @@ VALUES (
 ON DUPLICATE KEY UPDATE
   counted_statuses = COALESCE(payroll_settings.counted_statuses, VALUES(counted_statuses));
 
+INSERT INTO service_subscription_items (id, name, description, amount, is_optional, is_active, display_order, system_key)
+VALUES
+  ('service-item-db-hosting', 'Database hosting', NULL, NULL, 0, 1, 10, 'database-hosting'),
+  ('service-item-caching', 'Caching (Redis, in-memory stores)', NULL, NULL, 0, 1, 20, 'caching'),
+  ('service-item-auth', 'Auth', NULL, NULL, 0, 1, 30, 'auth'),
+  ('service-item-cdn', 'CDN', NULL, NULL, 0, 1, 40, 'cdn'),
+  ('service-item-load-balancer', 'Load balancer', NULL, NULL, 0, 1, 50, 'load-balancer'),
+  ('service-item-maintenance', 'Maintenance cost', NULL, NULL, 1, 1, 60, 'maintenance-cost')
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  description = VALUES(description),
+  amount = VALUES(amount),
+  is_optional = VALUES(is_optional),
+  is_active = VALUES(is_active),
+  display_order = VALUES(display_order),
+  system_key = VALUES(system_key);
+
+INSERT INTO service_subscription_methods (id, name, description, is_active, display_order)
+VALUES
+  ('service-method-nagad', 'Nagad', 'Primary renewal payment method', 1, 10)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  description = VALUES(description),
+  is_active = VALUES(is_active),
+  display_order = VALUES(display_order);
+
 DROP VIEW IF EXISTS orders_with_customer_creator;
 CREATE VIEW orders_with_customer_creator AS
 SELECT
@@ -610,6 +758,12 @@ SELECT
   t.attachment_url AS attachmentUrl,
   t.created_by AS createdBy,
   u.name AS creatorName,
+  t.approval_status AS approvalStatus,
+  t.account_effect_applied AS accountEffectApplied,
+  t.approval_requested_at AS approvalRequestedAt,
+  t.approved_at AS approvedAt,
+  t.declined_at AS declinedAt,
+  t.approval_note AS approvalNote,
   t.created_at AS createdAt,
   t.deleted_at AS deletedAt,
   t.deleted_by AS deletedBy

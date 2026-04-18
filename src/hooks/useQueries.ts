@@ -1,5 +1,8 @@
 import { useQuery, UseQueryResult, UseQueryOptions } from '@tanstack/react-query';
 import {
+  fetchAllNotifications,
+  fetchNotificationById,
+  fetchNotificationHistoryPage,
   fetchCustomers,
   fetchCustomersPage,
   fetchCustomerById,
@@ -41,6 +44,8 @@ import {
   fetchProductImagesByIds,
   fetchCategories,
   fetchCategoriesById,
+  fetchMyNotifications,
+  fetchMyNotificationsPaginated,
   fetchPaymentMethods,
   fetchPaymentMethodById,
   fetchUnits,
@@ -61,6 +66,7 @@ import {
   fetchMyWallet,
   fetchWalletActivity,
   fetchWalletActivityPage,
+  fetchServiceSubscriptionOverview,
   fetchRecycleBinItems,
   fetchRecycleBinPage,
 } from '../services/supabaseQueries';
@@ -68,6 +74,7 @@ import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
 import type {
   Customer,
   Order,
+  AppNotification,
   Bill,
   Account,
   Transaction,
@@ -89,6 +96,10 @@ import type {
   ProductQuantitySoldReport,
   ProfitLossReport,
   RecycleBinPage,
+  NotificationListResponse,
+  NotificationListPageResponse,
+  NotificationDetailResponse,
+  ServiceSubscriptionOverview,
   WalletActivityEntry,
   UserActivityPerformanceLogEntry,
   UserActivityPerformanceReportPage,
@@ -781,6 +792,121 @@ export function useSystemDefaults(): UseQueryResult<any, Error> {
     queryKey: ['settings', 'defaults'],
     queryFn: fetchSystemDefaults,
     staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useMyNotifications(enabled: boolean = true): UseQueryResult<NotificationListResponse, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['notifications', 'me', currentUser?.id, currentUser?.role],
+    queryFn: fetchMyNotifications,
+    staleTime: 1000,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
+    enabled: enabled && !!currentUser?.id,
+  });
+}
+
+export function useMyNotificationsPaginated(
+  page: number = 1,
+  pageSize: number = 10,
+  options?: {
+    enabled?: boolean;
+    staleTime?: number;
+    refetchInterval?: number | false;
+    refetchIntervalInBackground?: boolean;
+    refetchOnWindowFocus?: boolean;
+    refetchOnReconnect?: boolean;
+    refetchOnMount?: boolean | 'always';
+  }
+): UseQueryResult<NotificationListPageResponse, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['notifications', 'me', 'paginated', page, pageSize, currentUser?.id, currentUser?.role],
+    queryFn: () => fetchMyNotificationsPaginated(page, pageSize),
+    placeholderData: (previousData) => previousData,
+    staleTime: options?.staleTime ?? 5 * 60 * 1000,
+    refetchInterval: options?.refetchInterval,
+    refetchIntervalInBackground: options?.refetchIntervalInBackground ?? false,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
+    refetchOnReconnect: options?.refetchOnReconnect ?? true,
+    refetchOnMount: options?.refetchOnMount ?? true,
+    enabled: (options?.enabled ?? true) && !!currentUser?.id,
+  });
+}
+
+export function useAllNotifications(enabled: boolean = true): UseQueryResult<AppNotification[], Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['notifications', 'all', currentUser?.id, currentUser?.role],
+    queryFn: fetchAllNotifications,
+    staleTime: 1000,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
+    enabled: enabled && !!currentUser?.id,
+  });
+}
+
+export function useNotificationHistoryPage(
+  page: number = 1,
+  pageSize: number = 12,
+  options?: {
+    enabled?: boolean;
+    staleTime?: number;
+    refetchOnWindowFocus?: boolean;
+    refetchOnReconnect?: boolean;
+    refetchOnMount?: boolean | 'always';
+  }
+): UseQueryResult<NotificationListPageResponse, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['notifications', 'history', page, pageSize, currentUser?.id, currentUser?.role],
+    queryFn: () => fetchNotificationHistoryPage(page, pageSize),
+    placeholderData: (previousData) => previousData,
+    staleTime: options?.staleTime ?? 30 * 1000,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
+    refetchOnReconnect: options?.refetchOnReconnect ?? true,
+    refetchOnMount: options?.refetchOnMount ?? true,
+    enabled: (options?.enabled ?? true) && !!currentUser?.id,
+  });
+}
+
+export function useNotificationById(id: string | undefined, enabled: boolean = true): UseQueryResult<NotificationDetailResponse | null, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['notification', id, currentUser?.id, currentUser?.role],
+    queryFn: () => fetchNotificationById(id || ''),
+    enabled: enabled && !!currentUser?.id && !!id,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function useServiceSubscriptionOverview(enabled: boolean = true): UseQueryResult<ServiceSubscriptionOverview, Error> {
+  const currentUser = db.currentUser ?? null;
+
+  return useQuery({
+    queryKey: ['service-subscription', currentUser?.id, currentUser?.role],
+    queryFn: fetchServiceSubscriptionOverview,
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchOnMount: 'always',
+    enabled: enabled && !!currentUser?.id,
   });
 }
 

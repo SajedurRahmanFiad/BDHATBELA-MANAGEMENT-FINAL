@@ -250,6 +250,8 @@ export interface Order {
   customerPhone?: string;
   customerAddress?: string;
   creatorName?: string;
+  pendingTransactionCount?: number;
+  pendingTransactionIds?: string[];
 }
 
 export interface Bill {
@@ -320,6 +322,12 @@ export interface Transaction {
   contactName?: string;
   contactType?: 'Customer' | 'Vendor' | null;
   creatorName?: string;
+  approvalStatus?: 'approved' | 'pending' | 'declined';
+  accountEffectApplied?: boolean;
+  approvalRequestedAt?: string | null;
+  approvedAt?: string | null;
+  declinedAt?: string | null;
+  approvalNote?: string | null;
 }
 
 export type UserActivityType = 'Order' | 'Bill' | 'Transaction';
@@ -584,6 +592,7 @@ export interface Settings {
     incomeCategoryId: string;
     expenseCategoryId: string;
     recordsPerPage: number;
+    maxTransactionAmount?: number;
   };
   categories: {
     id: string;
@@ -757,6 +766,150 @@ export interface CompletePickedOrderPayload {
   paymentMethod?: string;
   categoryId?: string;
   note?: string;
+}
+
+export type NotificationActionKind = 'none' | 'link' | 'decision' | 'link_and_decision';
+export type NotificationDecisionMode = 'record_only' | 'transaction_approval';
+export type NotificationDecision = 'accepted' | 'declined';
+export type NotificationDecisionScope = 'single_user' | 'all_users';
+
+export interface NotificationActionConfig {
+  kind: NotificationActionKind;
+  linkLabel?: string;
+  linkUrl?: string;
+  acceptLabel?: string;
+  declineLabel?: string;
+  decisionMode?: NotificationDecisionMode;
+  decisionScope?: NotificationDecisionScope;
+  decisionContext?: {
+    transactionId?: string;
+  };
+}
+
+export interface AppNotification {
+  id: string;
+  subject: string;
+  contentHtml: string;
+  targetRoles: string[];
+  startsAt?: string | null;
+  endsAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  createdByName?: string | null;
+  isActive: boolean;
+  isSystemGenerated?: boolean;
+  systemKey?: string | null;
+  isRead?: boolean;
+  readAt?: string | null;
+  actionResult?: NotificationDecision | null;
+  actedAt?: string | null;
+  actionConfig: NotificationActionConfig;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface NotificationListResponse {
+  items: AppNotification[];
+  unreadCount: number;
+}
+
+export interface NotificationListPageResponse {
+  items: AppNotification[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface NotificationRecipient {
+  userId: string;
+  userName?: string | null;
+  userRole?: string | null;
+  isRead: boolean;
+  readAt?: string | null;
+  actionResult?: NotificationDecision | null;
+  actedAt?: string | null;
+}
+
+export interface NotificationDetailResponse {
+  notification: AppNotification;
+  recipients: NotificationRecipient[];
+  summary: {
+    recipientCount: number;
+    readCount: number;
+    actedCount: number;
+    acceptedCount: number;
+    declinedCount: number;
+  };
+}
+
+export interface ServiceSubscriptionItem {
+  id: string;
+  name: string;
+  description?: string | null;
+  amount?: number;
+  isOptional: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  systemKey?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ServiceSubscriptionMethod {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  displayOrder: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ServiceSubscriptionPayment {
+  id: string;
+  billingVersion: number;
+  amount: number;
+  baseAmount: number;
+  tipAmount: number;
+  paymentMethodId?: string | null;
+  paymentMethodName: string;
+  transactionId: string;
+  submittedBy: string;
+  submittedByName?: string | null;
+  status: 'processing' | 'approved' | 'rejected';
+  submittedAt: string;
+  reactivateAt?: string | null;
+  processedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export type ServiceSubscriptionState = 'unconfigured' | 'active' | 'warning' | 'expired' | 'renewing';
+
+export interface ServiceSubscriptionOverview {
+  state: ServiceSubscriptionState;
+  writeBlocked: boolean;
+  canManageConfig: boolean;
+  dueAt?: string | null;
+  resetDayOfMonth?: number | null;
+  warningDays: number;
+  billingVersion: number;
+  totalAmount: number;
+  minimumPaymentAmount: number;
+  nagadNumber?: string | null;
+  items: ServiceSubscriptionItem[];
+  methods: ServiceSubscriptionMethod[];
+  currentPayment?: ServiceSubscriptionPayment | null;
+  payments: ServiceSubscriptionPayment[];
+}
+
+export type TransactionApprovalDecision = 'approve' | 'decline';
+
+export interface TransactionApprovalReviewResult {
+  transactionId: string;
+  decision: TransactionApprovalDecision;
+  success: boolean;
 }
 
 export type RecycleBinEntityType =

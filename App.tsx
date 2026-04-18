@@ -10,6 +10,7 @@ import Layout from './components/Layout';
 import ToastContainer from './components/ToastContainer';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
 import { WRITE_FREEZE_ENABLED } from './src/config/incidentMode';
+import GlobalApiEventWatcher from './src/components/GlobalApiEventWatcher';
 
 type PreloadableComponent<T extends React.ComponentType<any>> = React.LazyExoticComponent<T> & {
   preload: () => Promise<unknown>;
@@ -83,6 +84,8 @@ const Users = lazyPage(() => import('./pages/Users'));
 const UserForm = lazyPage(() => import('./pages/UserForm'));
 const UserDetails = lazyPage(() => import('./pages/UserDetails'));
 const SettingsPage = lazyPage(() => import('./pages/Settings'));
+const DeveloperNotifications = lazyPage(() => import('./pages/DeveloperNotifications'));
+const NotificationDetail = lazyPage(() => import('./pages/NotificationDetail'));
 const Customers = lazyPage(() => import('./pages/Customers'));
 const CustomerForm = lazyPage(() => import('./pages/CustomerForm'));
 const CustomerDetails = lazyPage(() => import('./pages/CustomerDetails'));
@@ -212,6 +215,10 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
     }
     if (can('recycleBin.view')) preloaders.add(RecycleBin.preload);
     if (isAdmin) preloaders.add(SettingsPage.preload);
+    if (activeUser?.role === 'Developer') {
+      preloaders.add(DeveloperNotifications.preload);
+      preloaders.add(NotificationDetail.preload);
+    }
 
     return scheduleIdlePreload(() => {
       Array.from(preloaders).forEach((preload, index) => {
@@ -220,7 +227,7 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
         }, index * 180);
       });
     });
-  }, [isAuthenticated, can, canAny, canViewDashboard, isAdmin]);
+  }, [isAuthenticated, can, canAny, canViewDashboard, isAdmin, activeUser?.role]);
   
   return (
     <Suspense fallback={<RouteFallback />}>
@@ -237,6 +244,14 @@ const AppRouter: React.FC<{ user: any; profile: any }> = ({ user, profile }) => 
       
       <Route path="/dashboard" element={
         isAuthenticated ? (canViewDashboard ? <Layout><Dashboard /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
+      } />
+
+      <Route path="/developer/notifications" element={
+        isAuthenticated ? (activeUser?.role === 'Developer' ? <Layout><DeveloperNotifications /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
+      } />
+
+      <Route path="/developer/notifications/:id" element={
+        isAuthenticated ? (activeUser?.role === 'Developer' ? <Layout><NotificationDetail /></Layout> : <Navigate to={defaultProtectedRoute} replace />) : <Navigate to="/login" replace />
       } />
       
       <Route path="/orders" element={
@@ -436,6 +451,7 @@ const App: React.FC = () => {
               <RealtimeProvider>
                 <HashRouter>
                   <AppContent />
+                  <GlobalApiEventWatcher />
                   <NetworkStatusBanner />
                   <ToastContainer />
                 </HashRouter>

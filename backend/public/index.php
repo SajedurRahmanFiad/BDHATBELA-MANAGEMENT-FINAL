@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Auth;
+use App\ApiException;
 use App\Config;
 use App\CourierApi;
 use App\Database;
@@ -37,6 +38,7 @@ try {
     $config = Config::load(dirname(__DIR__, 2));
     $database = new Database($config);
     $auth = new Auth($config, $database);
+    $serviceLifecycle = new \App\ServiceLifecycle($database, $config);
     $master = new MasterDataApi($database, $auth, $config);
     $operations = new OperationsApi($database, $auth, $config);
     $courier = new CourierApi($database, $auth, $config, $operations);
@@ -49,6 +51,8 @@ try {
         ]);
         exit;
     }
+
+    $serviceLifecycle->assertActionAllowed($action);
 
     if ($action === 'batchUpdateSettings') {
         $updates = is_array($payload['updates'] ?? null) ? $payload['updates'] : $payload;
@@ -81,6 +85,12 @@ try {
     }
 
     Http::error(404, 'Unknown action.');
+} catch (ApiException $exception) {
+    Http::error(
+        $exception->httpStatus(),
+        $exception->getMessage(),
+        array_merge(['code' => $exception->errorCode()], $exception->extra())
+    );
 } catch (Throwable $exception) {
     $message = $exception->getMessage();
     $status = 500;

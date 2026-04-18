@@ -1,8 +1,12 @@
 /// <reference types="vite/client" />
 import type {
   Account,
+  AppNotification,
   Bill,
   CompanySettings,
+  NotificationListResponse,
+  NotificationListPageResponse,
+  NotificationDetailResponse,
   Customer,
   CustomerSalesReportData,
   Order,
@@ -26,6 +30,9 @@ import type {
   UserActivityPerformanceReportPage,
   User,
   Vendor,
+  ServiceSubscriptionOverview,
+  TransactionApprovalReviewResult,
+  TransactionApprovalDecision,
   WalletActivityEntry,
   WalletBalanceCard,
   WalletBalanceCardPage,
@@ -212,7 +219,7 @@ export async function updateOrderSettings(updates: { prefix?: string; nextNumber
 export async function fetchInvoiceSettings() { return call<any>('fetchInvoiceSettings'); }
 export async function updateInvoiceSettings(updates: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }) { return call<any>('updateInvoiceSettings', updates); }
 export async function fetchSystemDefaults() { return call<any>('fetchSystemDefaults'); }
-export async function updateSystemDefaults(updates: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }) { return call<any>('updateSystemDefaults', updates); }
+export async function updateSystemDefaults(updates: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; maxTransactionAmount?: number; }) { return call<any>('updateSystemDefaults', updates); }
 export async function fetchCourierSettings(): Promise<CourierSettings> { return call<CourierSettings>('fetchCourierSettings'); }
 export async function updateCourierSettings(updates: {
   steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string };
@@ -274,7 +281,106 @@ export async function fetchPaperflyOrderTracking(params: { baseUrl: string; user
 export async function syncPaperflyOrderStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncPaperflyOrderStatuses'); }
 export async function syncSteadfastDeliveryStatuses(): Promise<{ checked: number; updated: number }> { return call<{ checked: number; updated: number }>('syncSteadfastDeliveryStatuses'); }
 
-export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; fraudChecker?: { apiKey?: string }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
+export async function fetchMyNotifications(): Promise<NotificationListResponse> {
+  return call<NotificationListResponse>('fetchMyNotifications');
+}
+
+export async function fetchMyNotificationsPaginated(page: number = 1, pageSize: number = 10): Promise<NotificationListPageResponse> {
+  return call<NotificationListPageResponse>('fetchMyNotificationsPaginated', { page, pageSize });
+}
+
+export async function fetchAllNotifications(): Promise<AppNotification[]> {
+  return call<AppNotification[]>('fetchAllNotifications');
+}
+
+export async function fetchNotificationHistoryPage(page: number = 1, pageSize: number = 12): Promise<NotificationListPageResponse> {
+  return call<NotificationListPageResponse>('fetchNotificationHistoryPage', { page, pageSize });
+}
+
+export async function fetchNotificationById(id: string): Promise<NotificationDetailResponse | null> {
+  return call<NotificationDetailResponse | null>('fetchNotificationById', { id });
+}
+
+export async function createNotification(payload: {
+  subject: string;
+  contentHtml: string;
+  targetRoles: string[];
+  startsAt?: string | null;
+  actionConfig?: {
+    kind?: 'none' | 'link' | 'decision' | 'link_and_decision';
+    linkLabel?: string;
+    linkUrl?: string;
+    acceptLabel?: string;
+    declineLabel?: string;
+    decisionMode?: 'record_only' | 'transaction_approval';
+    decisionScope?: 'single_user' | 'all_users';
+  };
+}): Promise<AppNotification> {
+  return call<AppNotification>('createNotification', payload);
+}
+
+export async function markNotificationRead(payload: {
+  notificationId?: string;
+  notificationIds?: string[];
+}): Promise<{ success: boolean }> {
+  return call<{ success: boolean }>('markNotificationRead', payload);
+}
+
+export async function respondToNotification(payload: {
+  notificationId: string;
+  decision: 'accepted' | 'declined';
+}): Promise<{ success: boolean }> {
+  return call<{ success: boolean }>('respondToNotification', payload);
+}
+
+export async function reviewTransactionApproval(payload: {
+  transactionId: string;
+  decision: TransactionApprovalDecision;
+  notificationId?: string;
+}): Promise<TransactionApprovalReviewResult> {
+  return call<TransactionApprovalReviewResult>('reviewTransactionApproval', payload);
+}
+
+export async function fetchServiceSubscriptionOverview(): Promise<ServiceSubscriptionOverview> {
+  return call<ServiceSubscriptionOverview>('fetchServiceSubscriptionOverview');
+}
+
+export async function saveServiceSubscriptionSettings(payload: {
+  dueAt?: string | null;
+  resetDayOfMonth?: number | null;
+  warningDays?: number;
+  totalAmount?: number;
+  nagadNumber?: string | null;
+  items?: Array<{
+    id?: string;
+    name: string;
+    description?: string | null;
+    amount?: number;
+    isOptional?: boolean;
+    isActive?: boolean;
+    displayOrder?: number;
+    systemKey?: string | null;
+  }>;
+  methods?: Array<{
+    id?: string;
+    name: string;
+    description?: string | null;
+    isActive?: boolean;
+    displayOrder?: number;
+  }>;
+}): Promise<ServiceSubscriptionOverview> {
+  return call<ServiceSubscriptionOverview>('saveServiceSubscriptionSettings', payload);
+}
+
+export async function submitServiceSubscriptionPayment(payload: {
+  amount: number;
+  paymentMethodId: string;
+  transactionId: string;
+}): Promise<ServiceSubscriptionOverview> {
+  return call<ServiceSubscriptionOverview>('submitServiceSubscriptionPayment', payload);
+}
+
+export async function batchUpdateSettings(updates: { company?: Partial<CompanySettings>; order?: { prefix?: string; nextNumber?: number; }; invoice?: { title?: string; logoWidth?: number; logoHeight?: number; footer?: string; }; defaults?: { defaultAccountId?: string; defaultPaymentMethod?: string; incomeCategoryId?: string; expenseCategoryId?: string; recordsPerPage?: number; maxTransactionAmount?: number; }; courier?: { steadfast?: { baseUrl?: string; apiKey?: string; secretKey?: string }; carryBee?: { baseUrl?: string; clientId?: string; clientSecret?: string; clientContext?: string; storeId?: string }; paperfly?: { baseUrl?: string; username?: string; password?: string; paperflyKey?: string; defaultShopName?: string; maxWeightKg?: number }; fraudChecker?: { apiKey?: string }; }; permissions?: PermissionsSettings; payroll?: { unitAmount?: number; countedStatuses?: any[]; }; wallet?: { unitAmount?: number; countedStatuses?: any[]; }; }) {
   const { permissions, ...batchEligibleUpdates } = updates;
   const hasBatchEligibleUpdates = Object.keys(batchEligibleUpdates).length > 0;
   const batchResult = hasBatchEligibleUpdates

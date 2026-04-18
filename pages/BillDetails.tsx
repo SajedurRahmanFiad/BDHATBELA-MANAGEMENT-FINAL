@@ -54,6 +54,7 @@ const BillDetails: React.FC = () => {
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading bill...</div>;
   if (billError || !bill) return <div className="p-8 text-center text-gray-500">{billError?.message || 'Bill not found.'}</div>;
+  if (!user) return <div className="p-8 text-center text-gray-500">Not authenticated.</div>;
   const canEditCurrentBill = canAccessRecord(bill.createdBy, 'bills.editOwn', 'bills.editAny');
   const canMoveCurrentBillToProcessing = canAccessRecord(
     bill.createdBy,
@@ -159,12 +160,16 @@ const BillDetails: React.FC = () => {
         paymentMethod: db.settings.defaults.defaultPaymentMethod || 'Cash',
         createdBy: user.id
       };
-      await createTransactionMutation.mutateAsync(expenseTxn as any);
+      const createdTransaction = await createTransactionMutation.mutateAsync(expenseTxn as any);
 
       await updateMutation.mutateAsync({ id: id!, updates: updatedBill });
 
       setShowPaymentModal(false);
-      toast.success('Payment recorded successfully');
+      if (createdTransaction.approvalStatus === 'pending') {
+        toast.info('Bill payment was recorded, and the expense transaction is waiting for admin approval.');
+      } else {
+        toast.success('Payment recorded successfully');
+      }
     } catch (err) {
       console.error('Failed to record payment:', err);
       toast.error('Failed to record payment');
@@ -363,7 +368,7 @@ const BillDetails: React.FC = () => {
             </div>
             <div className="p-5">
               <p className="text-xs text-gray-500 leading-relaxed font-medium">
-                {createdByUser?.name ? `${bill.history.created} ` : (bill.history?.created || 'Creation information unavailable')}
+                {bill.history?.created || 'Creation information unavailable'}
               </p>
             </div>
           </div>

@@ -130,6 +130,7 @@ abstract class BaseService
     protected Database $database;
     protected Auth $auth;
     protected Config $config;
+    private ?ServiceLifecycle $serviceLifecycleInstance = null;
 
     public function __construct(Database $database, Auth $auth, Config $config)
     {
@@ -141,6 +142,15 @@ abstract class BaseService
     protected function currentUser(): array
     {
         return $this->auth->requireUser();
+    }
+
+    protected function serviceLifecycle(): ServiceLifecycle
+    {
+        if (!$this->serviceLifecycleInstance instanceof ServiceLifecycle) {
+            $this->serviceLifecycleInstance = new ServiceLifecycle($this->database, $this->config);
+        }
+
+        return $this->serviceLifecycleInstance;
     }
 
     protected function requireAdmin(): array
@@ -687,6 +697,8 @@ abstract class BaseService
             'customerPhone' => $this->nullableString($row['customer_phone'] ?? $row['customerPhone'] ?? null),
             'customerAddress' => $this->nullableString($row['customer_address'] ?? $row['customerAddress'] ?? null),
             'creatorName' => $this->nullableString($row['creator_name'] ?? $row['creatorName'] ?? null),
+            'pendingTransactionCount' => (int) ($row['pending_transaction_count'] ?? $row['pendingTransactionCount'] ?? 0),
+            'pendingTransactionIds' => $this->jsonDecodeList($row['pending_transaction_ids'] ?? $row['pendingTransactionIds'] ?? []),
             'createdAt' => $this->toIso($row['created_at'] ?? $row['createdAt'] ?? null),
             'deletedAt' => $this->toIso($row['deleted_at'] ?? $row['deletedAt'] ?? null),
             'deletedBy' => $this->nullableString($row['deleted_by'] ?? $row['deletedBy'] ?? null),
@@ -750,6 +762,12 @@ abstract class BaseService
             'contactName' => $this->nullableString($row['contact_name'] ?? $row['contactName'] ?? null),
             'contactType' => $this->nullableString($row['contact_type'] ?? $row['contactType'] ?? null),
             'creatorName' => $this->nullableString($row['creator_name'] ?? $row['creatorName'] ?? null),
+            'approvalStatus' => (string) ($row['approval_status'] ?? $row['approvalStatus'] ?? 'approved'),
+            'accountEffectApplied' => ((int) ($row['account_effect_applied'] ?? $row['accountEffectApplied'] ?? 1)) === 1,
+            'approvalRequestedAt' => $this->toIso($row['approval_requested_at'] ?? $row['approvalRequestedAt'] ?? null),
+            'approvedAt' => $this->toIso($row['approved_at'] ?? $row['approvedAt'] ?? null),
+            'declinedAt' => $this->toIso($row['declined_at'] ?? $row['declinedAt'] ?? null),
+            'approvalNote' => $this->nullableString($row['approval_note'] ?? $row['approvalNote'] ?? null),
             'deletedAt' => $this->toIso($row['deleted_at'] ?? $row['deletedAt'] ?? null),
             'deletedBy' => $this->nullableString($row['deleted_by'] ?? $row['deletedBy'] ?? null),
         ];

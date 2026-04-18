@@ -14,7 +14,14 @@ const defaultSettings: Settings = {
   }),
   order: { prefix: 'BDH-', nextNumber: 1 },
   invoice: { title: 'Tax Invoice', logoWidth: 60, logoHeight: 60, footer: 'Thank you for shopping with BD Hatbela!' },
-  defaults: { defaultAccountId: '', defaultPaymentMethod: 'Cash', incomeCategoryId: '', expenseCategoryId: '', recordsPerPage: 20 },
+  defaults: {
+    defaultAccountId: '',
+    defaultPaymentMethod: 'Cash',
+    incomeCategoryId: '',
+    expenseCategoryId: '',
+    recordsPerPage: 20,
+    maxTransactionAmount: 0,
+  },
   categories: [],
   paymentMethods: [],
   courier: {

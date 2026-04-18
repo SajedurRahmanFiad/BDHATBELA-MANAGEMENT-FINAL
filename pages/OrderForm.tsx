@@ -693,7 +693,7 @@ const OrderForm: React.FC = () => {
             </div>
             {error && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm font-bold text-red-600">{error instanceof Error ? error.message : String(error)}</p>
+                <p className="text-sm font-bold text-red-600">{String(error)}</p>
               </div>
             )}
             <Button 

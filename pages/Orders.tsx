@@ -9,7 +9,7 @@ import FilterBar, { FilterRange } from '../components/FilterBar';
 import { Button, TableLoadingSkeleton, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
 import { useAuth } from '../src/contexts/AuthProvider';
-import { useOrdersPage, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
+import { useAccounts, useOrdersPage, useUsers, useOrderSettings, useSystemDefaults } from '../src/hooks/useQueries';
 import Pagination from '../src/components/Pagination';
 import { useCompletePickedOrder, useCreateOrder } from '../src/hooks/useMutations';
 import { DEFAULT_PAGE_SIZE, fetchOrderById } from '../src/services/supabaseQueries';
@@ -90,6 +90,7 @@ const Orders: React.FC = () => {
   const [completionForm, setCompletionForm] = useState<OrderCompletionFormState>(createCompletionForm());
 
   const { data: users = [] } = useUsers();
+  const { data: accounts = [] } = useAccounts();
 
   useEffect(() => {
     if (!shouldHydrateFromUrl) return;
@@ -364,13 +365,22 @@ const Orders: React.FC = () => {
         toast.error('Please select an expense category');
         return;
       }
+      if (completionForm.outcome === 'Returned') {
+        const selectedAccount = accounts.find((account) => account.id === completionForm.accountId);
+        if (selectedAccount && selectedAccount.currentBalance < completionForm.amount) {
+          toast.error(
+            `${selectedAccount.name} does not have enough balance for this return. Available ${formatCurrency(selectedAccount.currentBalance)}, required ${formatCurrency(completionForm.amount)}.`
+          );
+          return;
+        }
+      }
 
       const fullDatetime = buildLocalDateTime(completionForm.date, completionForm.time);
       if (!fullDatetime) {
         toast.error('Please enter a valid date and time');
         return;
       }
-      await completePickedOrderMutation.mutateAsync({
+      const updatedOrder = await completePickedOrderMutation.mutateAsync({
         orderId: completionOrder.id,
         outcome: completionForm.outcome,
         date: fullDatetime.toISOString(),
@@ -383,11 +393,17 @@ const Orders: React.FC = () => {
 
       setCompletionOrder(null);
       setCompletionForm(createCompletionForm());
-      toast.success(
-        completionForm.outcome === 'Returned'
-          ? `Order #${completionOrder.orderNumber} marked as returned`
-          : `Order #${completionOrder.orderNumber} marked as delivered`
-      );
+      if ((updatedOrder.pendingTransactionCount || 0) > 0) {
+        toast.info(
+          `Order #${completionOrder.orderNumber} was finalized, and ${updatedOrder.pendingTransactionCount} transaction${updatedOrder.pendingTransactionCount === 1 ? '' : 's'} were sent for admin approval.`
+        );
+      } else {
+        toast.success(
+          completionForm.outcome === 'Returned'
+            ? `Order #${completionOrder.orderNumber} marked as returned`
+            : `Order #${completionOrder.orderNumber} marked as delivered`
+        );
+      }
     } catch (err) {
       console.error('Failed to finalize order:', err);
       toast.error('Failed to finalize order: ' + (err instanceof Error ? err.message : 'Unknown error'));

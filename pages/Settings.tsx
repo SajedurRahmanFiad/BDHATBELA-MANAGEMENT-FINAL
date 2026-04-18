@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { db } from '../db';
 import { ICONS, formatCurrency } from '../constants';
 import { Button, PermissionsSettingsPanel } from '../components';
+import ServiceSubscriptionsPanel from '../components/ServiceSubscriptionsPanel';
 import { theme } from '../theme';
 import { OrderStatus, hasAdminAccess, type CompanyPage, type CourierSettings, type PermissionsSettings, type Settings } from '../types';
 import { 
@@ -26,7 +28,9 @@ import { clonePermissionsSettings, DEFAULT_ROLE_PERMISSION_SETTINGS } from '../s
 
 const SettingsPage: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('company');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab') || 'company';
+  const [activeTab, setActiveTab] = useState(urlTab);
   const [showModal, setShowModal] = useState<'category' | 'payment' | 'unit' | null>(null);
   const [pagePendingRemoval, setPagePendingRemoval] = useState<{ pageId: string; pageName: string } | null>(null);
   const [pageRemovalConfirmText, setPageRemovalConfirmText] = useState('');
@@ -83,7 +87,8 @@ const SettingsPage: React.FC = () => {
     defaultPaymentMethod: '', 
     incomeCategoryId: '', 
     expenseCategoryId: '', 
-    recordsPerPage: 10 
+    recordsPerPage: 10,
+    maxTransactionAmount: 0,
   });
   const [permissionsSettings, setPermissionsSettings] = useState<PermissionsSettings>(() =>
     clonePermissionsSettings(DEFAULT_ROLE_PERMISSION_SETTINGS),
@@ -134,6 +139,25 @@ const SettingsPage: React.FC = () => {
       setPermissionsSettings(clonePermissionsSettings(permissionsSettingsData));
     }
   }, [permissionsSettingsData]);
+
+  React.useEffect(() => {
+    if (urlTab !== activeTab) {
+      setActiveTab(urlTab);
+    }
+  }, [urlTab]); // Removed activeTab from dependencies to prevent unnecessary re-runs
+
+  React.useEffect(() => {
+    const currentTab = searchParams.get('tab') || 'company';
+    if (currentTab === activeTab) return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (activeTab === 'company') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', activeTab);
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [activeTab, searchParams, setSearchParams]);
 
   // Fetch CarryBee stores when credentials change (debounced to avoid rapid calls while typing)
   useEffect(() => {
@@ -517,6 +541,7 @@ const SettingsPage: React.FC = () => {
     { id: 'company', label: 'Company', icon: ICONS.Dashboard },
     { id: 'order', label: 'Order & Invoice', icon: ICONS.Sales },
     { id: 'defaults', label: 'Defaults', icon: ICONS.Settings },
+    { id: 'subscriptions', label: 'Subscription', icon: ICONS.Bell },
     { id: 'wallet', label: 'Wallet', icon: ICONS.Payroll },
     { id: 'fraud-checker', label: 'Fraud Checker', icon: ICONS.FraudChecker },
     { id: 'permissions', label: 'Permissions', icon: ICONS.Users },
@@ -550,13 +575,15 @@ const SettingsPage: React.FC = () => {
         <div>
           <h2 className="md:text-2xl text-xl font-bold text-gray-900">Settings</h2>
         </div>
-        <Button
-          onClick={handleSave}
-          variant="primary"
-          size="md"
-        >
-          Save Changes
-        </Button>
+        {activeTab !== 'subscriptions' && (
+          <Button
+            onClick={handleSave}
+            variant="primary"
+            size="md"
+          >
+            Save Changes
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
@@ -834,9 +861,30 @@ const SettingsPage: React.FC = () => {
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl" 
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Max Transaction Amount Without Approval</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={systemDefaults.maxTransactionAmount ?? 0}
+                    onChange={e =>
+                      setSystemDefaults({
+                        ...systemDefaults,
+                        maxTransactionAmount: Number.parseFloat(e.target.value || '0') || 0,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl"
+                  />
+                  <p className="text-xs font-medium text-gray-400">
+                    Transactions above this amount will stay pending until an admin accepts or declines them.
+                  </p>
+                </div>
               </div>
             </div>
           )}
+
+          {activeTab === 'subscriptions' && <ServiceSubscriptionsPanel />}
 
           {activeTab === 'payroll' && (
             <div className="space-y-10 animate-in fade-in duration-300">

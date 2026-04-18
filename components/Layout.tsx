@@ -13,6 +13,8 @@ import { getGlobalCompanyPage, normalizeCompanySettings } from '../src/utils/com
 import { useRolePermissions } from '../src/hooks/useRolePermissions';
 import IncidentModeBanner from './IncidentModeBanner';
 import { WRITE_FREEZE_ENABLED, WRITE_FREEZE_MESSAGE } from '../src/config/incidentMode';
+import NotificationCenterButton from './NotificationCenterButton';
+import ServiceAnnouncementBar from './ServiceAnnouncementBar';
 
 interface SidebarItemProps {
   to?: string;
@@ -210,6 +212,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
   const canViewDashboard = canViewAdminDashboard || canViewEmployeeDashboard;
   const isAdminAccessUser = hasAdminAccess(user.role);
+  const isDeveloper = user.role === 'Developer';
   const canViewWalletInSidebar = !isAdminAccessUser && can('wallet.view');
   const salesChildren = [
     can('orders.view') ? { to: '/orders', label: 'Orders', active: isActive('/orders') } : null,
@@ -332,7 +335,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   <SidebarItem to="/recycle-bin" icon={ICONS.RecycleBin} label="Recycle Bin" active={isActive('/recycle-bin')} onClick={() => setIsSidebarOpen(false)} />
                 )}
                 {isAdminAccessUser && (
-                  <SidebarItem to="/settings" icon={ICONS.Settings} label="Settings" active={isActive('/settings')} onClick={() => setIsSidebarOpen(false)} />
+                  <>
+                    <SidebarItem to="/settings" icon={ICONS.Settings} label="Settings" active={isActive('/settings')} onClick={() => setIsSidebarOpen(false)} />
+                    {isDeveloper && (
+                      <SidebarItem to="/developer/notifications" icon={ICONS.Bell} label="Notifications" active={isActive('/developer/notifications')} onClick={() => setIsSidebarOpen(false)} />
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -343,6 +351,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        <ServiceAnnouncementBar />
         <header className={`flex-shrink-0 sticky top-0 z-40 ${theme.colors.bg.primary}/80 backdrop-blur-lg border-b ${theme.colors.border.primary} px-6 h-20 flex items-center`}>
           <div className="flex-1 min-w-0 flex items-center">
             <button onClick={() => setIsSidebarOpen(true)} className={`lg:hidden p-2.5 hover:${theme.colors.bg.tertiary} ${theme.radius.md} ${theme.colors.text.secondary} border ${theme.colors.border.primary}`}>
@@ -383,6 +392,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           <div className="flex items-center gap-4 ml-auto">
+            <NotificationCenterButton />
             <div className="relative">
               <button
                 onClick={() => {

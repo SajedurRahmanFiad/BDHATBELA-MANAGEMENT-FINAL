@@ -13,7 +13,7 @@ import { DEFAULT_PAGE_SIZE } from '../src/services/supabaseQueries';
 import { useUrlSyncedSearchQuery } from '../src/hooks/useUrlSyncedSearchQuery';
 import { buildHistoryBackState, getPositivePageParam } from '../src/utils/navigation';
 import { useRolePermissions } from '../src/hooks/useRolePermissions';
-import { useDeleteTransaction } from '../src/hooks/useMutations';
+import { useDeleteTransaction, useReviewTransactionApproval } from '../src/hooks/useMutations';
 import { formatDateTimeParts, getDateTimeFilters, openAttachmentPreview } from '../utils';
 
 const Transactions: React.FC = () => {
@@ -21,10 +21,11 @@ const Transactions: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToastNotifications();
-  const { can } = useRolePermissions();
+  const { can, isAdminAccessUser } = useRolePermissions();
   const canCreateTransactions = can('transactions.create');
   const canEditTransactions = can('transactions.edit');
   const canDeleteTransactions = can('transactions.delete');
+  const canReviewApprovals = isAdminAccessUser;
   const {
     data: systemDefaults,
     isPending: systemDefaultsLoading,
@@ -55,6 +56,7 @@ const Transactions: React.FC = () => {
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [openActionsMenu, setOpenActionsMenu] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const highlightedTransactionId = searchParams.get('highlightTx') || '';
   const previousSearchQueryRef = React.useRef(searchQuery);
 
   const { data: users = [] } = useUsers();
@@ -160,6 +162,7 @@ const Transactions: React.FC = () => {
   const totalTransactions = transactionsPage?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const deleteTransactionMutation = useDeleteTransaction();
+  const reviewTransactionApprovalMutation = useReviewTransactionApproval();
 
   useEffect(() => {
     if (shouldHydrateFromUrl || categoryFilter === 'all') return;
@@ -198,6 +201,22 @@ const Transactions: React.FC = () => {
     currentSearchParams,
     setSearchParams,
   ]);
+
+  useEffect(() => {
+    if (!highlightedTransactionId || showTransactionsTableLoading) return;
+
+    const row = document.getElementById(`transaction-row-${highlightedTransactionId}`);
+    if (!row) return;
+
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = window.setTimeout(() => {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('highlightTx');
+      setSearchParams(nextParams, { replace: true });
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedTransactionId, searchParams, setSearchParams, showTransactionsTableLoading]);
 
   const handleTypeTabChange = (type: 'All' | 'Income' | 'Expense' | 'Transfer') => {
     setPage(1);
@@ -337,6 +356,29 @@ const Transactions: React.FC = () => {
     }
   };
 
+  const handleReviewTransaction = async (transaction: Transaction, decision: 'approve' | 'decline') => {
+    if (transaction.approvalStatus !== 'pending') {
+      toast.warning('This transaction is no longer pending approval.');
+      return;
+    }
+
+    try {
+      await reviewTransactionApprovalMutation.mutateAsync({
+        transactionId: transaction.id,
+        decision,
+      });
+      toast.success(
+        decision === 'approve'
+          ? 'Transaction approved successfully.'
+          : 'Transaction declined and any pending effect was cancelled.'
+      );
+      closeActionsMenu();
+    } catch (error) {
+      console.error('Failed to review transaction:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to review transaction.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -435,11 +477,16 @@ const Transactions: React.FC = () => {
 
                   return (
                     <tr
+                      id={`transaction-row-${transaction.id}`}
                       key={transaction.id}
                       onMouseEnter={() => setHoveredRow(transaction.id)}
                       onMouseLeave={() => setHoveredRow(null)}
                       onClick={() => handleRowClick(transaction)}
-                      className={`group relative hover:bg-gray-50 transition-all ${hasLink ? 'cursor-pointer' : ''}`}
+                      className={`group relative transition-all ${hasLink ? 'cursor-pointer' : ''} ${
+                        highlightedTransactionId === transaction.id
+                          ? 'bg-amber-50 ring-2 ring-amber-300'
+                          : 'hover:bg-gray-50'
+                      }`}
                     >
                       <td className="px-6 py-5 text-sm font-bold text-gray-700">
                         <div className="flex flex-col">
@@ -448,9 +495,22 @@ const Transactions: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${transaction.type === 'Income' ? 'bg-[#ebf4ff]' : transaction.type === 'Expense' ? 'bg-red-50 text-red-600' : 'bg-[#e6f0ff]'}`}>
-                          {transaction.type}
-                        </span>
+                        <div className="flex flex-col gap-2">
+                          <span className={`inline-flex w-fit px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${transaction.type === 'Income' ? 'bg-[#ebf4ff]' : transaction.type === 'Expense' ? 'bg-red-50 text-red-600' : 'bg-[#e6f0ff]'}`}>
+                            {transaction.type}
+                          </span>
+                          {transaction.approvalStatus && transaction.approvalStatus !== 'approved' && (
+                            <span
+                              className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.18em] ${
+                                transaction.approvalStatus === 'pending'
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-gray-200 text-gray-600'
+                              }`}
+                            >
+                              {transaction.approvalStatus}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-5">
                         {isLinkedTransaction ? (
@@ -475,6 +535,9 @@ const Transactions: React.FC = () => {
                         <div className="flex flex-col">
                           <p className="text-sm font-bold text-gray-800">{categoryNameMap.get(transaction.category) || transaction.category || 'Uncategorized'}</p>
                           <p className="text-xs text-gray-400 italic max-w-xs truncate">{transaction.description}</p>
+                          {transaction.approvalStatus === 'pending' && (
+                            <p className="mt-1 text-[11px] font-bold text-amber-700">Awaiting admin approval</p>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right">
@@ -503,6 +566,23 @@ const Transactions: React.FC = () => {
                             </button>
                             <PortalMenu anchorEl={anchorEl} open={openActionsMenu === transaction.id} onClose={closeActionsMenu}>
                               <>
+                                {canReviewApprovals && transaction.approvalStatus === 'pending' && (
+                                  <>
+                                    <button
+                                      onClick={() => handleReviewTransaction(transaction, 'approve')}
+                                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-emerald-50 flex items-center gap-2 font-bold text-emerald-700"
+                                    >
+                                      {ICONS.Check} Approve
+                                    </button>
+                                    <button
+                                      onClick={() => handleReviewTransaction(transaction, 'decline')}
+                                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 flex items-center gap-2 font-bold text-red-600"
+                                    >
+                                      {ICONS.Close} Decline
+                                    </button>
+                                    {(canEdit || canDelete || canPreviewAttachment) && <div className="border-t my-1"></div>}
+                                  </>
+                                )}
                                 {canEdit && (
                                   <button
                                     onClick={() => {
@@ -546,6 +626,25 @@ const Transactions: React.FC = () => {
                           onClick={(event) => event.stopPropagation()}
                         >
                           <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-[#ebf4ff]">
+                            {canReviewApprovals && transaction.approvalStatus === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleReviewTransaction(transaction, 'approve')}
+                                  className="p-2.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-all"
+                                  title="Approve"
+                                >
+                                  {ICONS.Check}
+                                </button>
+                                <button
+                                  onClick={() => handleReviewTransaction(transaction, 'decline')}
+                                  className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                  title="Decline"
+                                >
+                                  {ICONS.Close}
+                                </button>
+                                {(canEdit || canDelete || canPreviewAttachment) && <div className="h-5 w-px bg-gray-100 mx-1"></div>}
+                              </>
+                            )}
                             {canEdit && (
                               <button
                                 onClick={() => handleEditTransaction(transaction)}

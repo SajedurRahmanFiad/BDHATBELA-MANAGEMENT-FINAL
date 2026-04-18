@@ -6,7 +6,7 @@ import { OrderStatus, Order } from '../types';
 import { formatCurrency, ICONS, getStatusColor } from '../constants';
 import { Button, FraudCheckModal, OrderCompletionModal, type OrderCompletionFormState, SteadfastModal, CarryBeeModal, PaperflyModal } from '../components';
 import { theme } from '../theme';
-import { useOrder, useCustomer, useProductImagesByIds, useCompanySettings, useInvoiceSettings, useUser } from '../src/hooks/useQueries';
+import { useAccounts, useOrder, useCustomer, useProductImagesByIds, useCompanySettings, useInvoiceSettings, useUser } from '../src/hooks/useQueries';
 import { useUpdateOrder, useCreateOrder, useCompletePickedOrder } from '../src/hooks/useMutations';
 import { useToastNotifications } from '../src/contexts/ToastContext';
 import { useAuth } from '../src/contexts/AuthProvider';
@@ -54,6 +54,7 @@ const OrderDetails: React.FC = () => {
   const { data: productImages = {} } = useProductImagesByIds(orderItemProductIds);
   const { data: companySettings } = useCompanySettings();
   const { data: invoiceSettings } = useInvoiceSettings();
+  const { data: accounts = [] } = useAccounts();
   
   // Mutations
   const updateMutation = useUpdateOrder();
@@ -187,6 +188,15 @@ const OrderDetails: React.FC = () => {
       toast.error('Please select an expense category');
       return;
     }
+    if (completionForm.outcome === 'Returned') {
+      const selectedAccount = accounts.find((account) => account.id === completionForm.accountId);
+      if (selectedAccount && selectedAccount.currentBalance < completionForm.amount) {
+        toast.error(
+          `${selectedAccount.name} does not have enough balance for this return. Available ${formatCurrency(selectedAccount.currentBalance)}, required ${formatCurrency(completionForm.amount)}.`
+        );
+        return;
+      }
+    }
 
     const fullDatetime = buildLocalDateTime(completionForm.date, completionForm.time);
     if (!fullDatetime) {
@@ -195,7 +205,7 @@ const OrderDetails: React.FC = () => {
     }
 
     try {
-      await completePickedOrderMutation.mutateAsync({
+      const updatedOrder = await completePickedOrderMutation.mutateAsync({
         orderId: order.id,
         outcome: completionForm.outcome,
         date: fullDatetime.toISOString(),
@@ -208,11 +218,17 @@ const OrderDetails: React.FC = () => {
 
       setShowCompletionModal(false);
       setCompletionForm(createCompletionForm());
-      toast.success(
-        completionForm.outcome === 'Returned'
-          ? `Order #${order.orderNumber} marked as returned`
-          : `Order #${order.orderNumber} marked as delivered`
-      );
+      if ((updatedOrder.pendingTransactionCount || 0) > 0) {
+        toast.info(
+          `Order #${order.orderNumber} was finalized, and ${updatedOrder.pendingTransactionCount} transaction${updatedOrder.pendingTransactionCount === 1 ? '' : 's'} were sent for admin approval.`
+        );
+      } else {
+        toast.success(
+          completionForm.outcome === 'Returned'
+            ? `Order #${order.orderNumber} marked as returned`
+            : `Order #${order.orderNumber} marked as delivered`
+        );
+      }
     } catch (err) {
       console.error('Failed to finalize order:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to finalize order');

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { OrderStatus } from '../types';
 import { formatCurrency, ICONS } from '../constants';
 import { StatCard } from '../components/Card';
@@ -100,12 +101,17 @@ const EmployeeStatusCard: React.FC<{
   valueClass: string;
   barClass: string;
   trackClass: string;
-}> = ({ title, value, total, valueClass, barClass, trackClass }) => {
+  onClick?: () => void;
+}> = ({ title, value, total, valueClass, barClass, trackClass, onClick }) => {
   const numericValue = typeof value === 'number' ? value : 0;
   const width = total > 0 && numericValue > 0 ? Math.max((numericValue / total) * 100, 8) : 0;
 
   return (
-    <div className="rounded-[12px] border border-gray-100 bg-white px-4 py-4 shadow-sm">
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-[12px] border border-gray-100 bg-white px-4 py-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#c7dff5] hover:bg-[#f8fbff]"
+    >
       <div className="flex items-start justify-between gap-3">
         <p className="text-[16px] font-black text-gray-900">{title}</p>
         <p className={`text-lg font-black leading-none ${valueClass}`}>{value}</p>
@@ -113,7 +119,7 @@ const EmployeeStatusCard: React.FC<{
       <div className={`mt-5 h-3 overflow-hidden rounded-full ${trackClass}`}>
         <div className={`h-full rounded-full ${barClass}`} style={{ width: `${width}%` }} />
       </div>
-    </div>
+    </button>
   );
 };
 
@@ -152,6 +158,7 @@ const SectionState: React.FC<{ text: string; minHeight?: string }> = ({ text, mi
 );
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
   const { canViewAdminDashboard, canViewEmployeeDashboard } = useRolePermissions();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -460,6 +467,16 @@ const Dashboard: React.FC = () => {
                     valueClass={styles.valueClass}
                     barClass={styles.barClass}
                     trackClass={styles.trackClass}
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      params.set('status', entry.status);
+                      params.set('createdBy', String(user.id));
+                      if (filterRange !== 'All Time') params.set('range', filterRange);
+                      if (customDates.from) params.set('from', customDates.from);
+                      if (customDates.to) params.set('to', customDates.to);
+                      if (includeTime) params.set('includeTime', 'true');
+                      navigate(`/orders?${params.toString()}`);
+                    }}
                   />
                 );
               })}

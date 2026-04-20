@@ -1245,6 +1245,7 @@ final class MasterDataApi extends BaseService
             );
         }
 
+        $this->permissionsSettingsPayloadCache = null;
         return $this->fetchPermissionsSettings();
     }
 
@@ -1881,6 +1882,37 @@ final class MasterDataApi extends BaseService
 
         if ($state === 'renewing') {
             $activeKey = 'service-subscription-renewing-v' . (int) ($overview['billingVersion'] ?? 1);
+        } elseif ($state === 'expired') {
+            $activeKey = 'service-subscription-expired-v' . (int) ($overview['billingVersion'] ?? 1);
+        } elseif ($state === 'warning') {
+            $activeKey = 'service-subscription-warning-v' . (int) ($overview['billingVersion'] ?? 1);
+        }
+
+        if (
+            $this->tableExists('notifications')
+            && $this->columnExists('notifications', 'system_key')
+        ) {
+            $activeRows = $this->database->fetchAll(
+                'SELECT system_key
+                 FROM notifications
+                 WHERE system_key LIKE :prefix
+                   AND is_active = 1',
+                [':prefix' => $prefix]
+            );
+            $activeKeys = array_values(array_unique(array_filter(array_map(
+                static fn (array $row): string => trim((string) ($row['system_key'] ?? '')),
+                $activeRows
+            ))));
+            sort($activeKeys);
+            $desiredKeys = $activeKey !== null ? [$activeKey] : [];
+            sort($desiredKeys);
+
+            if ($activeKeys === $desiredKeys) {
+                return;
+            }
+        }
+
+        if ($state === 'renewing') {
             $this->upsertSystemNotification(
                 $activeKey,
                 'Service renewal is processing',
@@ -1896,7 +1928,6 @@ final class MasterDataApi extends BaseService
                 null
             );
         } elseif ($state === 'expired') {
-            $activeKey = 'service-subscription-expired-v' . (int) ($overview['billingVersion'] ?? 1);
             $this->upsertSystemNotification(
                 $activeKey,
                 'Backend services have expired',
@@ -1912,7 +1943,6 @@ final class MasterDataApi extends BaseService
                 null
             );
         } elseif ($state === 'warning') {
-            $activeKey = 'service-subscription-warning-v' . (int) ($overview['billingVersion'] ?? 1);
             $this->upsertSystemNotification(
                 $activeKey,
                 'Backend services will expire soon',
@@ -2457,9 +2487,7 @@ final class MasterDataApi extends BaseService
     public function fetchServiceSubscriptionOverview(array $params = []): array
     {
         $user = $this->currentUser();
-        $overview = $this->buildServiceSubscriptionOverview($user);
-        $this->syncServiceSubscriptionNotifications($overview);
-        return $overview;
+        return $this->buildServiceSubscriptionOverview($user);
     }
 
     public function saveServiceSubscriptionSettings(array $params): array

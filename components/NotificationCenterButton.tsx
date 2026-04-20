@@ -84,13 +84,13 @@ const NotificationCenterButton: React.FC = () => {
     isError: isFirstPageError,
     error: firstPageError,
   } = useMyNotificationsPaginated(1, PAGE_SIZE, {
-    enabled: true,
-    staleTime: 1000,
-    refetchInterval: 5000,
-    refetchIntervalInBackground: true,
+    enabled: isOpen,
+    staleTime: 30 * 1000,
+    refetchInterval: isOpen ? 20 * 1000 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchOnMount: 'always',
+    refetchOnMount: true,
   });
 
   const {

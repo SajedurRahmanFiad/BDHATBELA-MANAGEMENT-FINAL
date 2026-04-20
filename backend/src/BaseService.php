@@ -131,6 +131,12 @@ abstract class BaseService
     protected Auth $auth;
     protected Config $config;
     private ?ServiceLifecycle $serviceLifecycleInstance = null;
+    /** @var array<string, bool> */
+    private array $tableExistsCache = [];
+    /** @var array<string, bool> */
+    private array $columnExistsCache = [];
+    /** @var array<string, mixed>|null */
+    protected ?array $permissionsSettingsPayloadCache = null;
 
     public function __construct(Database $database, Auth $auth, Config $config)
     {
@@ -950,6 +956,10 @@ abstract class BaseService
 
     protected function tableExists(string $table): bool
     {
+        if (array_key_exists($table, $this->tableExistsCache)) {
+            return $this->tableExistsCache[$table];
+        }
+
         $row = $this->database->fetchOne(
             'SELECT 1 AS present
              FROM information_schema.TABLES
@@ -959,11 +969,17 @@ abstract class BaseService
             [':table' => $table]
         );
 
-        return $row !== null;
+        $this->tableExistsCache[$table] = $row !== null;
+        return $this->tableExistsCache[$table];
     }
 
     protected function columnExists(string $table, string $column): bool
     {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, $this->columnExistsCache)) {
+            return $this->columnExistsCache[$cacheKey];
+        }
+
         $row = $this->database->fetchOne(
             'SELECT 1 AS present
              FROM information_schema.COLUMNS
@@ -977,7 +993,8 @@ abstract class BaseService
             ]
         );
 
-        return $row !== null;
+        $this->columnExistsCache[$cacheKey] = $row !== null;
+        return $this->columnExistsCache[$cacheKey];
     }
 
     protected function normalizeRoleName(string $role): string
@@ -1112,6 +1129,10 @@ abstract class BaseService
      */
     protected function buildPermissionsSettingsPayload(): array
     {
+        if ($this->permissionsSettingsPayloadCache !== null) {
+            return $this->permissionsSettingsPayloadCache;
+        }
+
         $rolesByName = [];
 
         foreach (self::BUILT_IN_PERMISSION_ROLES as $roleName) {
@@ -1152,7 +1173,8 @@ abstract class BaseService
             return strcmp((string) ($left['roleName'] ?? ''), (string) ($right['roleName'] ?? ''));
         });
 
-        return ['roles' => $roles];
+        $this->permissionsSettingsPayloadCache = ['roles' => $roles];
+        return $this->permissionsSettingsPayloadCache;
     }
 
     /**

@@ -52,6 +52,10 @@ Copy-Item -Path (Join-Path $repoRoot 'backend') -Destination (Join-Path $appRoot
 Copy-Item -LiteralPath (Join-Path $templateRoot 'bdhatbela_app\.env.example') -Destination (Join-Path $appRoot '.env.example') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Destination (Join-Path $appRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'CPANEL_DEPLOYMENT.md') -Destination (Join-Path $packageRoot 'CPANEL_DEPLOYMENT.md') -Force
+$serverOpsGuide = Join-Path $repoRoot 'SERVER_OPS_ACTION_GUIDE.md'
+if (Test-Path $serverOpsGuide) {
+  Copy-Item -LiteralPath $serverOpsGuide -Destination (Join-Path $packageRoot 'SERVER_OPS_ACTION_GUIDE.md') -Force
+}
 
 $backendEnv = Join-Path $appRoot 'backend\.env'
 $backendEnvLocal = Join-Path $appRoot 'backend\.env.local'
@@ -60,7 +64,23 @@ if (Test-Path $backendEnvLocal) { Remove-Item $backendEnvLocal -Force }
 
 if (-not $NoZip) {
   Write-Host 'Creating ZIP package...'
-  Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -Force
+  $zipCreated = $false
+  for ($attempt = 1; $attempt -le 3 -and -not $zipCreated; $attempt++) {
+    try {
+      if ($attempt -gt 1) {
+        Write-Host "Retrying ZIP creation (attempt $attempt of 3)..."
+        Start-Sleep -Seconds 2
+      }
+
+      Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -Force
+      $zipCreated = $true
+    }
+    catch {
+      if ($attempt -eq 3) {
+        throw
+      }
+    }
+  }
 }
 
 Write-Host ''

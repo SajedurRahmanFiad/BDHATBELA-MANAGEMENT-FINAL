@@ -6,6 +6,7 @@ import { ToastProvider } from './src/contexts/ToastContext';
 import { SearchProvider } from './src/contexts/SearchContext';
 import { RealtimeProvider } from './src/contexts/RealtimeProvider';
 import { NetworkProvider } from './src/contexts/NetworkProvider';
+import { ApiError } from './src/services/apiClient';
 import Layout from './components/Layout';
 import ToastContainer from './components/ToastContainer';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
@@ -49,14 +50,33 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes - data is considered fresh for 5 min
       gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime) - keep in memory for 30 min
-      retry: 2, // Retry failed requests 2 times (was 3, too aggressive)
+      retry: (failureCount, error) => {
+        // Keep safe reads resilient without multiplying load during outages.
+        if (error instanceof ApiError) {
+          if (error.code === 'SERVICE_EXPIRED' || error.code === 'SERVICE_RENEWAL_PENDING') {
+            return false;
+          }
+
+          if (error.code === 'NETWORK' || error.code === 'TIMEOUT') {
+            return failureCount < 1;
+          }
+
+          if (typeof error.status === 'number') {
+            return error.status >= 500 && failureCount < 1;
+          }
+
+          return false;
+        }
+
+        return failureCount < 1;
+      },
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000), // Exponential backoff, max 10s
       refetchOnWindowFocus: false, // Don't auto-refetch on window focus (optimistic updates handle changes)
       refetchOnReconnect: false, // Don't auto-refetch on reconnect (optimistic updates handle changes)
       refetchOnMount: false, // Don't auto-refetch on mount (avoid unnecessary requests)
     },
     mutations: {
-      retry: 1, // Only retry mutations once
+      retry: 0, // Avoid duplicate writes when the network is degraded
       retryDelay: 1000, // 1 second delay between retries
     },
   },

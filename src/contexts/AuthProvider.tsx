@@ -28,6 +28,12 @@ type BootstrapFailure = {
   message: string;
 };
 
+type BootstrapCacheEntry = {
+  token: string;
+  cachedAt: number;
+  session: BootstrapSessionData;
+};
+
 type BootstrapResult =
   | { kind: 'success'; data: BootstrapSessionData }
   | { kind: 'anonymous' }
@@ -35,8 +41,67 @@ type BootstrapResult =
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const BOOTSTRAP_TIMEOUT_MS = 6000;
+const BOOTSTRAP_TIMEOUT_MS = 15000;
+const BOOTSTRAP_CACHE_KEY = 'bootstrapSessionCache';
+const BOOTSTRAP_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 const LEGACY_SESSION_KEYS = ['currentUserId', 'isLoggedIn', 'userProfile', 'userData', 'currentUser'] as const;
+
+function readBootstrapCache(token: string): BootstrapSessionData | null {
+  if (typeof window === 'undefined' || !token.trim()) {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as BootstrapCacheEntry | null;
+    if (
+      !parsed
+      || parsed.token !== token
+      || typeof parsed.cachedAt !== 'number'
+      || !parsed.session?.user
+      || !parsed.session?.permissions
+    ) {
+      return null;
+    }
+
+    if (Date.now() - parsed.cachedAt > BOOTSTRAP_CACHE_MAX_AGE_MS) {
+      return null;
+    }
+
+    return parsed.session;
+  } catch {
+    return null;
+  }
+}
+
+function writeBootstrapCache(token: string, session: BootstrapSessionData): void {
+  if (typeof window === 'undefined' || !token.trim()) {
+    return;
+  }
+
+  try {
+    const payload: BootstrapCacheEntry = {
+      token,
+      cachedAt: Date.now(),
+      session,
+    };
+    localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore cache-write failures; startup should still succeed.
+  }
+}
+
+function clearBootstrapCache(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  localStorage.removeItem(BOOTSTRAP_CACHE_KEY);
+}
 
 function clearLegacySessionStorage(): void {
   for (const key of LEGACY_SESSION_KEYS) {
@@ -71,6 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [startupError, setStartupError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const mountedRef = useRef(true);
+  const bootstrapInFlightRef = useRef<{ token: string; promise: Promise<BootstrapResult> } | null>(null);
 
   const isLoading = startupStatus === 'idle' || startupStatus === 'checking';
 
@@ -94,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearAuthToken();
     }
 
+    clearBootstrapCache();
     clearLegacySessionStorage();
     saveDb();
   }, [queryClient]);
@@ -126,44 +193,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { kind: 'anonymous' };
     }
 
+    if (bootstrapInFlightRef.current?.token === token) {
+      return bootstrapInFlightRef.current.promise;
+    }
+
+    const cachedSession = readBootstrapCache(token);
     if (mountedRef.current) {
-      setStartupStatus('checking');
       setStartupError(null);
+      if (cachedSession) {
+        applyAuthenticatedState(cachedSession);
+      } else {
+        setStartupStatus('checking');
+      }
     }
 
-    try {
-      const session = await fetchBootstrapSession({ timeoutMs: BOOTSTRAP_TIMEOUT_MS });
+    const request = (async (): Promise<BootstrapResult> => {
+      try {
+        const session = await fetchBootstrapSession({ timeoutMs: BOOTSTRAP_TIMEOUT_MS });
 
-      if (!mountedRef.current) {
-        return { kind: 'success', data: session };
-      }
+        writeBootstrapCache(token, session);
 
-      applyAuthenticatedState(session);
-      prefetchPostBootstrap();
-      window.dispatchEvent(new Event('authChange'));
-      return { kind: 'success', data: session };
-    } catch (error) {
-      if (!mountedRef.current) {
-        return { kind: 'failure', failure: classifyBootstrapError(error) };
-      }
+        if (!mountedRef.current) {
+          return { kind: 'success', data: session };
+        }
 
-      if (error instanceof ApiError && error.status === 401) {
-        console.warn('[Auth] Stored token is invalid, clearing session');
-        setAnonymousState(true);
+        applyAuthenticatedState(session);
+        prefetchPostBootstrap();
         window.dispatchEvent(new Event('authChange'));
-        return { kind: 'anonymous' };
-      }
+        return { kind: 'success', data: session };
+      } catch (error) {
+        if (!mountedRef.current) {
+          return { kind: 'failure', failure: classifyBootstrapError(error) };
+        }
 
-      const failure = classifyBootstrapError(error);
-      console.error('[Auth] Session bootstrap failed:', error);
-      setUser(null);
-      db.currentUser = null;
-      queryClient.removeQueries({ queryKey: ['settings', 'permissions'], exact: true });
-      setStartupStatus(failure.status);
-      setStartupError(failure.message);
-      saveDb();
-      return { kind: 'failure', failure };
-    }
+        if (error instanceof ApiError && error.status === 401) {
+          console.warn('[Auth] Stored token is invalid, clearing session');
+          clearBootstrapCache();
+          setAnonymousState(true);
+          window.dispatchEvent(new Event('authChange'));
+          return { kind: 'anonymous' };
+        }
+
+        if (cachedSession) {
+          console.warn('[Auth] Session bootstrap failed, using cached session snapshot:', error);
+          prefetchPostBootstrap();
+          return { kind: 'success', data: cachedSession };
+        }
+
+        const failure = classifyBootstrapError(error);
+        console.error('[Auth] Session bootstrap failed:', error);
+        setUser(null);
+        db.currentUser = null;
+        queryClient.removeQueries({ queryKey: ['settings', 'permissions'], exact: true });
+        setStartupStatus(failure.status);
+        setStartupError(failure.message);
+        saveDb();
+        return { kind: 'failure', failure };
+      } finally {
+        if (bootstrapInFlightRef.current?.token === token) {
+          bootstrapInFlightRef.current = null;
+        }
+      }
+    })();
+
+    bootstrapInFlightRef.current = { token, promise: request };
+    return request;
   }, [applyAuthenticatedState, prefetchPostBootstrap, queryClient, setAnonymousState]);
 
   useEffect(() => {

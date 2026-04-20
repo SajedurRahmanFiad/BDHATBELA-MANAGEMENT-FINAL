@@ -71,6 +71,8 @@ import {
   fetchRecycleBinPage,
 } from '../services/supabaseQueries';
 import { DEFAULT_PAGE_SIZE } from '../services/supabaseQueries';
+import { useNetwork } from '../contexts/NetworkProvider';
+import { usePageVisibility } from './usePageVisibility';
 import type {
   Customer,
   Order,
@@ -110,6 +112,7 @@ import type {
   RecycleBinItem,
 } from '../../types';
 import { db } from '../../db';
+import { hasAdminAccess } from '../../types';
 
 // ========== CUSTOMERS ==========
 
@@ -797,16 +800,19 @@ export function useSystemDefaults(): UseQueryResult<any, Error> {
 
 export function useMyNotifications(enabled: boolean = true): UseQueryResult<NotificationListResponse, Error> {
   const currentUser = db.currentUser ?? null;
+  const { isOnline } = useNetwork();
+  const isPageVisible = usePageVisibility();
+  const canPoll = enabled && !!currentUser?.id && isOnline && isPageVisible;
 
   return useQuery({
     queryKey: ['notifications', 'me', currentUser?.id, currentUser?.role],
     queryFn: fetchMyNotifications,
-    staleTime: 1000,
-    refetchInterval: 1000,
-    refetchIntervalInBackground: true,
+    staleTime: 30 * 1000,
+    refetchInterval: canPoll ? 30 * 1000 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchOnMount: 'always',
+    refetchOnMount: true,
     enabled: enabled && !!currentUser?.id,
   });
 }
@@ -825,13 +831,19 @@ export function useMyNotificationsPaginated(
   }
 ): UseQueryResult<NotificationListPageResponse, Error> {
   const currentUser = db.currentUser ?? null;
+  const { isOnline } = useNetwork();
+  const isPageVisible = usePageVisibility();
+  const effectiveRefetchInterval =
+    isOnline && isPageVisible
+      ? (options?.refetchInterval ?? false)
+      : false;
 
   return useQuery({
     queryKey: ['notifications', 'me', 'paginated', page, pageSize, currentUser?.id, currentUser?.role],
     queryFn: () => fetchMyNotificationsPaginated(page, pageSize),
     placeholderData: (previousData) => previousData,
     staleTime: options?.staleTime ?? 5 * 60 * 1000,
-    refetchInterval: options?.refetchInterval,
+    refetchInterval: effectiveRefetchInterval,
     refetchIntervalInBackground: options?.refetchIntervalInBackground ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     refetchOnReconnect: options?.refetchOnReconnect ?? true,
@@ -842,16 +854,19 @@ export function useMyNotificationsPaginated(
 
 export function useAllNotifications(enabled: boolean = true): UseQueryResult<AppNotification[], Error> {
   const currentUser = db.currentUser ?? null;
+  const { isOnline } = useNetwork();
+  const isPageVisible = usePageVisibility();
+  const canPoll = enabled && !!currentUser?.id && isOnline && isPageVisible;
 
   return useQuery({
     queryKey: ['notifications', 'all', currentUser?.id, currentUser?.role],
     queryFn: fetchAllNotifications,
-    staleTime: 1000,
-    refetchInterval: 1000,
-    refetchIntervalInBackground: true,
+    staleTime: 30 * 1000,
+    refetchInterval: canPoll ? 30 * 1000 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchOnMount: 'always',
+    refetchOnMount: true,
     enabled: enabled && !!currentUser?.id,
   });
 }
@@ -896,16 +911,21 @@ export function useNotificationById(id: string | undefined, enabled: boolean = t
 
 export function useServiceSubscriptionOverview(enabled: boolean = true): UseQueryResult<ServiceSubscriptionOverview, Error> {
   const currentUser = db.currentUser ?? null;
+  const { isOnline } = useNetwork();
+  const isPageVisible = usePageVisibility();
+  const isAdminAccessUser = hasAdminAccess(currentUser?.role);
+  const refetchInterval = isAdminAccessUser ? 2 * 60 * 1000 : false;
+  const canPoll = enabled && !!currentUser?.id && isOnline && isPageVisible && refetchInterval !== false;
 
   return useQuery({
     queryKey: ['service-subscription', currentUser?.id, currentUser?.role],
     queryFn: fetchServiceSubscriptionOverview,
-    staleTime: 10 * 1000,
-    refetchInterval: 10 * 1000,
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
+    staleTime: isAdminAccessUser ? 2 * 60 * 1000 : 10 * 60 * 1000,
+    refetchInterval: canPoll ? refetchInterval : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: isAdminAccessUser,
     refetchOnReconnect: true,
-    refetchOnMount: 'always',
+    refetchOnMount: true,
     enabled: enabled && !!currentUser?.id,
   });
 }

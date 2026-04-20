@@ -12,10 +12,131 @@ abstract class BaseService
     protected const BILL_STOCK_STATUSES = ['Received', 'Paid'];
     protected const DEFAULT_WALLET_CUTOFF_DATE = '2026-04-01';
     protected const DEFAULT_WALLET_CUTOFF_AT_UTC = '2026-03-31 18:00:00';
+    protected const RESERVED_PERMISSION_ROLES = ['Admin', 'Developer'];
+    protected const BUILT_IN_PERMISSION_ROLES = ['Employee', 'Employee1'];
+    protected const ROLE_PERMISSION_KEYS = [
+        'dashboard.viewAdmin',
+        'dashboard.viewEmployee',
+        'orders.view',
+        'orders.create',
+        'orders.editOwn',
+        'orders.editAny',
+        'orders.deleteOwn',
+        'orders.deleteAny',
+        'orders.cancelOwn',
+        'orders.cancelAny',
+        'orders.moveOnHoldToProcessingOwn',
+        'orders.moveOnHoldToProcessingAny',
+        'orders.sendToCourierOwn',
+        'orders.sendToCourierAny',
+        'orders.moveToPickedOwn',
+        'orders.moveToPickedAny',
+        'orders.markCompletedOwn',
+        'orders.markCompletedAny',
+        'orders.markReturnedOwn',
+        'orders.markReturnedAny',
+        'customers.view',
+        'customers.create',
+        'customers.edit',
+        'customers.delete',
+        'bills.view',
+        'bills.create',
+        'bills.editOwn',
+        'bills.editAny',
+        'bills.deleteOwn',
+        'bills.deleteAny',
+        'bills.cancelOwn',
+        'bills.cancelAny',
+        'bills.moveOnHoldToProcessingOwn',
+        'bills.moveOnHoldToProcessingAny',
+        'bills.markReceivedOwn',
+        'bills.markReceivedAny',
+        'bills.markPaidOwn',
+        'bills.markPaidAny',
+        'transactions.view',
+        'transactions.create',
+        'transactions.edit',
+        'transactions.delete',
+        'vendors.view',
+        'vendors.create',
+        'vendors.edit',
+        'vendors.delete',
+        'products.view',
+        'products.create',
+        'products.edit',
+        'products.delete',
+        'accounts.view',
+        'accounts.create',
+        'accounts.edit',
+        'accounts.delete',
+        'fraudChecker.check',
+        'transfers.create',
+        'reports.view',
+        'wallet.view',
+        'payroll.view',
+        'recycleBin.view',
+        'users.view',
+    ];
+    protected const DEFAULT_ROLE_PERMISSIONS = [
+        'Employee' => [
+            'dashboard.viewEmployee' => true,
+            'orders.view' => true,
+            'orders.create' => true,
+            'orders.editOwn' => true,
+            'customers.view' => true,
+            'customers.create' => true,
+            'customers.edit' => true,
+            'products.view' => true,
+            'wallet.view' => true,
+        ],
+        'Employee1' => [
+            'dashboard.viewEmployee' => true,
+            'orders.view' => true,
+            'orders.create' => true,
+            'orders.editOwn' => true,
+            'orders.moveOnHoldToProcessingOwn' => true,
+            'customers.view' => true,
+            'customers.create' => true,
+            'customers.edit' => true,
+            'products.view' => true,
+            'wallet.view' => true,
+        ],
+    ];
+    protected const LEGACY_SCOPED_PERMISSION_KEYS = [
+        ['legacy' => 'orders.edit', 'own' => 'orders.editOwn', 'any' => 'orders.editAny'],
+        ['legacy' => 'orders.delete', 'own' => 'orders.deleteOwn', 'any' => 'orders.deleteAny'],
+        ['legacy' => 'orders.cancel', 'own' => 'orders.cancelOwn', 'any' => 'orders.cancelAny'],
+        [
+            'legacy' => 'orders.moveOnHoldToProcessing',
+            'own' => 'orders.moveOnHoldToProcessingOwn',
+            'any' => 'orders.moveOnHoldToProcessingAny',
+        ],
+        ['legacy' => 'orders.sendToCourier', 'own' => 'orders.sendToCourierOwn', 'any' => 'orders.sendToCourierAny'],
+        ['legacy' => 'orders.moveToPicked', 'own' => 'orders.moveToPickedOwn', 'any' => 'orders.moveToPickedAny'],
+        ['legacy' => 'orders.markCompleted', 'own' => 'orders.markCompletedOwn', 'any' => 'orders.markCompletedAny'],
+        ['legacy' => 'orders.markReturned', 'own' => 'orders.markReturnedOwn', 'any' => 'orders.markReturnedAny'],
+        ['legacy' => 'bills.edit', 'own' => 'bills.editOwn', 'any' => 'bills.editAny'],
+        ['legacy' => 'bills.delete', 'own' => 'bills.deleteOwn', 'any' => 'bills.deleteAny'],
+        ['legacy' => 'bills.cancel', 'own' => 'bills.cancelOwn', 'any' => 'bills.cancelAny'],
+        [
+            'legacy' => 'bills.moveOnHoldToProcessing',
+            'own' => 'bills.moveOnHoldToProcessingOwn',
+            'any' => 'bills.moveOnHoldToProcessingAny',
+        ],
+        ['legacy' => 'bills.markReceived', 'own' => 'bills.markReceivedOwn', 'any' => 'bills.markReceivedAny'],
+        ['legacy' => 'bills.markPaid', 'own' => 'bills.markPaidOwn', 'any' => 'bills.markPaidAny'],
+    ];
 
     protected Database $database;
     protected Auth $auth;
     protected Config $config;
+    private ?ServiceLifecycle $serviceLifecycleInstance = null;
+    /** @var array<string, bool> */
+    private array $tableExistsCache = [];
+    /** @var array<string, bool> */
+    private array $columnExistsCache = [];
+    /** @var array<string, mixed>|null */
+    protected ?array $permissionsSettingsPayloadCache = null;
 
     public function __construct(Database $database, Auth $auth, Config $config)
     {
@@ -27,6 +148,15 @@ abstract class BaseService
     protected function currentUser(): array
     {
         return $this->auth->requireUser();
+    }
+
+    protected function serviceLifecycle(): ServiceLifecycle
+    {
+        if (!$this->serviceLifecycleInstance instanceof ServiceLifecycle) {
+            $this->serviceLifecycleInstance = new ServiceLifecycle($this->database, $this->config);
+        }
+
+        return $this->serviceLifecycleInstance;
     }
 
     protected function requireAdmin(): array
@@ -358,6 +488,102 @@ abstract class BaseService
     }
 
     /**
+     * @param array<string, mixed> $fallback
+     * @return array<string, mixed>
+     */
+    protected function normalizeCompanyPage($value, int $index = 0, array $fallback = []): array
+    {
+        $page = is_array($value) ? $value : [];
+        $fallbackName = trim((string) ($fallback['name'] ?? '')) ?: ($index === 0 ? 'BD Hatbela' : 'Page ' . ($index + 1));
+        $id = trim((string) ($page['id'] ?? $fallback['id'] ?? ''));
+
+        if ($id === '') {
+            $id = $index === 0 ? 'company-default-page' : 'company-page-' . ($index + 1);
+        }
+
+        return [
+            'id' => $id,
+            'name' => trim((string) ($page['name'] ?? $fallback['name'] ?? '')) ?: $fallbackName,
+            'logo' => (string) ($page['logo'] ?? $fallback['logo'] ?? ''),
+            'phone' => (string) ($page['phone'] ?? $fallback['phone'] ?? '+880'),
+            'email' => (string) ($page['email'] ?? $fallback['email'] ?? 'info@company.com'),
+            'address' => (string) ($page['address'] ?? $fallback['address'] ?? ''),
+            'isGlobalBranding' => (bool) ($page['isGlobalBranding'] ?? $page['is_global_branding'] ?? $fallback['isGlobalBranding'] ?? $fallback['is_global_branding'] ?? false),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $legacyRow
+     * @return array<int, array<string, mixed>>
+     */
+    protected function normalizeCompanyPages($value, array $legacyRow = []): array
+    {
+        $fallbackPage = $this->normalizeCompanyPage(
+            [
+                'id' => $legacyRow['id'] ?? 'company-default-page',
+                'name' => $legacyRow['name'] ?? 'BD Hatbela',
+                'logo' => $legacyRow['logo'] ?? '',
+                'phone' => $legacyRow['phone'] ?? '+880',
+                'email' => $legacyRow['email'] ?? 'info@company.com',
+                'address' => $legacyRow['address'] ?? '',
+                'isGlobalBranding' => true,
+            ],
+            0
+        );
+
+        $rawPages = $this->jsonDecodeList($value);
+        $pages = [];
+
+        foreach ($rawPages as $index => $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+
+            $pages[] = $this->normalizeCompanyPage($page, $index, $index === 0 ? $fallbackPage : []);
+        }
+
+        if ($pages === []) {
+            $pages[] = $fallbackPage;
+        }
+
+        $foundGlobal = false;
+        foreach ($pages as $index => $page) {
+            $isGlobal = (bool) ($page['isGlobalBranding'] ?? false) && !$foundGlobal;
+            if ($isGlobal) {
+                $foundGlobal = true;
+            }
+            $pages[$index]['isGlobalBranding'] = $isGlobal;
+        }
+
+        if (!$foundGlobal && isset($pages[0])) {
+            $pages[0]['isGlobalBranding'] = true;
+        }
+
+        return array_values($pages);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $pages
+     * @return array<string, mixed>
+     */
+    protected function getGlobalCompanyPage(array $pages): array
+    {
+        foreach ($pages as $index => $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+
+            if ((bool) ($page['isGlobalBranding'] ?? false)) {
+                return $this->normalizeCompanyPage($page, $index);
+            }
+        }
+
+        return isset($pages[0]) && is_array($pages[0])
+            ? $this->normalizeCompanyPage($pages[0], 0)
+            : $this->normalizeCompanyPage([], 0);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function mapCustomer(array $row): array
@@ -451,6 +677,8 @@ abstract class BaseService
      */
     protected function mapOrder(array $row): array
     {
+        $pageSnapshot = $this->jsonDecodeAssoc($row['page_snapshot'] ?? $row['pageSnapshot'] ?? []);
+
         return [
             'id' => (string) $row['id'],
             'orderNumber' => (string) ($row['order_number'] ?? $row['orderNumber'] ?? ''),
@@ -464,6 +692,8 @@ abstract class BaseService
             'shipping' => (float) ($row['shipping'] ?? 0),
             'total' => (float) ($row['total'] ?? $row['amount'] ?? 0),
             'notes' => $this->nullableString($row['notes'] ?? null),
+            'pageId' => $this->nullableString($row['page_id'] ?? $row['pageId'] ?? null),
+            'pageSnapshot' => $pageSnapshot !== [] ? $pageSnapshot : null,
             'carrybeeConsignmentId' => $this->nullableString($row['carrybee_consignment_id'] ?? $row['carrybeeConsignmentId'] ?? null),
             'steadfastConsignmentId' => $this->nullableString($row['steadfast_consignment_id'] ?? $row['steadfastConsignmentId'] ?? null),
             'paperflyTrackingNumber' => $this->nullableString($row['paperfly_tracking_number'] ?? $row['paperflyTrackingNumber'] ?? null),
@@ -473,6 +703,8 @@ abstract class BaseService
             'customerPhone' => $this->nullableString($row['customer_phone'] ?? $row['customerPhone'] ?? null),
             'customerAddress' => $this->nullableString($row['customer_address'] ?? $row['customerAddress'] ?? null),
             'creatorName' => $this->nullableString($row['creator_name'] ?? $row['creatorName'] ?? null),
+            'pendingTransactionCount' => (int) ($row['pending_transaction_count'] ?? $row['pendingTransactionCount'] ?? 0),
+            'pendingTransactionIds' => $this->jsonDecodeList($row['pending_transaction_ids'] ?? $row['pendingTransactionIds'] ?? []),
             'createdAt' => $this->toIso($row['created_at'] ?? $row['createdAt'] ?? null),
             'deletedAt' => $this->toIso($row['deleted_at'] ?? $row['deletedAt'] ?? null),
             'deletedBy' => $this->nullableString($row['deleted_by'] ?? $row['deletedBy'] ?? null),
@@ -536,6 +768,12 @@ abstract class BaseService
             'contactName' => $this->nullableString($row['contact_name'] ?? $row['contactName'] ?? null),
             'contactType' => $this->nullableString($row['contact_type'] ?? $row['contactType'] ?? null),
             'creatorName' => $this->nullableString($row['creator_name'] ?? $row['creatorName'] ?? null),
+            'approvalStatus' => (string) ($row['approval_status'] ?? $row['approvalStatus'] ?? 'approved'),
+            'accountEffectApplied' => ((int) ($row['account_effect_applied'] ?? $row['accountEffectApplied'] ?? 1)) === 1,
+            'approvalRequestedAt' => $this->toIso($row['approval_requested_at'] ?? $row['approvalRequestedAt'] ?? null),
+            'approvedAt' => $this->toIso($row['approved_at'] ?? $row['approvedAt'] ?? null),
+            'declinedAt' => $this->toIso($row['declined_at'] ?? $row['declinedAt'] ?? null),
+            'approvalNote' => $this->nullableString($row['approval_note'] ?? $row['approvalNote'] ?? null),
             'deletedAt' => $this->toIso($row['deleted_at'] ?? $row['deletedAt'] ?? null),
             'deletedBy' => $this->nullableString($row['deleted_by'] ?? $row['deletedBy'] ?? null),
         ];
@@ -716,6 +954,295 @@ abstract class BaseService
         ];
     }
 
+    protected function tableExists(string $table): bool
+    {
+        if (array_key_exists($table, $this->tableExistsCache)) {
+            return $this->tableExistsCache[$table];
+        }
+
+        $row = $this->database->fetchOne(
+            'SELECT 1 AS present
+             FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+             LIMIT 1',
+            [':table' => $table]
+        );
+
+        $this->tableExistsCache[$table] = $row !== null;
+        return $this->tableExistsCache[$table];
+    }
+
+    protected function columnExists(string $table, string $column): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, $this->columnExistsCache)) {
+            return $this->columnExistsCache[$cacheKey];
+        }
+
+        $row = $this->database->fetchOne(
+            'SELECT 1 AS present
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column
+             LIMIT 1',
+            [
+                ':table' => $table,
+                ':column' => $column,
+            ]
+        );
+
+        $this->columnExistsCache[$cacheKey] = $row !== null;
+        return $this->columnExistsCache[$cacheKey];
+    }
+
+    protected function normalizeRoleName(string $role): string
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($role));
+        return $normalized !== null ? trim($normalized) : trim($role);
+    }
+
+    protected function isReservedPermissionRole(string $role): bool
+    {
+        return in_array($this->normalizeRoleName($role), self::RESERVED_PERMISSION_ROLES, true);
+    }
+
+    protected function isBuiltInPermissionRole(string $role): bool
+    {
+        return in_array($this->normalizeRoleName($role), self::BUILT_IN_PERMISSION_ROLES, true);
+    }
+
+    protected function legacyPermissionGrantsAnyAccess(string $role): bool
+    {
+        return !$this->isBuiltInPermissionRole($role);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function blankRolePermissions(): array
+    {
+        $permissions = [];
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            $permissions[$key] = false;
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function allEnabledRolePermissions(): array
+    {
+        $permissions = [];
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            $permissions[$key] = true;
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function defaultRolePermissions(string $role): array
+    {
+        $normalizedRole = $this->normalizeRoleName($role);
+        if ($this->isReservedPermissionRole($normalizedRole)) {
+            return $this->allEnabledRolePermissions();
+        }
+
+        $permissions = $this->blankRolePermissions();
+        $defaults = self::DEFAULT_ROLE_PERMISSIONS[$normalizedRole] ?? [];
+        foreach ($defaults as $key => $enabled) {
+            if (in_array($key, self::ROLE_PERMISSION_KEYS, true)) {
+                $permissions[$key] = (bool) $enabled;
+            }
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<string, bool>|null $fallback
+     * @return array<string, bool>
+     */
+    protected function normalizeRolePermissions($value, ?array $fallback = null, ?string $roleName = null): array
+    {
+        $raw = is_array($value) ? $value : $this->jsonDecodeAssoc($value);
+        $permissions = $this->blankRolePermissions();
+        $normalizedRole = $this->normalizeRoleName((string) ($roleName ?? ''));
+
+        foreach (self::ROLE_PERMISSION_KEYS as $key) {
+            if (array_key_exists($key, $raw)) {
+                $permissions[$key] = (bool) $raw[$key];
+                continue;
+            }
+
+            if ($fallback !== null && array_key_exists($key, $fallback)) {
+                $permissions[$key] = (bool) $fallback[$key];
+            }
+        }
+
+        foreach (self::LEGACY_SCOPED_PERMISSION_KEYS as $config) {
+            $legacyKey = (string) ($config['legacy'] ?? '');
+            $ownKey = (string) ($config['own'] ?? '');
+            $anyKey = (string) ($config['any'] ?? '');
+
+            if ($legacyKey === '' || !array_key_exists($legacyKey, $raw) || !is_bool($raw[$legacyKey])) {
+                continue;
+            }
+
+            if ($ownKey !== '' && !array_key_exists($ownKey, $raw)) {
+                $permissions[$ownKey] = (bool) $raw[$legacyKey];
+            }
+
+            if ($anyKey !== '' && !array_key_exists($anyKey, $raw)) {
+                $permissions[$anyKey] = (bool) $raw[$legacyKey] && $this->legacyPermissionGrantsAnyAccess($normalizedRole);
+            }
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function fetchStoredRolePermissionRows(): array
+    {
+        if (!$this->tableExists('role_permissions')) {
+            return [];
+        }
+
+        return $this->database->fetchAll(
+            'SELECT role_name, permissions, is_custom, created_at, updated_at
+             FROM role_permissions
+             ORDER BY is_custom ASC, role_name ASC'
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildPermissionsSettingsPayload(): array
+    {
+        if ($this->permissionsSettingsPayloadCache !== null) {
+            return $this->permissionsSettingsPayloadCache;
+        }
+
+        $rolesByName = [];
+
+        foreach (self::BUILT_IN_PERMISSION_ROLES as $roleName) {
+            $rolesByName[$roleName] = [
+                'roleName' => $roleName,
+                'isCustom' => false,
+                'permissions' => $this->defaultRolePermissions($roleName),
+                'createdAt' => null,
+                'updatedAt' => null,
+            ];
+        }
+
+        foreach ($this->fetchStoredRolePermissionRows() as $row) {
+            $roleName = $this->normalizeRoleName((string) ($row['role_name'] ?? ''));
+            if ($roleName === '' || $this->isReservedPermissionRole($roleName)) {
+                continue;
+            }
+
+            $defaultPermissions = isset($rolesByName[$roleName]['permissions']) && is_array($rolesByName[$roleName]['permissions'])
+                ? $rolesByName[$roleName]['permissions']
+                : $this->defaultRolePermissions($roleName);
+
+            $rolesByName[$roleName] = [
+                'roleName' => $roleName,
+                'isCustom' => !$this->isBuiltInPermissionRole($roleName),
+                'permissions' => $this->normalizeRolePermissions($row['permissions'] ?? null, $defaultPermissions, $roleName),
+                'createdAt' => $this->toIso($row['created_at'] ?? null),
+                'updatedAt' => $this->toIso($row['updated_at'] ?? null),
+            ];
+        }
+
+        $roles = array_values($rolesByName);
+        usort($roles, static function (array $left, array $right): int {
+            if ((bool) ($left['isCustom'] ?? false) !== (bool) ($right['isCustom'] ?? false)) {
+                return (bool) ($left['isCustom'] ?? false) ? 1 : -1;
+            }
+
+            return strcmp((string) ($left['roleName'] ?? ''), (string) ($right['roleName'] ?? ''));
+        });
+
+        $this->permissionsSettingsPayloadCache = ['roles' => $roles];
+        return $this->permissionsSettingsPayloadCache;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    protected function permissionsForRole(string $role): array
+    {
+        $normalizedRole = $this->normalizeRoleName($role);
+        if ($normalizedRole === '') {
+            return $this->blankRolePermissions();
+        }
+
+        if ($this->isReservedPermissionRole($normalizedRole)) {
+            return $this->allEnabledRolePermissions();
+        }
+
+        $settings = $this->buildPermissionsSettingsPayload();
+        $roles = is_array($settings['roles'] ?? null) ? $settings['roles'] : [];
+        foreach ($roles as $roleConfig) {
+            if ($this->normalizeRoleName((string) ($roleConfig['roleName'] ?? '')) === $normalizedRole) {
+                return $this->normalizeRolePermissions(
+                    $roleConfig['permissions'] ?? null,
+                    $this->defaultRolePermissions($normalizedRole),
+                    $normalizedRole
+                );
+            }
+        }
+
+        return $this->defaultRolePermissions($normalizedRole);
+    }
+
+    protected function roleHasPermission(string $role, string $permission): bool
+    {
+        if (!in_array($permission, self::ROLE_PERMISSION_KEYS, true)) {
+            return false;
+        }
+
+        $permissions = $this->permissionsForRole($role);
+        return (bool) ($permissions[$permission] ?? false);
+    }
+
+    protected function currentUserHasPermission(string $permission): bool
+    {
+        $user = $this->currentUser();
+        return $this->roleHasPermission((string) ($user['role'] ?? ''), $permission);
+    }
+
+    /**
+     * @param array<string, mixed> $user
+     */
+    protected function userHasScopedPermissionForRecord(array $user, ?string $createdBy, string $ownPermission, string $anyPermission): bool
+    {
+        $role = (string) ($user['role'] ?? '');
+        if ($this->roleHasPermission($role, $anyPermission)) {
+            return true;
+        }
+
+        $normalizedCreatedBy = trim((string) ($createdBy ?? ''));
+        return $normalizedCreatedBy !== ''
+            && $normalizedCreatedBy === (string) ($user['id'] ?? '')
+            && $this->roleHasPermission($role, $ownPermission);
+    }
+
+    protected function currentUserHasScopedPermissionForRecord(?string $createdBy, string $ownPermission, string $anyPermission): bool
+    {
+        return $this->userHasScopedPermissionForRecord($this->currentUser(), $createdBy, $ownPermission, $anyPermission);
+    }
+
     protected function isEmployeeRole(string $role): bool
     {
         return in_array($role, ['Employee', 'Employee1'], true);
@@ -750,18 +1277,8 @@ abstract class BaseService
 
     protected function isWalletEligibleOrderDate(string $orderDate, string $createdAt): bool
     {
-        $cutoffDate = $this->walletCutoffDate();
-        $normalizedOrderDate = $this->normalizeDateOnly($orderDate);
-        if ($normalizedOrderDate !== '') {
-            return $normalizedOrderDate >= $cutoffDate;
-        }
-
-        $normalizedCreatedAt = trim($createdAt);
-        if ($normalizedCreatedAt !== '') {
-            return $this->normalizeDateTimeInput($normalizedCreatedAt) >= $this->walletCutoffAtUtc();
-        }
-
-        return false;
+        $activityDate = $this->walletEligibleLocalDate($orderDate, $createdAt);
+        return $activityDate !== '' && $activityDate >= $this->walletCutoffDate();
     }
 
     protected function walletCutoffDate(): string
@@ -796,11 +1313,11 @@ abstract class BaseService
 
     protected function walletEligibleLocalDate(string $orderDate, string $createdAt): string
     {
-        $normalizedOrderDate = $this->normalizeDateOnly($orderDate);
-        if ($normalizedOrderDate !== '') {
-            return $normalizedOrderDate;
+        $createdLocalDate = $this->localDateFromUtc($createdAt);
+        if ($createdLocalDate !== '') {
+            return $createdLocalDate;
         }
 
-        return $this->localDateFromUtc($createdAt);
+        return $this->normalizeDateOnly($orderDate);
     }
 }

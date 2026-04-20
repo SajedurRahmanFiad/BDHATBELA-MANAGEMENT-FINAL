@@ -129,11 +129,14 @@ const OrderDetails: React.FC = () => {
   const updateStatus = async (newStatus: OrderStatus, historyKey?: keyof Order['history'], historyText?: string) => {
     if (!order) return;
     try {
-      const updates = { 
-        ...order, 
-        status: newStatus, 
-        history: historyKey ? { ...order.history, [historyKey]: historyText } : order.history
+      const updates: Partial<Order> = {
+        status: newStatus,
       };
+
+      if (historyKey) {
+        updates.history = { ...order.history, [historyKey]: historyText };
+      }
+
       await updateMutation.mutateAsync({ id: id!, updates });
       setIsActionOpen(false);
     } catch (err) {

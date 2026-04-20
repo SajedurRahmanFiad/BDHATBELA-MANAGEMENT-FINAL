@@ -8,6 +8,10 @@ final class Auth
 {
     private Config $config;
     private Database $database;
+    /** @var array<string, mixed>|null */
+    private ?array $resolvedUser = null;
+    private ?string $resolvedToken = null;
+    private bool $hasResolvedToken = false;
 
     public function __construct(Config $config, Database $database)
     {
@@ -42,35 +46,58 @@ final class Auth
             return null;
         }
 
+        if ($this->hasResolvedToken && $this->resolvedToken === $token) {
+            return $this->resolvedUser;
+        }
+
         $parts = explode('.', $token);
         if (count($parts) !== 3) {
+            $this->resolvedToken = $token;
+            $this->resolvedUser = null;
+            $this->hasResolvedToken = true;
             return null;
         }
 
         [$header, $payload, $signature] = $parts;
         $expected = $this->base64UrlEncode(hash_hmac('sha256', $header . '.' . $payload, $this->jwtSecret(), true));
         if (!hash_equals($expected, $signature)) {
+            $this->resolvedToken = $token;
+            $this->resolvedUser = null;
+            $this->hasResolvedToken = true;
             return null;
         }
 
         $decodedPayload = json_decode($this->base64UrlDecode($payload), true);
         if (!is_array($decodedPayload)) {
+            $this->resolvedToken = $token;
+            $this->resolvedUser = null;
+            $this->hasResolvedToken = true;
             return null;
         }
 
         if (($decodedPayload['exp'] ?? 0) < time()) {
+            $this->resolvedToken = $token;
+            $this->resolvedUser = null;
+            $this->hasResolvedToken = true;
             return null;
         }
 
         $userId = (string) ($decodedPayload['sub'] ?? '');
         if ($userId === '') {
+            $this->resolvedToken = $token;
+            $this->resolvedUser = null;
+            $this->hasResolvedToken = true;
             return null;
         }
 
-        return $this->database->fetchOne(
+        $this->resolvedToken = $token;
+        $this->resolvedUser = $this->database->fetchOne(
             'SELECT id, name, phone, role, image, created_at, deleted_at, deleted_by FROM users WHERE id = :id AND deleted_at IS NULL LIMIT 1',
             [':id' => $userId]
         );
+        $this->hasResolvedToken = true;
+
+        return $this->resolvedUser;
     }
 
     public function requireUser(): array

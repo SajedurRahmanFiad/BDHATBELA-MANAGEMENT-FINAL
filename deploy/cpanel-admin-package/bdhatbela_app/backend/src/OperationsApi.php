@@ -45,6 +45,11 @@ final class OperationsApi extends BaseService
         $deltas = [];
 
         foreach ($rows as $row) {
+            $accountEffectApplied = (int) ($row['account_effect_applied'] ?? $row['accountEffectApplied'] ?? 1);
+            if ($accountEffectApplied !== 1) {
+                continue;
+            }
+
             $amount = (float) ($row['amount'] ?? 0);
             if ($amount === 0.0) {
                 continue;
@@ -75,6 +80,282 @@ final class OperationsApi extends BaseService
         foreach ($deltas as $accountId => $delta) {
             $this->updateAccountBalanceByDelta($accountId, (float) $delta);
         }
+    }
+
+    private function accountBalanceAdjustmentFromRevertingTransaction(array $row, string $accountId): float
+    {
+        $normalizedAccountId = trim($accountId);
+        if (
+            $normalizedAccountId === ''
+            || (int) ($row['account_effect_applied'] ?? $row['accountEffectApplied'] ?? 1) !== 1
+        ) {
+            return 0.0;
+        }
+
+        $amount = (float) ($row['amount'] ?? 0);
+        if ($amount === 0.0) {
+            return 0.0;
+        }
+
+        $type = trim((string) ($row['type'] ?? ''));
+        $accountRowId = trim((string) ($row['account_id'] ?? $row['accountId'] ?? ''));
+        $toAccountRowId = trim((string) ($row['to_account_id'] ?? $row['toAccountId'] ?? ''));
+
+        if ($type === 'Income' && $accountRowId === $normalizedAccountId) {
+            return -$amount;
+        }
+
+        if ($type === 'Expense' && $accountRowId === $normalizedAccountId) {
+            return $amount;
+        }
+
+        if ($type === 'Transfer') {
+            if ($accountRowId === $normalizedAccountId) {
+                return $amount;
+            }
+            if ($toAccountRowId === $normalizedAccountId) {
+                return -$amount;
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function assertAccountHasAvailableBalance(string $accountId, float $amount, float $balanceAdjustment = 0.0): void
+    {
+        $normalizedAccountId = trim($accountId);
+        if ($normalizedAccountId === '' || $amount <= 0) {
+            return;
+        }
+
+        $accountRow = $this->database->fetchOne(
+            'SELECT id, name, current_balance
+             FROM accounts
+             WHERE id = :id
+             LIMIT 1 FOR UPDATE',
+            [':id' => $normalizedAccountId]
+        );
+
+        if ($accountRow === null) {
+            throw new RuntimeException('Selected payment account was not found.');
+        }
+
+        $availableBalance = (float) ($accountRow['current_balance'] ?? 0) + $balanceAdjustment;
+        if ($availableBalance + 0.00001 < $amount) {
+            $accountName = trim((string) ($accountRow['name'] ?? 'Selected account')) ?: 'Selected account';
+            throw new RuntimeException(sprintf(
+                '%s does not have enough balance for this transaction. Available: %s, required: %s.',
+                $accountName,
+                $this->formatMoney($availableBalance),
+                $this->formatMoney($amount)
+            ));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $transaction
+     */
+    private function assertTransactionHasAvailableBalance(array $transaction, float $balanceAdjustment = 0.0): void
+    {
+        $type = trim((string) ($transaction['type'] ?? ''));
+        if (!in_array($type, ['Expense', 'Transfer'], true)) {
+            return;
+        }
+
+        $this->assertAccountHasAvailableBalance(
+            trim((string) ($transaction['account_id'] ?? $transaction['accountId'] ?? '')),
+            (float) ($transaction['amount'] ?? 0),
+            $balanceAdjustment
+        );
+    }
+
+    private function transactionApprovalThreshold(): float
+    {
+        if (!$this->tableExists('system_defaults') || !$this->columnExists('system_defaults', 'max_transaction_amount')) {
+            return 0.0;
+        }
+
+        $row = $this->database->fetchOne('SELECT max_transaction_amount FROM system_defaults LIMIT 1');
+        return max(0.0, (float) ($row['max_transaction_amount'] ?? 0));
+    }
+
+    /**
+     * @param array<string, mixed> $actor
+     * @param array<string, mixed> $transaction
+     */
+    private function shouldRequireTransactionApproval(array $actor, array $transaction): bool
+    {
+        if ($this->hasAdminAccess((string) ($actor['role'] ?? ''))) {
+            return false;
+        }
+
+        $threshold = $this->transactionApprovalThreshold();
+        if ($threshold <= 0) {
+            return false;
+        }
+
+        return (float) ($transaction['amount'] ?? 0) > $threshold;
+    }
+
+    /**
+     * @param array<string, mixed> $actor
+     * @param array<string, mixed> $transaction
+     * @return array<string, mixed>
+     */
+    private function buildTransactionApprovalState(array $actor, array $transaction): array
+    {
+        $now = $this->database->nowUtc();
+        if ($this->shouldRequireTransactionApproval($actor, $transaction)) {
+            return [
+                'approval_status' => 'pending',
+                'account_effect_applied' => 0,
+                'approval_requested_by' => (string) ($actor['id'] ?? ''),
+                'approval_requested_at' => $now,
+                'approved_by' => null,
+                'approved_at' => null,
+                'declined_by' => null,
+                'declined_at' => null,
+                'approval_note' => 'Awaiting admin approval because the transaction amount exceeds the configured limit.',
+            ];
+        }
+
+        return [
+            'approval_status' => 'approved',
+            'account_effect_applied' => 1,
+            'approval_requested_by' => (string) ($actor['id'] ?? ''),
+            'approval_requested_at' => $now,
+            'approved_by' => (string) ($actor['id'] ?? ''),
+            'approved_at' => $now,
+            'declined_by' => null,
+            'declined_at' => null,
+            'approval_note' => null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $actor
+     * @param array<string, mixed> $transaction
+     */
+    private function upsertTransactionApprovalNotification(array $actor, array $transaction): void
+    {
+        if (
+            !$this->tableExists('notifications')
+            || !$this->columnExists('notifications', 'system_key')
+            || !$this->columnExists('notifications', 'action_config')
+        ) {
+            return;
+        }
+
+        $transactionId = trim((string) ($transaction['id'] ?? ''));
+        if ($transactionId === '') {
+            return;
+        }
+
+        $transactionType = trim((string) ($transaction['type'] ?? 'Transaction')) ?: 'Transaction';
+        $amount = $this->formatMoney($transaction['amount'] ?? 0);
+        $description = trim((string) ($transaction['description'] ?? '')) ?: 'No description';
+        $subject = sprintf('%s approval needed for %s', $transactionType, $amount);
+        $contentHtml = sprintf(
+            '<p><strong>%s</strong> created a pending %s transaction of <strong>%s</strong>.</p><p>%s</p><p><a href="/banking/transactions?highlightTx=%s&search=%s">Click Here</a> to review it.</p>',
+            htmlspecialchars(trim((string) ($actor['name'] ?? 'A user')), ENT_QUOTES, 'UTF-8'),
+            htmlspecialchars(strtolower($transactionType), ENT_QUOTES, 'UTF-8'),
+            htmlspecialchars($amount, ENT_QUOTES, 'UTF-8'),
+            htmlspecialchars($description, ENT_QUOTES, 'UTF-8'),
+            htmlspecialchars($transactionId, ENT_QUOTES, 'UTF-8'),
+            htmlspecialchars($transactionId, ENT_QUOTES, 'UTF-8')
+        );
+        $actionConfig = [
+            'kind' => 'link_and_decision',
+            'linkLabel' => 'View transaction',
+            'linkUrl' => '/banking/transactions?highlightTx=' . $transactionId . '&search=' . $transactionId,
+            'acceptLabel' => 'Accept',
+            'declineLabel' => 'Decline',
+            'decisionMode' => 'transaction_approval',
+            'decisionScope' => 'single_user',
+            'decisionContext' => [
+                'transactionId' => $transactionId,
+            ],
+        ];
+        $targetRoles = ['Admin', 'Developer'];
+        $now = $this->database->nowUtc();
+        $notificationId = 'transaction-approval-' . $transactionId;
+
+        $this->database->execute(
+            'INSERT INTO notifications (
+                id, system_key, subject, content_html, target_roles, starts_at, ends_at,
+                action_config, metadata, created_by, is_active, is_system_generated, created_at, updated_at
+             ) VALUES (
+                :id, :system_key, :subject, :content_html, :target_roles, :starts_at, :ends_at,
+                :action_config, :metadata, :created_by, 1, 1, :created_at, :updated_at
+             )
+             ON DUPLICATE KEY UPDATE
+                subject = VALUES(subject),
+                content_html = VALUES(content_html),
+                target_roles = VALUES(target_roles),
+                starts_at = VALUES(starts_at),
+                ends_at = VALUES(ends_at),
+                action_config = VALUES(action_config),
+                metadata = VALUES(metadata),
+                is_active = VALUES(is_active),
+                updated_at = VALUES(updated_at)',
+            [
+                ':id' => $notificationId,
+                ':system_key' => $notificationId,
+                ':subject' => $subject,
+                ':content_html' => $contentHtml,
+                ':target_roles' => $this->jsonEncode($targetRoles),
+                ':starts_at' => $now,
+                ':ends_at' => null,
+                ':action_config' => $this->jsonEncode($actionConfig),
+                ':metadata' => $this->jsonEncode([
+                    'transactionId' => $transactionId,
+                    'approvalStatus' => 'pending',
+                ]),
+                ':created_by' => (string) ($actor['id'] ?? ''),
+                ':created_at' => $now,
+                ':updated_at' => $now,
+            ]
+        );
+    }
+
+    private function resolveTransactionApprovalNotification(string $transactionId, string $approvalStatus, ?string $decision = null): void
+    {
+        if (
+            !$this->tableExists('notifications')
+            || !$this->columnExists('notifications', 'system_key')
+            || !$this->columnExists('notifications', 'metadata')
+        ) {
+            return;
+        }
+
+        $notificationKey = 'transaction-approval-' . trim($transactionId);
+        if ($notificationKey === 'transaction-approval-') {
+            return;
+        }
+
+        $metadata = [
+            'transactionId' => trim($transactionId),
+            'approvalStatus' => $approvalStatus,
+        ];
+        if ($decision !== null) {
+            $metadata['decision'] = $decision;
+        }
+
+        $now = $this->database->nowUtc();
+        $this->database->execute(
+            'UPDATE notifications
+             SET is_active = 0,
+                 ends_at = COALESCE(ends_at, :ends_at),
+                 metadata = :metadata,
+                 updated_at = :updated_at
+             WHERE system_key = :system_key',
+            [
+                ':ends_at' => $now,
+                ':metadata' => $this->jsonEncode($metadata),
+                ':updated_at' => $now,
+                ':system_key' => $notificationKey,
+            ]
+        );
     }
 
     private function syncCustomerOrderSummary(?string $customerId): void
@@ -382,7 +663,7 @@ final class OperationsApi extends BaseService
         $shippingDescription = "Shipping costs for Order #{$orderNumber}";
 
         $rows = $this->database->fetchAll(
-            "SELECT id, type, account_id, to_account_id, amount
+            "SELECT id, type, account_id, to_account_id, amount, account_effect_applied
              FROM transactions
              WHERE {$stateSql}
                AND (reference_id = :reference_id OR (type = 'Expense' AND category = 'expense_shipping' AND description = :shipping_description))",
@@ -402,7 +683,7 @@ final class OperationsApi extends BaseService
     {
         $stateSql = $this->deletedStateSql($deletedState);
         return $this->database->fetchAll(
-            "SELECT id, type, account_id, to_account_id, amount
+            "SELECT id, type, account_id, to_account_id, amount, account_effect_applied
              FROM transactions
              WHERE {$stateSql} AND reference_id = :reference_id AND type = 'Expense'",
             [':reference_id' => $billId]
@@ -2142,10 +2423,8 @@ final class OperationsApi extends BaseService
             $comparisonRows
         );
 
-        $employeeComparisonRows = array_values(array_filter(
-            $employeeComparisonRows,
-            static fn (array $row): bool => (int) ($row['orderCount'] ?? 0) > 0 || !empty($row['isCurrentUser'])
-        ));
+        // Show all employees, not just those with orders in the period
+        $employeeComparisonRows = array_values($employeeComparisonRows);
 
         usort($employeeComparisonRows, static function (array $left, array $right): int {
             if ((int) ($right['orderCount'] ?? 0) !== (int) ($left['orderCount'] ?? 0)) {
@@ -3084,6 +3363,7 @@ final class OperationsApi extends BaseService
             $payload = [
                 'status' => $nextStatus,
             ];
+            $createdTransactions = [];
 
             if ($outcome === 'Delivered') {
                 $remainingCollectible = max($orderTotal - $paidAmount, 0);
@@ -3100,7 +3380,7 @@ final class OperationsApi extends BaseService
                 $expenseToCreate = max($deliveryExpenseTarget - $existingExpense, 0);
 
                 if ($incomeToCreate > 0) {
-                    $this->createTransactionRecord([
+                    $createdTransactions[] = $this->createTransactionRecord([
                         'date' => $recordedAt,
                         'type' => 'Income',
                         'category' => $incomeCategoryId,
@@ -3110,11 +3390,11 @@ final class OperationsApi extends BaseService
                         'referenceId' => $orderId,
                         'contactId' => $customerId,
                         'paymentMethod' => $paymentMethod !== '' ? $paymentMethod : $defaultPaymentMethod,
-                    ], (string) $actor['id']);
+                    ], (string) $actor['id'], $actor);
                 }
 
                 if ($expenseToCreate > 0) {
-                    $this->createTransactionRecord([
+                    $createdTransactions[] = $this->createTransactionRecord([
                         'date' => $recordedAt,
                         'type' => 'Expense',
                         'category' => 'expense_shipping',
@@ -3124,7 +3404,7 @@ final class OperationsApi extends BaseService
                         'referenceId' => $orderId,
                         'contactId' => $customerId,
                         'paymentMethod' => $paymentMethod !== '' ? $paymentMethod : $defaultPaymentMethod,
-                    ], (string) $actor['id']);
+                    ], (string) $actor['id'], $actor);
                 }
 
                 $history['completed'] = sprintf(
@@ -3143,7 +3423,7 @@ final class OperationsApi extends BaseService
                 $payload['paid_amount'] = $this->formatMoney($updatedPaidAmount);
                 $payload['history'] = $this->jsonEncode($history);
             } else {
-                $this->createTransactionRecord([
+                $createdTransactions[] = $this->createTransactionRecord([
                     'date' => $recordedAt,
                     'type' => 'Expense',
                     'category' => $categoryId,
@@ -3154,7 +3434,7 @@ final class OperationsApi extends BaseService
                     'contactId' => $customerId,
                     'paymentMethod' => $paymentMethod,
                     'history' => [],
-                ], (string) $actor['id']);
+                ], (string) $actor['id'], $actor);
 
                 $history['returned'] = sprintf(
                     'Marked as returned by %s on %s at %s. Expense recorded: %s.%s',
@@ -3185,7 +3465,18 @@ final class OperationsApi extends BaseService
                 'createdAt' => $this->toIso($orderRow['created_at'] ?? null),
             ]);
 
-            return $this->mapOrder($row);
+            $order = $this->mapOrder($row);
+            $pendingTransactionIds = array_values(array_map(
+                static fn (array $transaction): string => (string) ($transaction['id'] ?? ''),
+                array_filter(
+                    $createdTransactions,
+                    static fn (array $transaction): bool => (string) ($transaction['approvalStatus'] ?? 'approved') === 'pending'
+                )
+            ));
+            $order['pendingTransactionCount'] = count($pendingTransactionIds);
+            $order['pendingTransactionIds'] = $pendingTransactionIds;
+
+            return $order;
         });
     }
 
@@ -3568,6 +3859,7 @@ final class OperationsApi extends BaseService
         if (!empty($filters['search'])) {
             $where .= " AND (
                 twr.description LIKE :search
+                OR twr.id LIKE :search
                 OR twr.type LIKE :search
                 OR twr.category LIKE :search
                 OR COALESCE(twr.contactName, '') LIKE :search
@@ -3612,6 +3904,12 @@ final class OperationsApi extends BaseService
                 twr.attachmentUrl,
                 twr.createdBy,
                 twr.creatorName,
+                twr.approvalStatus,
+                twr.accountEffectApplied,
+                twr.approvalRequestedAt,
+                twr.approvedAt,
+                twr.declinedAt,
+                twr.approvalNote,
                 twr.createdAt,
                 twr.deletedAt,
                 twr.deletedBy
@@ -3642,7 +3940,7 @@ final class OperationsApi extends BaseService
      * @param array<string, mixed> $params
      * @return array<string, mixed>
      */
-    private function createTransactionRecord(array $params, string $actorId): array
+    private function createTransactionRecord(array $params, string $actorId, ?array $actor = null): array
     {
         $id = $this->stringId($params['id'] ?? null);
         $now = $this->database->nowUtc();
@@ -3650,16 +3948,32 @@ final class OperationsApi extends BaseService
         $accountId = trim((string) ($params['accountId'] ?? ''));
         $toAccountId = $this->nullableString($params['toAccountId'] ?? null);
         $amount = (float) ($params['amount'] ?? 0);
+        $actorRow = is_array($actor) ? $actor : $this->currentUser();
+        $transactionDraft = [
+            'id' => $id,
+            'type' => $type,
+            'account_id' => $accountId,
+            'to_account_id' => $toAccountId,
+            'amount' => $amount,
+            'description' => trim((string) ($params['description'] ?? '')),
+        ];
+        $approvalState = $this->buildTransactionApprovalState($actorRow, $transactionDraft);
+
+        $this->assertTransactionHasAvailableBalance($transactionDraft);
 
         $this->database->execute(
             'INSERT INTO transactions (
                 id, date, type, category, account_id, to_account_id, amount, description,
                 reference_id, contact_id, payment_method, attachment_name, attachment_url,
-                created_by, history, created_at, updated_at
+                created_by, history, approval_status, account_effect_applied,
+                approval_requested_by, approval_requested_at, approved_by, approved_at,
+                declined_by, declined_at, approval_note, created_at, updated_at
             ) VALUES (
                 :id, :date, :type, :category, :account_id, :to_account_id, :amount, :description,
                 :reference_id, :contact_id, :payment_method, :attachment_name, :attachment_url,
-                :created_by, :history, :created_at, :updated_at
+                :created_by, :history, :approval_status, :account_effect_applied,
+                :approval_requested_by, :approval_requested_at, :approved_by, :approved_at,
+                :declined_by, :declined_at, :approval_note, :created_at, :updated_at
             )',
             [
                 ':id' => $id,
@@ -3677,35 +3991,44 @@ final class OperationsApi extends BaseService
                 ':attachment_url' => $this->nullableString($params['attachmentUrl'] ?? null),
                 ':created_by' => $actorId,
                 ':history' => $this->jsonEncode($params['history'] ?? []),
+                ':approval_status' => (string) ($approvalState['approval_status'] ?? 'approved'),
+                ':account_effect_applied' => (int) ($approvalState['account_effect_applied'] ?? 1),
+                ':approval_requested_by' => $this->nullableString($approvalState['approval_requested_by'] ?? null),
+                ':approval_requested_at' => $this->nullableString($approvalState['approval_requested_at'] ?? null),
+                ':approved_by' => $this->nullableString($approvalState['approved_by'] ?? null),
+                ':approved_at' => $this->nullableString($approvalState['approved_at'] ?? null),
+                ':declined_by' => $this->nullableString($approvalState['declined_by'] ?? null),
+                ':declined_at' => $this->nullableString($approvalState['declined_at'] ?? null),
+                ':approval_note' => $this->nullableString($approvalState['approval_note'] ?? null),
                 ':created_at' => $now,
                 ':updated_at' => $now,
             ]
         );
 
-        $this->applyTransactionAccountEffect([[
-            'type' => $type,
-            'account_id' => $accountId,
-            'to_account_id' => $toAccountId,
-            'amount' => $amount,
-        ]], 'apply');
+        $this->applyTransactionAccountEffect([array_merge($transactionDraft, $approvalState)], 'apply');
 
-        return $this->fetchTransactionById(['id' => $id]) ?? throw new RuntimeException('Failed to create transaction.');
+        $record = $this->fetchTransactionById(['id' => $id]) ?? throw new RuntimeException('Failed to create transaction.');
+        if (($record['approvalStatus'] ?? 'approved') === 'pending') {
+            $this->upsertTransactionApprovalNotification($actorRow, $record);
+        }
+
+        return $record;
     }
 
     public function createTransaction(array $params): array
     {
         $actor = $this->currentUser();
 
-        return $this->database->transaction(fn () => $this->createTransactionRecord($params, (string) $actor['id']));
+        return $this->database->transaction(fn () => $this->createTransactionRecord($params, (string) $actor['id'], $actor));
     }
 
     public function updateTransaction(array $params): array
     {
-        $this->currentUser();
+        $actor = $this->currentUser();
         $id = trim((string) ($params['id'] ?? ''));
         $updates = is_array($params['updates'] ?? null) ? $params['updates'] : [];
 
-        return $this->database->transaction(function () use ($id, $updates): array {
+        return $this->database->transaction(function () use ($actor, $id, $updates): array {
             $existingRow = $this->database->fetchOne(
                 'SELECT * FROM transactions WHERE id = :id AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
                 [':id' => $id]
@@ -3756,22 +4079,193 @@ final class OperationsApi extends BaseService
                 $payload['history'] = $this->jsonEncode($updates['history']);
             }
 
+            $nextRow = array_merge($existingRow, $payload);
+            $currentApprovalStatus = trim((string) ($existingRow['approval_status'] ?? 'approved')) ?: 'approved';
+            $calculatedApprovalState = $this->buildTransactionApprovalState($actor, $nextRow);
+            $nextApprovalStatus = trim((string) ($calculatedApprovalState['approval_status'] ?? 'approved')) ?: 'approved';
+            $approvalState = $calculatedApprovalState;
+
+            if ($nextApprovalStatus === $currentApprovalStatus) {
+                if ($nextApprovalStatus === 'approved') {
+                    $approvalState = [
+                        'approval_status' => 'approved',
+                        'account_effect_applied' => 1,
+                        'approval_requested_by' => $this->nullableString($existingRow['approval_requested_by'] ?? (string) ($actor['id'] ?? '')),
+                        'approval_requested_at' => $this->nullableString($existingRow['approval_requested_at'] ?? $calculatedApprovalState['approval_requested_at'] ?? null),
+                        'approved_by' => $this->nullableString($existingRow['approved_by'] ?? (string) ($actor['id'] ?? '')),
+                        'approved_at' => $this->nullableString($existingRow['approved_at'] ?? $calculatedApprovalState['approved_at'] ?? null),
+                        'declined_by' => null,
+                        'declined_at' => null,
+                        'approval_note' => null,
+                    ];
+                } elseif ($nextApprovalStatus === 'pending') {
+                    $approvalState = [
+                        'approval_status' => 'pending',
+                        'account_effect_applied' => 0,
+                        'approval_requested_by' => $this->nullableString($existingRow['approval_requested_by'] ?? (string) ($actor['id'] ?? '')),
+                        'approval_requested_at' => $this->nullableString($existingRow['approval_requested_at'] ?? $calculatedApprovalState['approval_requested_at'] ?? null),
+                        'approved_by' => null,
+                        'approved_at' => null,
+                        'declined_by' => null,
+                        'declined_at' => null,
+                        'approval_note' => $this->nullableString($existingRow['approval_note'] ?? $calculatedApprovalState['approval_note'] ?? null),
+                    ];
+                } elseif ($nextApprovalStatus === 'declined') {
+                    $approvalState = [
+                        'approval_status' => 'declined',
+                        'account_effect_applied' => 0,
+                        'approval_requested_by' => $this->nullableString($existingRow['approval_requested_by'] ?? null),
+                        'approval_requested_at' => $this->nullableString($existingRow['approval_requested_at'] ?? null),
+                        'approved_by' => null,
+                        'approved_at' => null,
+                        'declined_by' => $this->nullableString($existingRow['declined_by'] ?? null),
+                        'declined_at' => $this->nullableString($existingRow['declined_at'] ?? null),
+                        'approval_note' => $this->nullableString($existingRow['approval_note'] ?? null),
+                    ];
+                }
+            }
+
+            $financialFieldsChanged =
+                array_key_exists('type', $payload) ||
+                array_key_exists('account_id', $payload) ||
+                array_key_exists('to_account_id', $payload) ||
+                array_key_exists('amount', $payload);
+
+            if ($financialFieldsChanged || ($currentApprovalStatus !== 'approved' && $nextApprovalStatus === 'approved')) {
+                $this->assertTransactionHasAvailableBalance(
+                    $nextRow,
+                    $this->accountBalanceAdjustmentFromRevertingTransaction(
+                        $existingRow,
+                        trim((string) ($nextRow['account_id'] ?? ''))
+                    )
+                );
+            }
+            $payload = array_merge($payload, $approvalState);
+
             if ($payload !== []) {
+                $shouldResyncAccountEffect =
+                    $financialFieldsChanged ||
+                    (int) ($existingRow['account_effect_applied'] ?? 1) !== (int) ($approvalState['account_effect_applied'] ?? 1);
+
                 $this->touchUpdate('transactions', $id, $payload);
 
-                if (
-                    array_key_exists('type', $payload) ||
-                    array_key_exists('account_id', $payload) ||
-                    array_key_exists('to_account_id', $payload) ||
-                    array_key_exists('amount', $payload)
-                ) {
+                if ($shouldResyncAccountEffect) {
                     $nextRow = array_merge($existingRow, $payload);
                     $this->applyTransactionAccountEffect([$existingRow], 'revert');
                     $this->applyTransactionAccountEffect([$nextRow], 'apply');
                 }
             }
 
-            return $this->fetchTransactionById(['id' => $id]) ?? throw new RuntimeException('Transaction not found.');
+            $record = $this->fetchTransactionById(['id' => $id]) ?? throw new RuntimeException('Transaction not found.');
+            if (($record['approvalStatus'] ?? 'approved') === 'pending') {
+                $this->upsertTransactionApprovalNotification($actor, $record);
+            } else {
+                $this->resolveTransactionApprovalNotification(
+                    (string) ($record['id'] ?? $id),
+                    (string) ($record['approvalStatus'] ?? 'approved')
+                );
+            }
+
+            return $record;
+        });
+    }
+
+    public function reviewTransactionApproval(array $params): array
+    {
+        $actor = $this->requireAdmin();
+        $transactionId = trim((string) ($params['transactionId'] ?? ''));
+        $decision = trim((string) ($params['decision'] ?? ''));
+
+        if ($transactionId === '') {
+            throw new RuntimeException('Transaction id is required.');
+        }
+        if (!in_array($decision, ['approve', 'decline'], true)) {
+            throw new RuntimeException('A valid approval decision is required.');
+        }
+
+        return $this->database->transaction(function () use ($actor, $transactionId, $decision): array {
+            $row = $this->database->fetchOne(
+                'SELECT * FROM transactions WHERE id = :id AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+                [':id' => $transactionId]
+            );
+
+            if ($row === null) {
+                throw new RuntimeException('Transaction not found.');
+            }
+
+            $currentStatus = trim((string) ($row['approval_status'] ?? 'approved')) ?: 'approved';
+            if ($currentStatus === 'approved') {
+                if ($decision === 'approve') {
+                    $this->resolveTransactionApprovalNotification($transactionId, 'approved', 'approve');
+                    return [
+                        'transactionId' => $transactionId,
+                        'decision' => $decision,
+                        'success' => true,
+                    ];
+                }
+
+                throw new RuntimeException('This transaction has already been approved.');
+            }
+
+            if ($currentStatus === 'declined') {
+                if ($decision === 'decline') {
+                    $this->resolveTransactionApprovalNotification($transactionId, 'declined', 'decline');
+                    return [
+                        'transactionId' => $transactionId,
+                        'decision' => $decision,
+                        'success' => true,
+                    ];
+                }
+
+                throw new RuntimeException('This transaction has already been declined.');
+            }
+
+            if ($currentStatus !== 'pending') {
+                throw new RuntimeException('Only pending transactions can be reviewed.');
+            }
+
+            $now = $this->database->nowUtc();
+            if ($decision === 'approve') {
+                $approvalRow = $row;
+                $approvalRow['account_effect_applied'] = 1;
+                $this->assertTransactionHasAvailableBalance($approvalRow);
+                $this->applyTransactionAccountEffect([$approvalRow], 'apply');
+                $this->touchUpdate('transactions', $transactionId, [
+                    'approval_status' => 'approved',
+                    'account_effect_applied' => 1,
+                    'approved_by' => (string) ($actor['id'] ?? ''),
+                    'approved_at' => $now,
+                    'declined_by' => null,
+                    'declined_at' => null,
+                    'approval_note' => null,
+                ]);
+            } else {
+                if ((int) ($row['account_effect_applied'] ?? 0) === 1) {
+                    $this->applyTransactionAccountEffect([$row], 'revert');
+                }
+
+                $this->touchUpdate('transactions', $transactionId, [
+                    'approval_status' => 'declined',
+                    'account_effect_applied' => 0,
+                    'approved_by' => null,
+                    'approved_at' => null,
+                    'declined_by' => (string) ($actor['id'] ?? ''),
+                    'declined_at' => $now,
+                    'approval_note' => 'Declined by admin review.',
+                ]);
+            }
+
+            $this->resolveTransactionApprovalNotification(
+                $transactionId,
+                $decision === 'approve' ? 'approved' : 'declined',
+                $decision
+            );
+
+            return [
+                'transactionId' => $transactionId,
+                'decision' => $decision,
+                'success' => true,
+            ];
         });
     }
 
@@ -3785,7 +4279,7 @@ final class OperationsApi extends BaseService
 
         return $this->database->transaction(function () use ($actor, $id): array {
             $row = $this->database->fetchOne(
-                'SELECT id, type, account_id, to_account_id, amount
+                'SELECT id, type, account_id, to_account_id, amount, account_effect_applied
                  FROM transactions
                  WHERE id = :id AND deleted_at IS NULL
                  LIMIT 1 FOR UPDATE',
@@ -5116,7 +5610,7 @@ final class OperationsApi extends BaseService
 
             if ($entityType === 'transaction') {
                 $row = $this->database->fetchOne(
-                    'SELECT id, type, account_id, to_account_id, amount
+                    'SELECT id, type, account_id, to_account_id, amount, account_effect_applied
                      FROM transactions
                      WHERE id = :id AND deleted_at IS NOT NULL
                      LIMIT 1 FOR UPDATE',

@@ -8,11 +8,10 @@ import { useAuth } from '../src/contexts/AuthProvider';
 const ServiceAnnouncementBar: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: overview } = useServiceSubscriptionOverview(!!user);
-
-  if (!overview) return null;
-
   const isAdminAccessUser = hasAdminAccess(user?.role);
+  const { data: overview } = useServiceSubscriptionOverview(!!user && isAdminAccessUser);
+
+  if (!isAdminAccessUser || !overview) return null;
   const dueAt = overview.dueAt
     ? new Date(overview.dueAt).toLocaleDateString('en-BD', {
         day: 'numeric',

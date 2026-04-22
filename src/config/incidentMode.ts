@@ -19,7 +19,7 @@ export const WRITE_FREEZE_MESSAGE =
 
 export const ENABLE_CLIENT_COURIER_SYNC =
   !WRITE_FREEZE_ENABLED &&
-  readBooleanEnv(import.meta.env.VITE_ENABLE_CARRYBEE_SYNC as string | undefined, false);
+  readBooleanEnv(import.meta.env.VITE_ENABLE_CARRYBEE_SYNC as string | undefined, true);
 
 export function getWriteFreezeErrorMessage(action: string): string {
   const safeAction = action.trim() || 'This action';

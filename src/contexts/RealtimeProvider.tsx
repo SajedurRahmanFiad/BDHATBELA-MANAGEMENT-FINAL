@@ -45,6 +45,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
 
+    void runSync();
     const timer = window.setInterval(runSync, INTERVAL_MS);
 
     return () => {

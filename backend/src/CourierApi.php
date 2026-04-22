@@ -702,8 +702,9 @@ final class CourierApi extends BaseService
         $baseUrl = $this->trimBaseUrl($params);
         $username = trim((string) ($params['username'] ?? ''));
         $password = trim((string) ($params['password'] ?? ''));
+        $paperflyKey = trim((string) ($params['paperflyKey'] ?? ''));
         $referenceNumber = trim((string) ($params['referenceNumber'] ?? ''));
-        if ($baseUrl === '' || $username === '' || $password === '' || $referenceNumber === '') {
+        if ($baseUrl === '' || $username === '' || $password === '' || $paperflyKey === '' || $referenceNumber === '') {
             return ['error' => 'Missing required parameters'];
         }
 
@@ -712,6 +713,7 @@ final class CourierApi extends BaseService
             $baseUrl . '/API-Order-Tracking',
             [
                 'Authorization' => 'Basic ' . base64_encode($username . ':' . $password),
+                'paperflykey' => $paperflyKey,
             ],
             ['ReferenceNumber' => $referenceNumber]
         );
@@ -723,19 +725,144 @@ final class CourierApi extends BaseService
         return ['data' => $response['json']];
     }
 
-    private function extractPaperflyTrackingStatusEntry(array $payload): ?array
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractPaperflyTrackingEntries(array $payload): array
     {
         foreach ([
             $payload['success']['trackingStatus'] ?? null,
             $payload['trackingStatus'] ?? null,
             $payload['data']['trackingStatus'] ?? null,
+            $payload['data']['success']['trackingStatus'] ?? null,
         ] as $candidate) {
-            if (is_array($candidate) && isset($candidate[0]) && is_array($candidate[0])) {
-                return $candidate[0];
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $entries = array_values(array_filter($candidate, static fn ($entry): bool => is_array($entry)));
+            if ($entries !== []) {
+                /** @var array<int, array<string, mixed>> $entries */
+                return $entries;
             }
         }
 
-        return null;
+        return [];
+    }
+
+    private function extractPaperflyTrackingStatusEntry(array $payload): ?array
+    {
+        $entries = $this->extractPaperflyTrackingEntries($payload);
+        return $entries[0] ?? null;
+    }
+
+    private function classifyPaperflyTrackingStatus(array $payload): array
+    {
+        $entries = $this->extractPaperflyTrackingEntries($payload);
+        $rawStatus = '';
+        $normalizedValues = [];
+        $directPickupMarkers = [];
+
+        foreach ($entries as $entry) {
+            foreach ($entry as $key => $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+
+                $text = trim((string) $value);
+                if ($text === '') {
+                    continue;
+                }
+
+                $normalizedKey = strtolower(trim((string) $key));
+                if (in_array($normalizedKey, ['pick', 'pickup', 'picked'], true)) {
+                    $directPickupMarkers[] = $text;
+                }
+
+                $normalizedValues[] = strtolower($text);
+                if ($rawStatus === '' && in_array($normalizedKey, ['status', 'currentstatus', 'current_status', 'remarks', 'remark', 'pickup', 'pick'], true)) {
+                    $rawStatus = $text;
+                }
+            }
+        }
+
+        foreach ($directPickupMarkers as $marker) {
+            $normalizedMarker = strtolower($marker);
+            if (!in_array($normalizedMarker, ['0', 'false', 'no', 'n/a', 'na', 'null', 'none', 'pending'], true)) {
+                return [
+                    'rawStatus' => $rawStatus !== '' ? $rawStatus : $marker,
+                    'normalizedStatus' => strtolower($rawStatus !== '' ? $rawStatus : $marker),
+                    'isPickedOrBeyond' => true,
+                ];
+            }
+        }
+
+        if ($rawStatus === '') {
+            foreach ($entries as $entry) {
+                $parts = [];
+                foreach ($entry as $value) {
+                    if (!is_scalar($value)) {
+                        continue;
+                    }
+
+                    $text = trim((string) $value);
+                    if ($text !== '') {
+                        $parts[] = $text;
+                    }
+                }
+
+                if ($parts !== []) {
+                    $rawStatus = implode(' | ', $parts);
+                    break;
+                }
+            }
+        }
+
+        $combined = implode(' | ', $normalizedValues);
+        $positivePatterns = [
+            '/\bpicked\b/',
+            '/\bpickup\b/',
+            '/\bpicked up\b/',
+            '/\bcollected\b/',
+            '/\bin transit\b/',
+            '/\bshipped\b/',
+            '/\bdelivered\b/',
+            '/\breturned\b/',
+            '/\breturn\b/',
+            '/\bdispatch(?:ed)?\b/',
+            '/\breceived\b/',
+        ];
+        $negativePatterns = [
+            '/\bnot picked\b/',
+            '/\bnot pickup\b/',
+            '/\bpending\b/',
+            '/\bbooked\b/',
+            '/\border placed\b/',
+            '/\bcreated\b/',
+            '/\bcancel(?:led)?\b/',
+        ];
+
+        $hasPositiveSignal = false;
+        foreach ($positivePatterns as $pattern) {
+            if (preg_match($pattern, $combined) === 1) {
+                $hasPositiveSignal = true;
+                break;
+            }
+        }
+
+        $hasNegativeSignal = false;
+        foreach ($negativePatterns as $pattern) {
+            if (preg_match($pattern, $combined) === 1) {
+                $hasNegativeSignal = true;
+                break;
+            }
+        }
+
+        return [
+            'rawStatus' => $rawStatus,
+            'normalizedStatus' => strtolower($rawStatus),
+            'isPickedOrBeyond' => $hasPositiveSignal && !$hasNegativeSignal,
+        ];
     }
 
     private function classifySteadfastDeliveryStatus(array $payload): array
@@ -767,7 +894,8 @@ final class CourierApi extends BaseService
         $baseUrl = rtrim(trim((string) ($settings['paperfly_base_url'] ?? '')), '/');
         $username = trim((string) ($settings['paperfly_username'] ?? ''));
         $password = trim((string) ($settings['paperfly_password'] ?? ''));
-        if ($baseUrl === '' || $username === '' || $password === '') {
+        $paperflyKey = trim((string) ($settings['paperfly_key'] ?? ''));
+        if ($baseUrl === '' || $username === '' || $password === '' || $paperflyKey === '') {
             return ['checked' => 0, 'updated' => 0];
         }
 
@@ -783,9 +911,9 @@ final class CourierApi extends BaseService
         $checked = 0;
         $updated = 0;
         foreach ($rows as $row) {
-            $referenceNumber = trim((string) ($row['order_number'] ?? ''));
+            $referenceNumber = trim((string) ($row['paperfly_tracking_number'] ?? ''));
             if ($referenceNumber === '') {
-                $referenceNumber = trim((string) ($row['paperfly_tracking_number'] ?? ''));
+                $referenceNumber = trim((string) ($row['order_number'] ?? ''));
             }
 
             if ($referenceNumber === '') {
@@ -797,6 +925,7 @@ final class CourierApi extends BaseService
                 'baseUrl' => $baseUrl,
                 'username' => $username,
                 'password' => $password,
+                'paperflyKey' => $paperflyKey,
                 'referenceNumber' => $referenceNumber,
             ]);
 
@@ -804,13 +933,13 @@ final class CourierApi extends BaseService
                 continue;
             }
 
-            $entry = $this->extractPaperflyTrackingStatusEntry($details['data']);
-            if (!is_array($entry) || trim((string) ($entry['Pick'] ?? '')) === '') {
+            $statusInfo = $this->classifyPaperflyTrackingStatus($details['data']);
+            if (empty($statusInfo['isPickedOrBeyond'])) {
                 continue;
             }
 
             $history = is_array(json_decode((string) ($row['history'] ?? ''), true)) ? json_decode((string) $row['history'], true) : [];
-            $history['picked'] = 'Marked picked automatically from Paperfly tracking status using reference "' . $referenceNumber . '" on ' . gmdate('c');
+            $history['picked'] = 'Marked picked automatically from Paperfly tracking status' . ($statusInfo['rawStatus'] !== '' ? ' "' . $statusInfo['rawStatus'] . '"' : '') . ' using reference "' . $referenceNumber . '" on ' . gmdate('c');
             $this->updateOrderAsCourierSystem([
                 'id' => (string) $row['id'],
                 'updates' => [

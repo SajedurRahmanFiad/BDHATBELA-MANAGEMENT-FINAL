@@ -23,23 +23,45 @@ function formatHistoryMoment(): string {
 }
 
 function getPaperflyPickupMarker(payload: any): string {
-  const firstTrackingEntry = [
+  const trackingEntries = [
     payload?.success?.trackingStatus,
     payload?.trackingStatus,
     payload?.data?.trackingStatus,
     payload?.data?.success?.trackingStatus,
-  ].find((candidate) => Array.isArray(candidate) && candidate.length > 0 && typeof candidate[0] === 'object')?.[0];
+  ].find((candidate) => Array.isArray(candidate) && candidate.length > 0 && typeof candidate[0] === 'object');
 
-  if (!firstTrackingEntry) {
+  if (!Array.isArray(trackingEntries)) {
     return '';
   }
 
-  if (typeof firstTrackingEntry.Pick === 'string' && firstTrackingEntry.Pick.trim() !== '') {
-    return firstTrackingEntry.Pick.trim();
-  }
+  const positivePatterns = [/\bpicked\b/i, /\bpickup\b/i, /\bpicked up\b/i, /\bcollected\b/i, /\bin transit\b/i, /\bshipped\b/i, /\bdelivered\b/i, /\breturned\b/i, /\bdispatch(?:ed)?\b/i, /\breceived\b/i];
+  const negativePatterns = [/\bnot picked\b/i, /\bnot pickup\b/i, /\bpending\b/i, /\bbooked\b/i, /\border placed\b/i, /\bcreated\b/i, /\bcancel(?:led)?\b/i];
 
-  if (typeof firstTrackingEntry.pick === 'string' && firstTrackingEntry.pick.trim() !== '') {
-    return firstTrackingEntry.pick.trim();
+  for (const entry of trackingEntries) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    const directMarker = [entry.Pick, entry.pick, entry.Pickup, entry.pickup]
+      .find((value) => typeof value === 'string' && value.trim() !== '');
+    if (typeof directMarker === 'string') {
+      const normalizedMarker = directMarker.trim().toLowerCase();
+      if (!['0', 'false', 'no', 'n/a', 'na', 'null', 'none', 'pending'].includes(normalizedMarker)) {
+        return directMarker.trim();
+      }
+    }
+
+    const scalarValues = Object.values(entry)
+      .filter((value): value is string | number | boolean => ['string', 'number', 'boolean'].includes(typeof value))
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+    if (scalarValues.length === 0) continue;
+
+    const combined = scalarValues.join(' | ');
+    const hasPositiveSignal = positivePatterns.some((pattern) => pattern.test(combined));
+    const hasNegativeSignal = negativePatterns.some((pattern) => pattern.test(combined));
+
+    if (hasPositiveSignal && !hasNegativeSignal) {
+      return combined;
+    }
   }
 
   return '';
@@ -160,6 +182,7 @@ export const PaperflyModal: React.FC<PaperflyModalProps> = ({ isOpen, onClose, o
             baseUrl,
             username,
             password,
+            paperflyKey,
             referenceNumber: paperflyReferenceNumber,
           });
 

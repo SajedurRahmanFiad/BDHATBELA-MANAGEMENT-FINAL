@@ -5,6 +5,7 @@ interface PaperflyTrackingRequest {
   baseUrl: string;
   username: string;
   password: string;
+  paperflyKey: string;
   referenceNumber: string;
 }
 
@@ -15,9 +16,9 @@ serve(async (req) => {
 
   try {
     const body: PaperflyTrackingRequest = await req.json();
-    const { baseUrl, username, password, referenceNumber } = body;
+    const { baseUrl, username, password, paperflyKey, referenceNumber } = body;
 
-    if (!baseUrl || !username || !password || !referenceNumber) {
+    if (!baseUrl || !username || !password || !paperflyKey || !referenceNumber) {
       return new Response(
         JSON.stringify({
           error: "Missing required parameters",
@@ -37,6 +38,7 @@ serve(async (req) => {
       headers: {
         "Authorization": authValue,
         "Content-Type": "application/json",
+        "paperflykey": paperflyKey,
       },
       body: JSON.stringify({
         ReferenceNumber: referenceNumber,

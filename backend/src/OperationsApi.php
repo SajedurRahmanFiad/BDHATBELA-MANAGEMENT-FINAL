@@ -1652,8 +1652,10 @@ final class OperationsApi extends BaseService
         }
 
         if ($search !== '') {
-            $bindings[':user_activity_search'] = '%' . $search . '%';
-            $conditions[] = '(u.name LIKE :user_activity_search OR u.phone LIKE :user_activity_search OR u.role LIKE :user_activity_search)';
+            $bindings[':user_activity_search_name'] = '%' . $search . '%';
+            $bindings[':user_activity_search_phone'] = '%' . $search . '%';
+            $bindings[':user_activity_search_role'] = '%' . $search . '%';
+            $conditions[] = '(u.name LIKE :user_activity_search_name OR u.phone LIKE :user_activity_search_phone OR u.role LIKE :user_activity_search_role)';
         }
 
         return [implode(' AND ', $conditions), $bindings];
@@ -3857,22 +3859,31 @@ final class OperationsApi extends BaseService
             $bindings[':to'] = $this->normalizeDateTimeInput((string) $filters['to']);
         }
         if (!empty($filters['search'])) {
+            $searchValue = '%' . trim((string) $filters['search']) . '%';
+            $bindings[':search_desc'] = $searchValue;
+            $bindings[':search_id'] = $searchValue;
+            $bindings[':search_type'] = $searchValue;
+            $bindings[':search_cat'] = $searchValue;
+            $bindings[':search_contact'] = $searchValue;
+            $bindings[':search_creator'] = $searchValue;
+            $bindings[':search_amount'] = $searchValue;
+            $bindings[':search_cat_name'] = $searchValue;
+
             $where .= " AND (
-                twr.description LIKE :search
-                OR twr.id LIKE :search
-                OR twr.type LIKE :search
-                OR twr.category LIKE :search
-                OR COALESCE(twr.contactName, '') LIKE :search
-                OR COALESCE(twr.creatorName, '') LIKE :search
-                OR CAST(twr.amount AS CHAR) LIKE :search
+                twr.description LIKE :search_desc
+                OR twr.id LIKE :search_id
+                OR twr.type LIKE :search_type
+                OR twr.category LIKE :search_cat
+                OR COALESCE(twr.contactName, '') LIKE :search_contact
+                OR COALESCE(twr.creatorName, '') LIKE :search_creator
+                OR CAST(twr.amount AS CHAR) LIKE :search_amount
                 OR EXISTS (
                     SELECT 1
                     FROM categories cat
                     WHERE cat.id = twr.category
-                      AND cat.name LIKE :search
+                      AND cat.name LIKE :search_cat_name
                 )
             )";
-            $bindings[':search'] = '%' . trim((string) $filters['search']) . '%';
         }
 
         $createdByIds = is_array($filters['createdByIds'] ?? null) ? $filters['createdByIds'] : [];

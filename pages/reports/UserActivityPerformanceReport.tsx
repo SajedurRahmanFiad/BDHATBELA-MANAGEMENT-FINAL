@@ -1156,7 +1156,7 @@ const UserActivityPerformanceReport: React.FC = () => {
           {totalPages > 1 && (
             <div className="flex justify-center">
               <Pagination
-                currentPage={currentPage}
+                page={currentPage}
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
               />

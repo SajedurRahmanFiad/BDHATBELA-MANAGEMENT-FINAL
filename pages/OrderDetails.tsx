@@ -31,7 +31,7 @@ const OrderDetails: React.FC = () => {
   const toast = useToastNotifications();
   const { user: authUser } = useAuth();
   const user = authUser || db.currentUser;
-  const { can, canAccessRecord } = useRolePermissions();
+  const { can, canAccessRecord, isAdminAccessUser } = useRolePermissions();
   const createCompletionForm = (activeOrder?: Order | null): OrderCompletionFormState => ({
     outcome: 'Delivered',
     date: getTodayDate(),
@@ -88,9 +88,13 @@ const OrderDetails: React.FC = () => {
   if (!user) return <div className="p-8 text-center text-gray-500">Loading order access...</div>;
   if (loading) return <div className="p-8 text-center text-gray-500">Loading order...</div>;
   if (orderError || !order) return <div className="p-8 text-center text-gray-500">{orderError?.message || 'Order not found.'}</div>;
-  const canEditCurrentOrder =
-    order.status === OrderStatus.ON_HOLD &&
-    (can('orders.editAny') || (can('orders.editOwn') && order.createdBy === user?.id));
+  let canEditCurrentOrder = false;
+  if (order.status === OrderStatus.ON_HOLD) {
+    canEditCurrentOrder = can('orders.editAny') || (can('orders.editOwn') && order.createdBy === user?.id);
+  } else if (order.status === OrderStatus.PICKED) {
+    // Admins and Developers are allowed to edit picked orders
+    canEditCurrentOrder = !!isAdminAccessUser;
+  }
   const canMoveCurrentOrderToProcessing = canAccessRecord(
     order.createdBy,
     'orders.moveOnHoldToProcessingOwn',

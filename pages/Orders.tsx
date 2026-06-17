@@ -315,9 +315,15 @@ const Orders: React.FC = () => {
   };
 
   const canEditOrder = (order: Order) => {
-    if (order.status !== OrderStatus.ON_HOLD) return false;
-    if (can('orders.editAny')) return true;
-    return can('orders.editOwn') && order.createdBy === user?.id;
+    if (order.status === OrderStatus.ON_HOLD) {
+      if (can('orders.editAny')) return true;
+      return can('orders.editOwn') && order.createdBy === user?.id;
+    }
+
+    // Allow Admin/Developer to edit picked orders
+    if (order.status === OrderStatus.PICKED && hasAdminAccess(user?.role)) return true;
+
+    return false;
   };
 
   const canDeliverOrder = (order: Order) =>

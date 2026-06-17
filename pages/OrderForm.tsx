@@ -23,7 +23,7 @@ const OrderForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
-  const { can, canAccessRecord } = useRolePermissions();
+  const { can, canAccessRecord, isAdminAccessUser } = useRolePermissions();
   const isEdit = Boolean(id);
 
   // Wait for auth to load before rendering form
@@ -179,21 +179,28 @@ const OrderForm: React.FC = () => {
     // user input while editing.
     if (existingOrderData && !initializedRef.current) {
       if (isEdit) {
-        if (existingOrderData.status !== OrderStatus.ON_HOLD) {
-          toast.warning('Orders can only be edited when they are in On Hold status.');
-          navigate('/orders');
-          return;
-        }
+          // Allow edits when order is On Hold. Also allow Admin/Developer users
+          // to edit orders that are in Picked status.
+          if (existingOrderData.status !== OrderStatus.ON_HOLD) {
+            const allowedForPicked = existingOrderData.status === OrderStatus.PICKED && isAdminAccessUser;
+            if (!allowedForPicked) {
+              toast.warning('Orders can only be edited when they are in On Hold status.');
+              navigate('/orders');
+              return;
+            }
+          }
 
-        const canEditExistingOrder =
-          can('orders.editAny')
-          || canAccessRecord(existingOrderData.createdBy, 'orders.editOwn', 'orders.editAny');
+          const canEditExistingOrder =
+            // Admin/Developer can edit picked orders regardless of scoped permissions
+            (isAdminAccessUser && existingOrderData.status === OrderStatus.PICKED)
+            || can('orders.editAny')
+            || canAccessRecord(existingOrderData.createdBy, 'orders.editOwn', 'orders.editAny');
 
-        if (!canEditExistingOrder) {
-          toast.warning('You do not have permission to edit this order.');
-          navigate('/orders');
-          return;
-        }
+          if (!canEditExistingOrder) {
+            toast.warning('You do not have permission to edit this order.');
+            navigate('/orders');
+            return;
+          }
       }
 
       // For admins (or permitted employees) populate form once

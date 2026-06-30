@@ -7,7 +7,7 @@ This app is ready to deploy to cPanel as a subdomain app where the document root
 The deployment shape is:
 
 - static frontend files in `admin.bdhatbela.com`
-- PHP backend files in a sibling private folder `bdhatbela_app`
+- PHP backend files in a sibling private folder `bdhatbela_app1`
 - MariaDB database created from cPanel
 
 ## Recommended server layout
@@ -23,7 +23,7 @@ Use this structure in your cPanel account home:
       index.php
       .htaccess
     .htaccess
-  bdhatbela_app/
+  bdhatbela_app1/
     .env
     backend/
       bootstrap.php
@@ -37,11 +37,11 @@ Use this structure in your cPanel account home:
 
 Put them in:
 
-`/home/CPANEL_USER/bdhatbela_app/.env`
+`/home/CPANEL_USER/bdhatbela_app1/.env`
 
 Use the template from:
 
-`deploy/cpanel-template/bdhatbela_app/.env.example`
+`deploy/cpanel-template/bdhatbela_app1/.env.example`
 
 The exact variables are:
 
@@ -101,7 +101,7 @@ Official cPanel File Manager doc:
 After extraction, you should have:
 
 - `/home/CPANEL_USER/admin.bdhatbela.com/`
-- `/home/CPANEL_USER/bdhatbela_app/`
+- `/home/CPANEL_USER/bdhatbela_app1/`
 
 If your cPanel subdomain already points to `/home/CPANEL_USER/admin.bdhatbela.com/`, you do not need to move the frontend files anywhere else.
 
@@ -109,11 +109,11 @@ If your cPanel subdomain already points to `/home/CPANEL_USER/admin.bdhatbela.co
 
 Copy:
 
-`/home/CPANEL_USER/bdhatbela_app/.env.example`
+`/home/CPANEL_USER/bdhatbela_app1/.env.example`
 
 to:
 
-`/home/CPANEL_USER/bdhatbela_app/.env`
+`/home/CPANEL_USER/bdhatbela_app1/.env`
 
 Then edit `.env` and enter:
 
@@ -126,8 +126,8 @@ Then edit `.env` and enter:
 If your cPanel has Terminal access, run one of these:
 
 ```bash
-php /home/CPANEL_USER/bdhatbela_app/backend/bin/setup.php
-php /home/CPANEL_USER/bdhatbela_app/backend/bin/refresh_from_supabase.php
+php /home/CPANEL_USER/bdhatbela_app1/backend/bin/setup.php
+php /home/CPANEL_USER/bdhatbela_app1/backend/bin/refresh_from_supabase.php
 ```
 
 Use `refresh_from_supabase.php` if you want the server database to be rebuilt from production Supabase.

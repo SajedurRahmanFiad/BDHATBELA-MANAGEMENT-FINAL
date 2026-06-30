@@ -1,6 +1,6 @@
 param(
   [string]$DocumentRootFolder = 'admin.bdhatbela.com',
-  [string]$BackendFolder = 'bdhatbela_app',
+  [string]$BackendFolder = 'bdhatbela_app1',
   [string]$PackageName = 'cpanel-admin-package',
   [switch]$SkipBuild,
   [switch]$NoZip
@@ -49,7 +49,7 @@ Copy-Item -LiteralPath (Join-Path $templateRoot 'public_html\api\index.php') -De
 
 Write-Host 'Copying backend app...'
 Copy-Item -Path (Join-Path $repoRoot 'backend') -Destination (Join-Path $appRoot 'backend') -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $templateRoot 'bdhatbela_app\.env.example') -Destination (Join-Path $appRoot '.env.example') -Force
+Copy-Item -LiteralPath (Join-Path $templateRoot 'bdhatbela_app1\.env.example') -Destination (Join-Path $appRoot '.env.example') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Destination (Join-Path $appRoot 'SUPABASE_TO_MARIADB_REFRESH.md') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'CPANEL_DEPLOYMENT.md') -Destination (Join-Path $packageRoot 'CPANEL_DEPLOYMENT.md') -Force
 $serverOpsGuide = Join-Path $repoRoot 'SERVER_OPS_ACTION_GUIDE.md'

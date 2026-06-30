@@ -71,12 +71,12 @@ The target layout should be:
 
 ```text
 /home/CPANEL_USER/admin.bdhatbela.com/
-/home/CPANEL_USER/bdhatbela_app/
+/home/CPANEL_USER/bdhatbela_app1/
 ```
 
 Then make sure your live database `.env` is correct at:
 
-`/home/CPANEL_USER/bdhatbela_app/.env`
+`/home/CPANEL_USER/bdhatbela_app1/.env`
 
 If you need more help for this part, read:
 
